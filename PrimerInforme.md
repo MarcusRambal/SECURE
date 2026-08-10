@@ -1,4 +1,4 @@
-# Guía para el primer informe del proyecto
+# Informe del proyecto
 
 ## Resumen / Abstract
 
