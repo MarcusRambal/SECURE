@@ -2,7 +2,7 @@
 
 ## Resumen / Abstract
 
-Presenta una síntesis breve del problema abordado, la solución propuesta, el alcance del proyecto, la metodología de desarrollo y el plan general de trabajo. Debe permitir al lector comprender la esencia del proyecto sin necesidad de leer el documento completo.
+Este proyecto propone el diseño e implementación de un sistema multiagente inteligente basado en el Protocolo de Contexto de Modelos (MCP) y habilidades (skills) especializadas para automatizar la detección y validación de vulnerabilidades de seguridad en aplicaciones y servicios web. Las herramientas tradicionales de evaluación de vulnerabilidades suelen generar una alta tasa de falsos positivos y no logran determinar si una debilidad es genuinamente explotable. Para superar estas limitaciones, la plataforma propuesta aprovecha agentes autónomos colaboradores que planifican, ejecutan y verifican vectores de ataque en un entorno controlado, reduciendo los falsos positivos y evaluando el riesgo en el mundo real. Los resultados esperados incluyen un prototipo funcional con una biblioteca especializada en ciberseguridad, mecanismos automatizados de planificación de ataques e informes técnicos integrales que incluyen calificaciones de gravedad CVSS y estrategias de mitigación.
 
 ## 1. Introducción
 
