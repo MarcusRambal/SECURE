@@ -1,0 +1,43 @@
+services:
+  # Capa 1: Target Vulnerable (WebGoat)
+  webgoat:
+    image: webgoat/webgoat:latest
+    container_name: webgoat-target
+    ports:
+      - "127.0.0.1:8080:8080"
+    networks:
+      - sec-net
+
+  # Capa 2: Servidor de Skills / MCP (Contiene Nikto)
+  mcp-tools-server:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.mcp
+    container_name: mcp-tools-server
+    environment:
+      - TARGET_URL=http://webgoat:8080/WebGoat
+    networks:
+      - sec-net
+
+  # Capa 3: Backend API + Agentes (FastAPI + LangGraph)
+
+  backend-agents:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    container_name: backend-agents
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      - webgoat
+      - mcp-tools-server
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - MCP_SERVER_URL=http://mcp-tools-server:5000
+      - TARGET_URL=http://webgoat:8080/WebGoat
+    networks:
+      - sec-net
+
+networks:
+  sec-net:
+    driver: bridge
