@@ -3,34 +3,45 @@ services:
   webgoat:
     image: webgoat/webgoat:latest
     container_name: webgoat-target
+    init: true
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     ports:
       - "127.0.0.1:8080:8080"
     networks:
       - sec-net
 
   # Capa 2: Servidor de Skills / MCP (Contiene Nikto)
-  mcp-tools-server:
+  tools-library:
     build:
-      context: .
-      dockerfile: docker/Dockerfile.mcp
-    container_name: mcp-tools-server
+      context: ./toolsLibrary
+      dockerfile: Dockerfile.toolsLibrary
+    container_name: tools-library
+    init: true
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     environment:
       - TARGET_URL=http://webgoat:8080/WebGoat
     networks:
       - sec-net
 
   # Capa 3: Backend API + Agentes (FastAPI + LangGraph)
-
-  backend-agents:
+  backend-workflows-agents:
     build:
-      context: .
-      dockerfile: docker/Dockerfile.backend
-    container_name: backend-agents
+      context: ./backend
+      dockerfile: Dockerfile.backend
+    container_name: backend-workflows-agents
+    init: true
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:
       - webgoat
-      - mcp-tools-server
+      - tools-library
     environment:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - MCP_SERVER_URL=http://mcp-tools-server:5000
