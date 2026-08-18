@@ -1,15 +1,15 @@
-
+#CODIGO DE PRUEBA VA A CAMBIAR TOTALMENTE
 #Inicializa el AgentState con la URL y el attack_type, y arranca la ejecucion del grafo
 
 import asyncio
 from core.state import AgentState
 from agents.scan_agent import scan_node
 
-def run_audit_workflow(target_url: str, attack_type: str):
+async def run_audit_workflow(target_url: str, attack_type: str):
     """
     Inicia la ejecución del workflow de auditoría de forma asíncrona.
     """
-    asyncio.run(_execute_workflow(target_url, attack_type))
+    await _execute_workflow(target_url, attack_type)
 
 async def _execute_workflow(target_url: str, attack_type: str):
     print("\n" + "="*60)

@@ -20,5 +20,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Ejecuta el servidor MCP
-CMD ["python", "-m", "mcp_server.server"]
+# Ejecuta el servidor de herramientas MCP
+CMD ["python", "main.py"]

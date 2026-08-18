@@ -1,11 +1,32 @@
-import subprocess
-from typing import Dict, Any
+#  toolsLibray/tools/nikto_tool.py
 
-def run_nikto_scan(target_url: str) -> Dict[str, Any]:
+
+from registry import registry
+import subprocess
+
+NIKTO_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "target_url": {
+            "type": "STRING",
+            "description": "URL completa o IP del servidor objetivo (ej. http://10.10.10.5)."
+        }
+    },
+    "required": ["target_url"]
+}
+
+@registry.register(
+    name="nikto_scan",
+    description="Ejecuta un escaneo de vulnerabilidades en un servidor web mediante Nikto.",
+    parameters=NIKTO_SCHEMA
+)
+def run_nikto_scan(args: dict) -> dict:
+    target = args.get("target_url")
+    
     try:
         cmd = [
             "nikto",
-            "-h", target_url,
+            "-h", target,
             "-Tuning", "123b",
             "-maxtime", "45s"
         ]
