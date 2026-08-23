@@ -1,0 +1,72 @@
+# ==========================================
+# Variables de entorno y secretos
+# ==========================================
+.env
+.env.*
+!.env.example
+!.env.template
+
+# ==========================================
+# Llaves, Certificados y Llaves SSH/SSL
+# ==========================================
+*.pem
+*.key
+*.crt
+*.csr
+*.pfx
+*.p12
+*.pub
+
+# ==========================================
+# Python & Bytecode (Caches)
+# ==========================================
+__pycache__/
+*.py[cod]
+*$py.class
+
+# ==========================================
+# Entornos Virtuales
+# ==========================================
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# ==========================================
+# IDEs y Editores de Código
+# ==========================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sublime-project
+*.sublime-workspace
+
+# ==========================================
+# Logs, Almacenamiento y Base de Datos
+# ==========================================
+*.log
+*.sqlite
+*.sqlite3
+*.db
+logs/
+data/
+storage/
+exports/
+reports/
+
+# ==========================================
+# Docker & Volúmenes Locales
+# ==========================================
+.docker/
+docker-volumes/
+*.tar
+
+# ==========================================
+# OS Garbage
+# ==========================================
+.DS_Store
+Thumbs.db
+Desktop.ini
