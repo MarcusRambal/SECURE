@@ -22,11 +22,11 @@ Este Proyecto propone el diseño e implementación de un Sistema multiagente bas
 
 ## Estudiantes 
 
-| Nombre         | GitHub                                           |
-| -------------- | ------------------------------------------------ |
-| Daniel Cruzado | [@AlexDanii](https://github.com/AlexDanii)        |
-| Juan Romero    | [@usuario2](https://github.com/UnUsuarioOfGitHub) |
-| Marcus Rambal  | [@MarcusRambal](https://github.com/MarcusRambal)  |
+| Nombre         | GitHub                                                    |
+| -------------- | --------------------------------------------------------- |
+| Daniel Cruzado | [@AlexDanii](https://github.com/AlexDanii)                 |
+| Juan Romero    | [@UnUsuarioOfGitHub](https://github.com/UnUsuarioOfGitHub) |
+| Marcus Rambal  | [@MarcusRambal](https://github.com/MarcusRambal)           |
 
 ## Tutores
 
