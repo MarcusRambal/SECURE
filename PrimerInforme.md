@@ -6,70 +6,77 @@ Este proyecto propone el diseño e implementación de un sistema multiagente int
 
 ## 1. Introducción
 
-En el panorama tecnológico actual, la seguridad de las aplicaciones y servicios expuestos es un pilar crítico para las organizaciones. Las herramientas tradicionales de evaluación de vulnerabilidades, como los escáneres estáticos y dinámicos, suelen limitarse a detectar configuraciones inseguras o debilidades conocidas basándose en firmas estáticas, lo que frecuentemente genera un volumen elevado de falsos positivos y una falta de contexto sobre la explotabilidad real de los hallazgos. El proyecto SECURE aborda esta problemática mediante la integración de inteligencia artificial y arquitecturas de agentes autónomos, diseñando un sistema basado en agentes inteligentes, MCP (Model Context Protocol) y skills especializados que colaboran de forma autónoma para planificar, ejecutar y verificar pruebas de seguridad ofensiva de manera controlada y ética.
+En el panorama tecnológico actual, la evaluación periódica de la seguridad en aplicaciones y servicios expuestos constituye un componente importante dentro del ciclo de vida del software. En la práctica, los equipos de desarrollo y ciberseguridad utilizan diferentes herramientas de análisis para identificar posibles debilidades en sus sistemas. Sin embargo, algunos flujos de análisis pueden generar grandes cantidades de información técnica que requieren una interpretación manual considerable, especialmente cuando los resultados provienen de diferentes herramientas o componentes y deben ser relacionados para comprender su contexto.
+
+Para abordar esta oportunidad de mejora, el proyecto SECURE propone una plataforma asistida basada en una arquitectura multiagente e integrada mediante el Protocolo de Contexto de Modelos (Model Context Protocol, MCP) y skills especializados de ciberseguridad. En lugar de centrarse únicamente en la generación de resultados técnicos, SECURE busca mejorar la experiencia de usuario (UX) mediante un panel gráfico que permita visualizar de forma estructurada el flujo de análisis, incluyendo las acciones, decisiones y resultados relevantes de los agentes. De esta manera, se busca facilitar la comprensión, organización, correlación y filtrado inicial de hallazgos obtenidos en entornos de prueba autorizados.
 
 ### Contextos
 
-- **Dominio o sector** (ej. educación, industria, salud, ciudades inteligentes, TI).
-- **Tendencias tecnológicas relevantes**.
-- **Rol de los sistemas de información / software / datos** en ese contexto.
+- **Dominio o sector:** Tecnologías de la Información (TI), desarrollo de software y evaluación de ciberseguridad.
+- **Tendencias tecnológicas relevantes:** Modelos de Lenguaje (LLM) aplicados a tareas de análisis de software, arquitecturas multiagente, el estándar Model Context Protocol (MCP) para la integración modular de herramientas y marcos de referencia de vulnerabilidades web, como OWASP Top 10.
+- **Rol de los sistemas de información / software / datos:** Actúan como objeto de prueba y evaluación. La plataforma propuesta funcionará como una herramienta de soporte encargada de organizar, procesar y presentar visualmente los datos obtenidos durante el análisis para facilitar su interpretación por parte de los evaluadores humanos.
 
 ### Situación actual
 
-- **Limitaciones del mercado actual**.
-- **Carencias funcionales o de diseño**.
-- **Impacto en usuarios**.
+- **Limitaciones identificadas:** Algunos flujos y herramientas de análisis de seguridad presentan resultados técnicos en formatos que pueden requerir una interpretación manual considerable, especialmente cuando existe una gran cantidad de información o cuando los resultados proceden de diferentes fuentes.
+- **Oportunidad de diseño:** Existe la posibilidad de mejorar la forma en que los resultados de diferentes componentes de análisis son organizados, relacionados y presentados al usuario, especialmente mediante una interfaz que permita visualizar el flujo seguido durante una evaluación.
+- **Impacto en usuarios:** La revisión de grandes cantidades de información técnica puede dificultar la identificación de los resultados más relevantes y aumentar el esfuerzo necesario para comprender el contexto de cada hallazgo.
 
 ### Necesidad identificada
 
-- **Necesidad técnica clara**.
-- **Oportunidad de diseño tecnológico**.
+- **Necesidad técnica clara** Disponer de mecanismos de interacción y visualización que mejoren la legibilidad y estructuración de los resultados de seguridad, acompañados de un registro comprensible del flujo de análisis realizado por los diferentes agentes.
+- **Oportunidad de diseño tecnológico** Aprovechar el protocolo MCP para facilitar la integración entre los agentes y las herramientas de análisis, complementándolo con una interfaz web que presente de manera ordenada las acciones, decisiones y resultados relevantes producidos durante el proceso.
 
 ### Propuesta general
 
-- **Nombre del sistema**.
-- **Funcionalidades clave**.
-- **Impacto esperado**.
+- **Nombre del sistema: SECURE** (System for Ethical Cybersecurity and Automated Reasoning Environment).
+- **Funcionalidades clave**
+    1. Arquitectura multiagente apoyada en MCP para coordinar tareas de análisis dentro de un flujo previamente definido, incluyendo reconocimiento, enumeración y análisis de configuraciones.
+    2. Conjunto de skills orientados al análisis de un grupo seleccionado de vulnerabilidades web, tomando como referencia categorías del OWASP Top 10.
+    3. Panel de control gráfico (Dashboard) con un registro estructurado y visual del flujo de análisis, incluyendo las acciones y resultados relevantes de los agentes.
+    4. Generación de informes técnicos organizados, acompañados de una clasificación preliminar de severidad y posibles recomendaciones de mitigación.
+- **Impacto esperado** Facilitar la comprensión y organización de los resultados obtenidos durante una evaluación de seguridad, proporcionando al usuario una representación más estructurada del proceso de análisis y de los hallazgos identificados.
 
 ## 2. Planteamiento del problema
 
-¿Cómo automatizar la identificación, validación y reducción de falsos positivos en pruebas de seguridad ofensiva sobre servicios expuestos, superando las limitaciones de los escáneres tradicionales mediante una arquitectura multiagente basada en MCP y skills especializados?
+### Formulación del Problema
+
+¿Cómo mejorar la legibilidad, la transparencia analítica y la experiencia de usuario en la evaluación asistida de vulnerabilidades web, mediante una arquitectura multiagente basada en MCP, skills especializados y una interfaz estructurada para visualizar el flujo de análisis y sus resultados?
 
 ### 2.1 Descripción del problema
 
-Las metodologías convencionales de análisis de vulnerabilidades enfrentan retos significativos:
+En los flujos de auditoría y análisis de seguridad en software, la experiencia operativa puede presentar dificultades relacionadas con la organización, interpretación y correlación de la información obtenida:
 
-Falsos positivos masivos: Las herramientas automatizadas tradicionales reportan múltiples alertas que no siempre representan un riesgo real o explotable en el entorno específico de la aplicación.
+1. **Complejidad en la interpretación de resultados:** Algunos procesos de análisis pueden generar grandes cantidades de información técnica, lo que dificulta identificar rápidamente los resultados relevantes y comprender su contexto cuando estos se presentan de manera poco estructurada.
+2. **Limitada visibilidad del flujo de análisis:** Cuando intervienen diferentes herramientas o componentes automatizados, puede resultar difícil para el usuario identificar qué acciones se realizaron, qué información fue utilizada y cómo se relacionan los diferentes resultados obtenidos durante el proceso.
+3. **Presencia de alertas imprecisas:** Las herramientas automatizadas pueden generar alertas que requieren una revisión posterior para determinar su relevancia dentro del contexto específico del entorno evaluado. La organización y correlación de la información puede contribuir a una priorización inicial de estos hallazgos.
 
-Falta de razonamiento contextual: Los escáneres carecen de la capacidad analítica para correlacionar diferentes hallazgos, adaptar estrategias de ataque en tiempo real o encadenar vulnerabilidades (vectores de ataque compuestos).
-
-Esfuerzo manual elevado: La validación de la explotabilidad de una vulnerabilidad recae usualmente en profesionales de seguridad (pentesters), lo que consume tiempo y recursos limitados.
-
-SECURE resuelve este problema al introducir agentes inteligentes capaces de razonar sobre los resultados, coordinar estrategias de análisis y confirmar la viabilidad de cada vector mediante pruebas automatizadas y controladas.
+SECURE aborda este problema mediante la propuesta de un entorno visual que permita organizar y representar de forma estructurada el flujo de análisis, facilitando al usuario la interpretación de los resultados y la identificación de los hallazgos que requieren mayor atención.
 
 ### 2.2 Justificación
 
-El desarrollo de esta plataforma se justifica por la necesidad imperativa de optimizar los tiempos y la precisión en las auditorías de ciberseguridad. Al dotar a los sistemas de una arquitectura multiagente que integra herramientas de seguridad existentes mediante MCP, se logra:
+El desarrollo de esta plataforma se justifica en los siguientes aspectos:
 
-Reducir la incertidumbre técnica: Determinar con mayor precisión qué vulnerabilidades son realmente explotables en un entorno autorizado.
-
-Optimizar recursos: Automatizar las fases repetitivas de reconocimiento, enumeración y validación inicial, permitiendo que los expertos humanos se concentren en análisis de mayor complejidad.
-
-Aportar valor académico y práctico: Alinearse con las líneas de Ingeniería de Software, Arquitectura de Software y Seguridad, implementando tecnologías de vanguardia como modelos de agentes y protocolos de contexto estandarizados.
+- **Experiencia de Usuario (Usabilidad):** Un dashboard interactivo puede facilitar la visualización y organización de los resultados de una evaluación de seguridad, permitiendo consultar información como el origen, contexto y severidad preliminar de cada observación sin depender exclusivamente de salidas técnicas poco estructuradas.
+- **Transparencia y Trazabilidad:** El registro estructurado de las acciones, decisiones y resultados relevantes de cada agente permite representar de forma comprensible el flujo seguido durante el análisis. Esto proporciona mayor contexto para interpretar cómo se obtuvo cada hallazgo, sin depender de la visualización del razonamiento interno del modelo de lenguaje.
+- **Aportación Técnica y Académica:** El proyecto permitirá explorar de forma práctica el uso del estándar MCP dentro de una arquitectura de software, integrando conceptos relacionados con ciberseguridad, diseño de interfaces, procesamiento de información y sistemas multiagente.
 
 ### 2.3 Restricciones y supuestos iniciales
 
 ### 2.3.1 Restricciones
 
-- **Ámbito de aplicación:** El prototipo se limitará estrictamente a entornos de laboratorio, aplicaciones web y servicios expuestos en ambientes de pruebas autorizados.
-- **Alcance ético y legal:** Queda totalmente excluido el desarrollo de software malicioso (malware), la evasión de mecanismos de seguridad en infraestructuras no autorizadas y la ejecución de pruebas sobre sistemas en producción sin autorización expresa.
-- **Dependencia tecnológica:** El rendimiento y la compatibilidad de la plataforma estarán sujetos a la evolución y estabilidad de los modelos de inteligencia artificial y del protocolo MCP utilizados.
+- **Entorno de aplicación:** El prototipo operará de forma acotada sobre aplicaciones web y servicios disponibles en entornos de laboratorio o de prueba debidamente autorizados, como entornos educativos diseñados para prácticas de seguridad.
+- **Marco ético:** Queda excluido el desarrollo de código malicioso, el intento de evasión de mecanismos de defensa en entornos no autorizados o la ejecución de pruebas sobre infraestructura de producción sin el permiso correspondiente.
+- **Alcance de análisis:** La biblioteca de skills se limitará a un conjunto reducido y representativo de vulnerabilidades web seleccionadas, tomando como referencia categorías del OWASP Top 10. El proyecto no pretende cubrir de manera exhaustiva todas las categorías de dicho marco.
+- **Alcance de automatización:** La plataforma se enfocará en asistir y organizar el proceso de análisis, sin plantear inicialmente la explotación autónoma de vulnerabilidades ni la ejecución de pruebas ofensivas complejas.
+- **Desempeño del modelo:** Los resultados generados con apoyo de modelos de lenguaje estarán condicionados por las capacidades, limitaciones y configuración del modelo utilizado. Por esta razón, los resultados deberán considerarse como apoyo al análisis y no como sustituto de la validación humana.
 
 ### 2.3.2 Supuestos iniciales
 
-1. Se cuenta con acceso a entornos de laboratorio o aplicaciones de prueba debidamente autorizadas para simular los escenarios de ataque de forma controlada.
-2. Las herramientas abiertas de análisis y pentesting que se planea integrar mediante MCP mantendrán interfaces compatibles o adaptables para la automatización por parte de los agentes.
-3. Los estudiantes participantes poseen conocimientos base en desarrollo de software, arquitectura de sistemas y conceptos fundamentales de seguridad ofensiva para implementar los skills requeridos.
+1. Se tendrá acceso a entornos de laboratorio controlados para realizar las validaciones del sistema.
+2. Las herramientas seleccionadas para la integración mediante MCP proporcionarán resultados que puedan ser procesados y estructurados por la plataforma.
+3. El equipo de desarrollo cuenta con las bases técnicas necesarias para diseñar la arquitectura web, desarrollar la interfaz gráfica y realizar una implementación inicial de los componentes multiagente y de integración.
+4. El alcance funcional de la plataforma podrá ajustarse durante el desarrollo de acuerdo con los resultados obtenidos, las limitaciones técnicas identificadas y el tiempo disponible para el proyecto.
 
 ## 3. Alcance del proyecto
 
@@ -102,7 +109,36 @@ La plataforma incluirá:
 
 ## 5. Solución propuesta
 
-Describe a alto nivel la solución planteada para abordar el problema identificado. Explica qué se propone construir, quiénes serían sus usuarios, cómo funcionaría de manera general y por qué constituye una respuesta adecuada dentro del alcance definido.
+La solución planteada consiste en el desarrollo de SECURE, un sistema web de evaluación asistida de seguridad que combina una arquitectura multiagente, el estándar MCP (Model Context Protocol) y una interfaz gráfica para la visualización estructurada del flujo de análisis y sus resultados.
+
+### ¿Qué se propone construir?
+
+Se propone desarrollar una plataforma web compuesta por tres componentes principales:
+
+1. **Módulo Multiagente (Backend):** Conjunto de agentes coordinados mediante roles definidos, por ejemplo, un Agente Reconocedor, un Agente Analista y un Agente Reportador. Estos componentes estarán orientados a procesar la información obtenida durante el análisis y ejecutar las tareas correspondientes dentro del flujo definido para la evaluación.
+2. **Capa de Integración MCP y Skills:** Conjunto de skills modulares conectados mediante MCP que permitirán a los agentes interactuar con herramientas seleccionadas de análisis de seguridad de una manera estructurada.
+3. **Interfaz Gráfica y Panel de Trazabilidad (Frontend):** Panel web encargado de presentar la información procesada por los agentes en un formato limpio y estructurado. La interfaz permitirá visualizar el progreso de la evaluación, las acciones relevantes realizadas y los resultados asociados a cada etapa del análisis.
+
+### ¿Quiénes serán sus usuarios?
+
+- **Estudiantes y aprendices de Ciberseguridad/DevOps:** Podrán utilizar la plataforma como apoyo para comprender el flujo general de una evaluación de seguridad y consultar sus resultados mediante una interfaz visual.
+- **Desarrolladores de Software:** Podrán utilizarla para analizar aplicaciones disponibles en entornos de laboratorio o prueba autorizados y consultar los resultados obtenidos junto con posibles recomendaciones de mitigación.
+- **Evaluadores o tutores:** Podrán utilizar la información estructurada del sistema para revisar el flujo de análisis y los resultados generados durante las pruebas realizadas.
+
+### ¿Cómo funcionará de manera general?
+
+1. **Configuración:** El usuario proporcionará la dirección de una aplicación objetivo disponible en un entorno de pruebas autorizado y seleccionará las opciones de análisis disponibles.
+2. **Análisis e interacción entre agentes:** Los agentes ejecutarán las tareas correspondientes dentro del flujo de análisis y podrán consultar las skills disponibles mediante MCP. La plataforma registrará información relevante del proceso, como las herramientas consultadas, las acciones realizadas y los resultados obtenidos.
+3. **Procesamiento de resultados:** El sistema organizará la información recopilada y aplicará reglas de validación inicial para identificar y priorizar posibles hallazgos inconsistentes. Posteriormente, los resultados serán organizados y asociados con una clasificación preliminar de severidad.
+4. **Visualización y reporte:** En el dashboard web, el usuario podrá consultar el historial estructurado de la evaluación, revisar los hallazgos identificados y, de acuerdo con las funcionalidades implementadas, generar un informe técnico con su información relevante y posibles recomendaciones de mitigación.
+
+### ¿Por qué constituye una respuesta adecuada?
+
+Esta propuesta constituye una respuesta adecuada al problema planteado debido a que concentra el desarrollo en aspectos que pueden abordarse de manera progresiva dentro del alcance del proyecto: la organización de los resultados, la integración de herramientas mediante MCP, la coordinación de componentes especializados y la presentación visual de la información obtenida durante el análisis.
+
+La propuesta no busca reemplazar al evaluador humano ni realizar de manera autónoma un proceso completo de auditoría o explotación de vulnerabilidades. En cambio, SECURE se plantea como una herramienta de asistencia que busca facilitar la consulta, organización y comprensión de los resultados obtenidos en entornos de prueba autorizados.
+
+El alcance podrá evolucionar durante las siguientes etapas del proyecto de acuerdo con los avances de implementación y las validaciones realizadas. De esta manera, las funcionalidades inicialmente propuestas podrán ser ampliadas o ajustadas con base en los resultados obtenidos durante el desarrollo.
 
 ## 6. Estado del arte / soluciones relacionadas
 
