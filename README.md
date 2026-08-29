@@ -6,7 +6,7 @@ Este Proyecto propone el diseño e implementación de un Sistema multiagente bas
 
 #### Primer informe:
 
-- [Primer Informe.md](https://github.com/MarcusRambal/SECURE/blob/e5464c10b4fd8cf4a2bdc22bcd7c73ab13e1317f/PrimerInforme.md)
+- [Primer Informe.md](https://github.com/MarcusRambal/SECURE/blob/44a196ab99aba23fabf24844c5d6efa7b72c6388/PrimerInforme.md)
 
 #### Segundo informe:
 
@@ -20,7 +20,7 @@ Este Proyecto propone el diseño e implementación de un Sistema multiagente bas
 | [Instalación.md](https://github.com/MarcusRambal/SECURE/blob/edba964952aec156be0b631ddeee0cd0a155a01d/Instalacion.md)  | Guía de instalación, desarrollo y despliegue |
 | [Desarrollo.md](https://github.com/MarcusRambal/SECURE/blob/edba964952aec156be0b631ddeee0cd0a155a01d/Desarollo.md)      | Detalles técnicos del desarrollo              |
 
-## Estudiantes 
+## Estudiantes
 
 | Nombre         | GitHub                                                    |
 | -------------- | --------------------------------------------------------- |

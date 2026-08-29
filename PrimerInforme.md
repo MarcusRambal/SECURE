@@ -2,11 +2,11 @@
 
 ## Resumen / Abstract
 
-Este proyecto propone el diseño e implementación de un sistema multiagente inteligente basado en el Protocolo de Contexto de Modelos (MCP) y habilidades (skills) especializadas para automatizar la detección y validación de vulnerabilidades de seguridad en aplicaciones y servicios web. Las herramientas tradicionales de evaluación de vulnerabilidades suelen generar una alta tasa de falsos positivos y no logran determinar si una debilidad es genuinamente explotable. Para superar estas limitaciones, la plataforma propuesta aprovecha agentes autónomos colaboradores que planifican, ejecutan y verifican vectores de ataque en un entorno controlado, reduciendo los falsos positivos y evaluando el riesgo en el mundo real. Los resultados esperados incluyen un prototipo funcional con una biblioteca especializada en ciberseguridad, mecanismos automatizados de planificación de ataques e informes técnicos integrales que incluyen calificaciones de gravedad CVSS y estrategias de mitigación.
+Este proyecto propone el diseño e implementación de un sistema multiagente inteligente basado en el Protocolo de Contexto de Modelos (MCP) y habilidades (skills) especializadas para automatizar la detección y validación de vulnerabilidades de seguridad en aplicaciones web. Las herramientas de evaluacion de seguridad suelene generar grandes volumenes de datos que generan un esfuerzo manual. Para superar estas limitaciones, el sistema propuesto se centra en mostrar de forma clara el flujo de analisis, aprovechando los agentes autónomos colaboradores que planifican, ejecutan y verifican vectores de ataque en un entorno controlado. Los resultados esperados incluyen un prototipo funcional con una biblioteca especializada en ciberseguridad, mecanismos automatizados de planificación de ataques e informes técnicos integrales que incluyen calificaciones de gravedad CVSS y estrategias de mitigación.
 
 ## 1. Introducción
 
-En el panorama tecnológico actual, la evaluación periódica de la seguridad en aplicaciones y servicios expuestos constituye un componente importante dentro del ciclo de vida del software. En la práctica, los equipos de desarrollo y ciberseguridad utilizan diferentes herramientas de análisis para identificar posibles debilidades en sus sistemas. Sin embargo, algunos flujos de análisis pueden generar grandes cantidades de información técnica que requieren una interpretación manual considerable, especialmente cuando los resultados provienen de diferentes herramientas o componentes y deben ser relacionados para comprender su contexto.
+En el panorama tecnológico actual, la evaluación periódica de la seguridad en aplicaciones web expuestos constituye un componente importante dentro del ciclo de vida del software. En la práctica, los equipos de desarrollo y ciberseguridad utilizan diferentes herramientas de análisis para identificar posibles debilidades en sus sistemas. Sin embargo, algunos flujos de análisis pueden generar grandes cantidades de información técnica que requieren una interpretación manual considerable, especialmente cuando los resultados provienen de diferentes herramientas o componentes y deben ser relacionados para comprender su contexto.
 
 Para abordar esta oportunidad de mejora, el proyecto SECURE propone una plataforma asistida basada en una arquitectura multiagente e integrada mediante el Protocolo de Contexto de Modelos (Model Context Protocol, MCP) y skills especializados de ciberseguridad. En lugar de centrarse únicamente en la generación de resultados técnicos, SECURE busca mejorar la experiencia de usuario (UX) mediante un panel gráfico que permita visualizar de forma estructurada el flujo de análisis, incluyendo las acciones, decisiones y resultados relevantes de los agentes. De esta manera, se busca facilitar la comprensión, organización, correlación y filtrado inicial de hallazgos obtenidos en entornos de prueba autorizados.
 
@@ -29,12 +29,12 @@ Para abordar esta oportunidad de mejora, el proyecto SECURE propone una platafor
 
 ### Propuesta general
 
-- **Nombre del sistema: SECURE** (System for Ethical Cybersecurity and Automated Reasoning Environment).
+- **Nombre del sistema: SECURE**.
 - **Funcionalidades clave**
-    1. Arquitectura multiagente apoyada en MCP para coordinar tareas de análisis dentro de un flujo previamente definido, incluyendo reconocimiento, enumeración y análisis de configuraciones.
-    2. Conjunto de skills orientados al análisis de un grupo seleccionado de vulnerabilidades web, tomando como referencia categorías del OWASP Top 10.
-    3. Panel de control gráfico (Dashboard) con un registro estructurado y visual del flujo de análisis, incluyendo las acciones y resultados relevantes de los agentes.
-    4. Generación de informes técnicos organizados, acompañados de una clasificación preliminar de severidad y posibles recomendaciones de mitigación.
+  1. Arquitectura multiagente apoyada en MCP para coordinar tareas de análisis dentro de un flujo previamente definido, incluyendo reconocimiento, enumeración y análisis de configuraciones.
+  2. Conjunto de skills orientados al análisis de un grupo seleccionado de vulnerabilidades web, tomando como referencia categorías del OWASP Top 10.
+  3. Panel de control gráfico (Dashboard) con un registro estructurado y visual del flujo de análisis, incluyendo las acciones y resultados relevantes de los agentes.
+  4. Generación de informes técnicos organizados, acompañados de una clasificación preliminar de severidad y posibles recomendaciones de mitigación.
 - **Impacto esperado** Facilitar la comprensión y organización de los resultados obtenidos durante una evaluación de seguridad, proporcionando al usuario una representación más estructurada del proceso de análisis y de los hallazgos identificados.
 
 ## 2. Planteamiento del problema
