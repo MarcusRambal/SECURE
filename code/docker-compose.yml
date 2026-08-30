@@ -32,8 +32,8 @@ services:
       - "5672:5672"   # AMQP para los microservicios
       - "15672:15672" # UI Management
     environment:
-      - RABBITMQ_DEFAULT_USER=${RABBITMQ_USER}
-      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASS}
+      - RABBITMQ_USER=${RABBITMQ_USER}
+      - RABBITMQ_PASS=${RABBITMQ_PASS}
     volumes:
       - ./enable_plugins:/etc/rabbitmq/enabled_plugins:ro
     networks:
@@ -51,6 +51,19 @@ services:
     networks:
       - internal-net
       - sec-net
+
+  orchestrator:
+    build:
+      context: ./agents
+      dockerfile: orchestrator/Dockerfile.orchestrator
+    env_file:
+      - .env
+    networks:
+      - internal-net
+    environment:
+      - RABBITMQ_URL=amqp://${RABBITMQ_USER}:${RABBITMQ_PASS}@rabbitmq-broker:5672/
+    depends_on:
+      - rabbitmq
 
 # 4. Agente de Reconocimiento
   recon-agent:

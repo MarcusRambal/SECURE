@@ -1,8 +1,9 @@
+# app/core/rabbitmq.py (o app/rabbitmq/client.py)
 import aio_pika
 import json
 import logging
 import asyncio
-from app.core.config import settings
+from .config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -30,23 +31,24 @@ class RabbitClient:
                     raise e
                 await asyncio.sleep(delay)
 
-    async def publish_scan_request(self, scan_data: dict):
-        if not self.channel:
+    async def publish_task_request(self, task_payload: dict):
+        if not self.channel or self.channel.is_closed:
             raise RuntimeError("La conexión con RabbitMQ no está activa.")
             
-        message_body = json.dumps(scan_data).encode("utf-8")
+        message_body = json.dumps(task_payload).encode("utf-8")
         
         await self.channel.default_exchange.publish(
             aio_pika.Message(
                 body=message_body,
-                delivery_mode=aio_pika.DeliveryMode.PERSISTENT
+                delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
+                content_type="application/json"
             ),
             routing_key="orchestrator_queue"
         )
-        logger.info(f"Mensaje publicado en orchestrator_queue para scan_id: {scan_data.get('scan_id')}")
+        logger.info(f"[RABBITMQ] Tarea publicada en orchestrator_queue para task_id: {task_payload.get('task_id')}")
 
     async def close(self):
-        if self.connection:
+        if self.connection and not self.connection.is_closed:
             await self.connection.close()
 
 rabbitmq_client = RabbitClient()

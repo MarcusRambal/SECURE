@@ -4,11 +4,12 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.schemas.scan import ScanRequest, ScanResponse
+from app.schemas.task import TaskRequest, TaskResponse
 from app.core.rabbitmq import rabbitmq_client
 
 logging.basicConfig(level=logging.INFO)
 
+#Ciclo de vida de la aplicacion FastAPI: Conectar y desconectar de RabbitMQ
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Código al arrancar el contenedor: Conectar a RabbitMQ
@@ -23,6 +24,8 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+
+#Configuración de CORS para permitir solicitudes desde cualquier origen, sin embargo esto debe cambiar en producción para restringir a dominios específicos.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -35,30 +38,30 @@ app.add_middleware(
 async def root():
     return {"status": "online", "service": "API Gateway"}
 
-@app.post("/api/scan", response_model=ScanResponse)
-async def start_scan(request: ScanRequest):
+@app.post("/api/task", response_model=TaskResponse)
+async def start_scan(request: TaskRequest):
     # 1. Generamos un UUID único para este escaneo
-    scan_id = str(uuid.uuid4())
+    task_id = str(uuid.uuid4())
     
     # 2. Construimos el payload estandarizado que procesará el Orquestador
     payload = {
-        "scan_id": scan_id,
+        "task_id": task_id,
         "target_url": request.target_url,
-        "scan_type": request.scan_type,
+        "attack_type": request.attack_type,
         "status": "INITIATED"
     }
 
     try:
         # 3. Enviamos el trabajo a RabbitMQ
-        await rabbitmq_client.publish_scan_request(payload)
+        await rabbitmq_client.publish_task_request(payload)
     except Exception as e:
         raise HTTPException(
             status_code=500, 
             detail=f"Error interno al comunicar con el broker de mensajes: {str(e)}"
         )
 
-    return ScanResponse(
-        scan_id=scan_id,
+    return TaskResponse(
+        task_id=task_id,
         status="ACCEPTED",
-        message="Escaneo encolado correctamente en orchestrator_queue."
+        message="Tarea encolada correctamente en orchestrator_queue."
     )
