@@ -245,4 +245,10 @@ La evaluación de los avances se logra de la siguiente forma:
 
 ## 8. Referencias
 
-Incluye las fuentes consultadas y citadas en el documento, en el formato de citación definido para el curso o proyecto.
+1. Keygraph. (s. f.). *Shannon: AI pentester for web applications and APIs*. GitHub. https://github.com/KeygraphHQ/shannon
+
+2. OWASP Foundation. (2025). *OWASP Top 10:2025*. https://owasp.org/Top10/2025
+
+3. PentestGPT. (s. f.). *PentestGPT: An LLM-empowered automatic penetration testing tool*. GitHub. https://github.com/greydgl/pentestgpt
+
+4. Strix. (s. f.). *Strix: AI-powered penetration testing*. GitHub. https://github.com/usestrix/strix
