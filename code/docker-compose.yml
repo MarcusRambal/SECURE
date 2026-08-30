@@ -7,8 +7,8 @@ networks:
     driver: bridge
 
 services:
-  
-  # 2. API Gateway (FastAPI)
+
+  # 1. API Gateway (FastAPI)
   api:
     build:
       context: ./api
@@ -16,31 +16,30 @@ services:
     ports:
       - "8000:8000"
     env_file:
-      - .env 
+      - .env
     networks:
       - public-net
-      - internal-net 
+      - internal-net
     depends_on:
       - rabbitmq
 
-  # 3. Message Broker (RabbitMQ)
+  # 2. Message Broker (RabbitMQ)
   rabbitmq:
     image: rabbitmq:4-management
     container_name: rabbitmq-broker
     restart: unless-stopped
     ports:
-      - "5672:5672"   # Puerto de comunicación AMQP (para los microservicios)
-      - "15672:15672" # Puerto de la interfaz web (UI Management)
+      - "5672:5672"   # AMQP para los microservicios
+      - "15672:15672" # UI Management
     environment:
       - RABBITMQ_DEFAULT_USER=${RABBITMQ_USER}
       - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASS}
     volumes:
       - ./enable_plugins:/etc/rabbitmq/enabled_plugins:ro
     networks:
-      - internal-net 
+      - internal-net
 
-    # 8. Controlador de Skills (Servidor MCP + Docker Socket)
-
+  # 3. Controlador de Skills (Servidor MCP + Docker Socket)
   skills-controller:
     build:
       context: ./skills_controller
@@ -49,26 +48,50 @@ services:
       - "8001:8001"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock # Acceso al socket de Docker
-
     networks:
       - internal-net
       - sec-net
 
-  agents:
+# 4. Agente de Reconocimiento
+  recon-agent:
     build:
-      context: ./agents/orchestrator
-      dockerfile: Dockerfile.orchestrator
+      context: ./agents
+      dockerfile: recon/Dockerfile.recon
+    ports:
+      - "8003:8003"
+    networks:
+      sec-net:
+        aliases:
+          - recon-agent
+      internal-net:
+    environment:
+      - TESTER_AGENT_URL=http://validate-agent:8002/validate
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - TARGET_URL=http://juice-shop:3000/#/login
+    depends_on:
+      - juice-shop
+      - validate-agent
+  
+  # Agente de Validación
+  validate-agent:
+    build:
+      context: ./agents
+      dockerfile: validate/Dockerfile.validate
     ports:
       - "8002:8002"
     networks:
-      - internal-net
-      - sec-net
+      sec-net:
+        aliases:
+          - validate-agent
+      internal-net:
     environment:
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
       - GROQ_API_KEY=${GROQ_API_KEY}
-      - TARGET_URL=http://webgoat:8080/WebGoat
+    depends_on:
+      - juice-shop
 
+    
 
+  # 5. Entorno Vulnerable: WebGoat
   webgoat:
     image: webgoat/webgoat:latest
     container_name: webgoat-target
@@ -77,11 +100,11 @@ services:
     security_opt:
       - no-new-privileges:true
     ports:
-      - "127.0.0.1:8080:8080"
+      - "8080:8080" 
     networks:
       - sec-net
 
-  
+  # 6. Entorno Vulnerable: OWASP Juice Shop
   juice-shop:
     image: bkimminich/juice-shop:latest
     container_name: juice-shop-target
@@ -90,6 +113,6 @@ services:
     security_opt:
       - no-new-privileges:true
     ports:
-      - "127.0.0.1:3000:3000"
+      - "3000:3000"
     networks:
       - sec-net

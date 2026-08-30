@@ -1,0 +1,15 @@
+google-genai
+playwright
+pydantic
+requests
+langchain
+langchain-core
+langchain-google-genai
+langchain-groq
+langgraph
+playwright
+pydantic
+requests
+fastapi
+uvicorn[standard]
+httpx
