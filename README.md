@@ -6,11 +6,11 @@ Este Proyecto propone el diseño e implementación de un Sistema multiagente bas
 
 #### Primer informe:
 
-- [Primer Informe.md](https://github.com/MarcusRambal/SECURE/blob/44a196ab99aba23fabf24844c5d6efa7b72c6388/PrimerInforme.md)
+- [Primer Informe.md](PrimerInforme.md)
 
 #### Segundo informe:
 
-- [Segundo Informe.md](https://github.com/MarcusRambal/SECURE/blob/edba964952aec156be0b631ddeee0cd0a155a01d/SegundoInforme.md)
+- [Segundo Informe.md](SegundoInforme.md)
 
 #### Informe final:
 
