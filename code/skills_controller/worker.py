@@ -15,10 +15,21 @@ RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://guest:guest@rabbitmq-broker:567
 INPUT_QUEUE = "skills_queue"
 
 async def main():
-    connection = await aio_pika.connect_robust(RABBITMQ_URL)
+    connection = None
+
+    # Bucle de reintentos hasta que RabbitMQ responda
+    while not connection:
+        try:
+            logger.info(f"Conectando a RabbitMQ en {RABBITMQ_URL}...")
+            connection = await aio_pika.connect_robust(RABBITMQ_URL)
+            logger.info("⚡ Skills Controller conectado exitosamente a RabbitMQ.")
+        except Exception as e:
+            logger.warning(f"RabbitMQ no está listo aún ({e}). Reintentando en 3s...")
+            await asyncio.sleep(3)
+
     async with connection:
         channel = await connection.channel()
-        await channel.set_qos(prefetch_count=1) # Procesa un contenedor efímero a la vez
+        await channel.set_qos(prefetch_count=1)
 
         queue = await channel.declare_queue(INPUT_QUEUE, durable=True)
         logger.info(f"🚀 [SKILLS CONTROLLER - MCP SERVER] Escuchando en '{INPUT_QUEUE}'...")
@@ -34,13 +45,10 @@ async def main():
 
                         logger.info(f"📩 Petición MCP recibida: Método '{method}' | ID: {correlation_id}")
 
-                        # --- TRATAMIENTO DE PETICIONES MCP ---
                         if method == "tools/list":
-                            # Retorna el catálogo de herramientas al Orquestador
                             mcp_response = mcp_server.list_tools()
 
                         elif method == "tools/call":
-                            # Ejecuta la herramienta efímera elegida por el LLM
                             params = payload.get("params", {})
                             tool_name = params.get("name")
                             arguments = params.get("arguments", {})
@@ -58,10 +66,8 @@ async def main():
                                 "id": correlation_id
                             }
 
-                        # Adjuntar el ID de correlación en la respuesta
                         mcp_response["id"] = correlation_id
 
-                        # Enviar la respuesta MCP por RabbitMQ
                         await channel.default_exchange.publish(
                             aio_pika.Message(
                                 body=json.dumps(mcp_response).encode("utf-8"),

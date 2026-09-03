@@ -88,5 +88,52 @@ MCP_SKILLS_REGISTRY = {
         # zap-api-scan.py requiere especificar el formato (-f) y la URL del esquema (-t)
         "command_template": "zap-api-scan.py -t {schema_url} -f {format} -I",
         "timeout": 300
+    },
+
+    # =========================================================================
+    # 4. Katana - Crawling y descubrimiento de URLs
+    # =========================================================================
+    "katana": {
+        "mcp_schema": {
+            "name": "katana",
+            "description": "Rastrea y descubre endpoints y URLs navegables de una aplicación objetivo.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "target_url": {
+                        "type": "string",
+                        "description": "URL objetivo completa a rastrear (ej: http://juice-shop-target:3000)"
+                    }
+                },
+                "required": ["target_url"]
+            }
+        },
+        "image": "projectdiscovery/katana:latest",
+        "command_template": "-u {target_url} -silent -jc",
+        "timeout": 300
+    },
+
+    # =========================================================================
+    # 5. SQLMap - Detección y evaluación de Inyección SQL
+    # =========================================================================
+    "sqlmap": {
+        "mcp_schema": {
+            "name": "sqlmap",
+            "description": "Realiza pruebas de evaluación de inyección SQL sobre un endpoint o URL específica.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "target_url": {
+                        "type": "string",
+                        "description": "URL u objeto a evaluar (ej: http://juice-shop-target:3000/rest/user/login)"
+                    }
+                },
+                "required": ["target_url"]
+            }
+        },
+        "image": "sqlmapproject/sqlmap:latest",
+        "command_template": "-u \"{target_url}\" --batch --risk=1 --level=1",
+        "timeout": 300
     }
+    
 }
