@@ -23,6 +23,10 @@ class RabbitClient:
                 # Declarar cola de entrada para el Orquestador
                 await self.channel.declare_queue("orchestrator_queue", durable=True)
                 logger.info("Conectado exitosamente a RabbitMQ. Cola 'orchestrator_queue' lista.")
+
+                await self.channel.declare_queue("skills_queue", durable=True)
+                logger.info("Cola 'skills_queue' lista para recibir tareas.")
+
                 return
             except Exception as e:
                 logger.warning(f"Fallo al conectar con RabbitMQ ({e}). Reintentando en {delay}s...")

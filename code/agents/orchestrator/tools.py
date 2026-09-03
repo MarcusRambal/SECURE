@@ -1,85 +1,125 @@
+import asyncio
 import json
-from langchain_core.tools import tool
-from playwright.sync_api import sync_playwright
+import logging
+import uuid
+import aio_pika
+from langchain_core.tools import StructuredTool
 
-SESSION_FILE = "/app/session.json"
-TARGET_URL = "http://webgoat:8080/WebGoat"
+logger = logging.getLogger("orchestrator-tools")
+SKILLS_QUEUE = "skills_queue"
 
-@tool
-def navigate_and_inspect(lesson_path: str) -> str:
+async def call_mcp_skill(channel: aio_pika.Channel, tool_name: str, arguments: dict) -> str:
     """
-    Navega a una lección específica dentro de WebGoat usando la sesión guardada
-    y devuelve los formularios e inputs presentes en la página para analizarlos.
+    Publica la solicitud `tools/call` en `skills_queue` y espera la respuesta RPC.
+    """
+    correlation_id = str(uuid.uuid4())
     
-    Args:
-        lesson_path: Ruta relativa de la lección (ejemplo: 'start.mvc#lesson/SqlInjection.lesson')
-    """
-    full_url = f"{TARGET_URL.rstrip('/')}/{lesson_path.lstrip('/')}"
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True, args=['--no-sandbox'])
-        context = browser.new_context(storage_state=SESSION_FILE)
-        page = context.new_page()
-        
-        page.goto(full_url)
-        page.wait_for_load_state("networkidle")
-        
-        # Extraer elementos interactivos del DOM
-        inputs = page.query_selector_all("input, textarea, select")
-        elements_info = []
-        for inp in inputs:
-            name = inp.get_attribute("name") or inp.get_attribute("id") or inp.get_attribute("type")
-            elements_info.append(f"Input Name/ID/Type: {name}")
-            
-        page_text = page.inner_text("body")
-        browser.close()
-        
-        return json.dumps({
-            "url": full_url,
-            "inputs_found": elements_info,
-            "content_preview": page_text[:1200]
-        })
+    # 1. Crear cola de respuesta exclusiva
+    reply_queue = await channel.declare_queue(exclusive=True)
+    future = asyncio.get_running_loop().create_future()
 
-@tool
-def test_sql_payload(lesson_path: str, input_selector: str, payload: str) -> str:
+    async def on_response(message: aio_pika.IncomingMessage):
+        async with message.process():
+            if message.correlation_id == correlation_id:
+                response_data = json.loads(message.body.decode("utf-8"))
+                if not future.done():
+                    future.set_result(response_data)
+
+    consumer_tag = await reply_queue.consume(on_response)
+
+    # 2. Payload MCP / JSON-RPC
+    mcp_payload = {
+        "jsonrpc": "2.0",
+        "id": correlation_id,
+        "method": "tools/call",
+        "params": {
+            "name": tool_name,
+            "arguments": arguments
+        }
+    }
+
+    logger.info(f"📤 [AGENTE -> SKILLS_QUEUE] Invocando tool MCP '{tool_name}'...")
+
+    # 3. Publicación
+    await channel.default_exchange.publish(
+        aio_pika.Message(
+            body=json.dumps(mcp_payload).encode("utf-8"),
+            correlation_id=correlation_id,
+            reply_to=reply_queue.name,
+            content_type="application/json"
+        ),
+        routing_key=SKILLS_QUEUE
+    )
+
+    try:
+        response = await asyncio.wait_for(future, timeout=360.0)
+        content_list = response.get("result", {}).get("content", [])
+        if content_list:
+            return content_list[0].get("text", "Sin salida.")
+        return json.dumps(response)
+    finally:
+        await reply_queue.cancel(consumer_tag)
+        await reply_queue.delete(if_unused=False, if_empty=False)
+
+
+async def get_mcp_catalog(channel: aio_pika.Channel) -> list:
+    """Consulta las herramientas disponibles en el Skills Controller (tools/list)."""
+    correlation_id = str(uuid.uuid4())
+    reply_queue = await channel.declare_queue(exclusive=True)
+    future = asyncio.get_running_loop().create_future()
+
+    async def on_response(message: aio_pika.IncomingMessage):
+        async with message.process():
+            if message.correlation_id == correlation_id:
+                if not future.done():
+                    future.set_result(json.loads(message.body.decode("utf-8")))
+
+    consumer_tag = await reply_queue.consume(on_response)
+
+    mcp_payload = {
+        "jsonrpc": "2.0",
+        "id": correlation_id,
+        "method": "tools/list"
+    }
+
+    await channel.default_exchange.publish(
+        aio_pika.Message(
+            body=json.dumps(mcp_payload).encode("utf-8"),
+            correlation_id=correlation_id,
+            reply_to=reply_queue.name,
+            content_type="application/json"
+        ),
+        routing_key=SKILLS_QUEUE
+    )
+
+    try:
+        response = await asyncio.wait_for(future, timeout=60.0)
+        return response.get("result", {}).get("tools", [])
+    finally:
+        await reply_queue.cancel(consumer_tag)
+        await reply_queue.delete(if_unused=False, if_empty=False)
+
+
+def build_langchain_tools(mcp_catalog: list, channel: aio_pika.Channel) -> list:
     """
-    Envía un payload de prueba de SQL Injection directamente a un campo del formulario en WebGoat.
-    
-    Args:
-        lesson_path: Ruta relativa de la lección en WebGoat.
-        input_selector: Selector CSS o atributo name del campo objetivo (ej: 'account_name').
-        payload: La cadena o payload de prueba a inyectar (ej: "' OR '1'='1").
+    Convierte el catálogo MCP en objetos StructuredTool de LangChain.
     """
-    full_url = f"{TARGET_URL.rstrip('/')}/{lesson_path.lstrip('/')}"
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True, args=['--no-sandbox'])
-        context = browser.new_context(storage_state=SESSION_FILE)
-        page = context.new_page()
-        
-        page.goto(full_url)
-        page.wait_for_load_state("networkidle")
-        
-        # Intentar llenar por selector directo o por atributo name
-        try:
-            page.fill(input_selector, payload)
-        except Exception:
-            page.fill(f"input[name='{input_selector}']", payload)
-            
-        # Enviar formulario
-        submit_btn = page.query_selector("button[type='submit'], input[type='submit']")
-        if submit_btn:
-            submit_btn.click()
-        else:
-            page.keyboard.press("Enter")
-            
-        page.wait_for_timeout(2000)
-        response_text = page.inner_text("body")
-        browser.close()
-        
-        # Validar si la lección fue completada
-        is_solved = "Congratulations" in response_text or "Lesson solved" in response_text
-        
-        return json.dumps({
-            "payload_sent": payload,
-            "lesson_completed": is_solved,
-            "response_snippet": response_text[:1000]
-        })
+    langchain_tools = []
+
+    for mcp_tool in mcp_catalog:
+        tool_name = mcp_tool["name"]
+        description = mcp_tool["description"]
+
+        def make_executor(name):
+            async def _executor(**kwargs):
+                return await call_mcp_skill(channel, name, kwargs)
+            return _executor
+
+        tool_instance = StructuredTool.from_function(
+            coroutine=make_executor(tool_name),
+            name=tool_name,
+            description=description
+        )
+        langchain_tools.append(tool_instance)
+
+    return langchain_tools

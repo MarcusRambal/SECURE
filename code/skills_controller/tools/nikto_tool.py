@@ -1,4 +1,4 @@
-from tools.docker_runner import run_ephemeral_container
+from code.skills_controller.docker_runner import run_ephemeral_container
 
 def register_nikto_tool(mcp_server):
     @mcp_server.tool()

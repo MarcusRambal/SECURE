@@ -2,8 +2,10 @@ networks:
   public-net:
     driver: bridge
   internal-net:
+    name: internal-net
     driver: bridge
   sec-net:
+    name: sec-net  # <--- FUERZA A DOCKER A LLAMARLA EXACTAMENTE "sec-net"
     driver: bridge
 
 services:
@@ -44,13 +46,17 @@ services:
     build:
       context: ./skills_controller
       dockerfile: Dockerfile.skills_controller
-    ports:
-      - "8001:8001"
+    container_name: ctnr-skills-controller
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock # Acceso al socket de Docker
+      - /var/run/docker.sock:/var/run/docker.sock # <--- Acceso al Engine de Docker
+    env_file:
+      - .env
+    environment:
+      - RABBITMQ_URL=${RABBITMQ_URL}
     networks:
       - internal-net
-      - sec-net
+    depends_on:
+      - rabbitmq
 
   orchestrator:
     build:
@@ -61,7 +67,8 @@ services:
     networks:
       - internal-net
     environment:
-      - RABBITMQ_URL=amqp://${RABBITMQ_USER}:${RABBITMQ_PASS}@rabbitmq-broker:5672/
+      - RABBITMQ_URL=${RABBITMQ_URL}
+      - GROQ_API_KEY=${GROQ_API_KEY}
     depends_on:
       - rabbitmq
 
