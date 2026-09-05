@@ -102,7 +102,8 @@ async def get_mcp_catalog(channel: aio_pika.Channel) -> list:
 
 def build_langchain_tools(mcp_catalog: list, channel: aio_pika.Channel) -> list:
     """
-    Convierte el catálogo MCP en objetos StructuredTool de LangChain.
+    Convierte el catálogo de herramientas MCP recibidas desde el Skills Controller
+    en herramientas nativas (StructuredTool) compatibles con LangChain y LangGraph.
     """
     langchain_tools = []
 

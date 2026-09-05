@@ -69,6 +69,7 @@ services:
     environment:
       - RABBITMQ_URL=${RABBITMQ_URL}
       - GROQ_API_KEY=${GROQ_API_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
     depends_on:
       - rabbitmq
 
