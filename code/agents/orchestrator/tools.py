@@ -4,6 +4,7 @@ import logging
 import uuid
 import aio_pika
 from langchain_core.tools import StructuredTool
+from pydantic import create_model, Field
 
 logger = logging.getLogger("orchestrator-tools")
 SKILLS_QUEUE = "skills_queue"
@@ -102,24 +103,52 @@ async def get_mcp_catalog(channel: aio_pika.Channel) -> list:
 
 def build_langchain_tools(mcp_catalog: list, channel: aio_pika.Channel) -> list:
     """
-    Convierte el catálogo de herramientas MCP recibidas desde el Skills Controller
-    en herramientas nativas (StructuredTool) compatibles con LangChain y LangGraph.
+    Convierte el catálogo de herramientas MCP en herramientas nativas de LangChain,
+    traduciendo el inputSchema JSON a un modelo de Pydantic dinámico.
     """
     langchain_tools = []
 
     for mcp_tool in mcp_catalog:
         tool_name = mcp_tool["name"]
         description = mcp_tool["description"]
+        
+        # 1. Extraer propiedades requeridas desde el catálogo MCP
+        input_schema = mcp_tool.get("inputSchema", {})
+        properties = input_schema.get("properties", {})
+        required_fields = input_schema.get("required", [])
+
+        # 2. Construir los campos para el modelo Pydantic dinámico
+        fields = {}
+        for prop_name, prop_info in properties.items():
+            # Asignar tipo Python según el tipo JSON
+            prop_type = str
+            if prop_info.get("type") == "integer":
+                prop_type = int
+            elif prop_info.get("type") == "boolean":
+                prop_type = bool
+
+            prop_desc = prop_info.get("description", "")
+            
+            if prop_name in required_fields:
+                fields[prop_name] = (prop_type, Field(..., description=prop_desc))
+            else:
+                default_val = prop_info.get("default", None)
+                fields[prop_name] = (prop_type, Field(default_val, description=prop_desc))
+
+        # 3. Crear la clase Schema dinámicamente
+        ArgsSchema = create_model(f"{tool_name}_schema", **fields)
 
         def make_executor(name):
             async def _executor(**kwargs):
                 return await call_mcp_skill(channel, name, kwargs)
             return _executor
 
+        # 4. Registrar la herramienta con su ArgsSchema
         tool_instance = StructuredTool.from_function(
             coroutine=make_executor(tool_name),
             name=tool_name,
-            description=description
+            description=description,
+            args_schema=ArgsSchema
         )
         langchain_tools.append(tool_instance)
 

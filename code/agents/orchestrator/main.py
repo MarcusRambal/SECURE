@@ -1,7 +1,8 @@
 import os
 import logging
 import aio_pika
-from langchain_google_genai import ChatGoogleGenerativeAI
+# from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.prebuilt import create_react_agent
 
@@ -31,17 +32,17 @@ async def execute_orchestration_flow(payload: dict, channel: aio_pika.Channel):
     tools = build_langchain_tools(mcp_catalog, channel)
     logger.info(f"Tools MCP cargadas en LangChain: {[t.name for t in tools]}")
 
-    # 3. Configurar Modelo LLM usando Gemini 1.5 Flash
-    api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-    if not api_key:
-        logger.error("GEMINI_API_KEY no encontrada en las variables de entorno.")
+    # 3. Configurar Modelo LLM
+    groq_api_key = os.getenv("GROQ_API_KEY")
+    if not groq_api_key:
+        logger.error("GROQ_API_KEY no encontrada en las variables de entorno.")
         return
 
-    llm = ChatGoogleGenerativeAI(
-        model="gemini-1.5-flash",
-        google_api_key=api_key,
-        version="v1",
-        temperature=0.1
+    llm = ChatGroq(
+        model_name="qwen/qwen3.8-27b",
+        groq_api_key=groq_api_key,
+        temperature=0.1,
+        max_tokens=800
     )
 
     system_prompt = SystemMessage(
@@ -70,7 +71,7 @@ async def execute_orchestration_flow(payload: dict, channel: aio_pika.Channel):
         ]
     }
 
-    logger.info("[PASO 2] Iniciando razonamiento del agente en LangGraph con Gemini...")
+    logger.info("[PASO 2] Iniciando razonamiento del agente en LangGraph con Groq...")
 
     try:
         async for event in agent_executor.astream(initial_input, config={"recursion_limit": 6}):
