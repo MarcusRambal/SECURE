@@ -8,8 +8,7 @@ langchain-google-genai
 langchain-groq
 langgraph
 playwright
-pydantic
-requests
 fastapi
 uvicorn[standard]
 httpx
+aio-pika==10.0.1

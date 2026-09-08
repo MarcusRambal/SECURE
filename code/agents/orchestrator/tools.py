@@ -3,8 +3,9 @@ import json
 import logging
 import uuid
 import aio_pika
+import httpx
 from langchain_core.tools import StructuredTool
-from pydantic import create_model, Field
+from pydantic import create_model, Field, BaseModel
 
 logger = logging.getLogger("orchestrator-tools")
 SKILLS_QUEUE = "skills_queue"
@@ -153,3 +154,28 @@ def build_langchain_tools(mcp_catalog: list, channel: aio_pika.Channel) -> list:
         langchain_tools.append(tool_instance)
 
     return langchain_tools
+
+class ReconAgentInput(BaseModel):
+    target_url: str = Field(description="URL objetivo completa a analizar por el agente de reconocimiento.")
+
+async def call_recon_agent(target_url: str) -> str:
+    """Llama al microservicio del Agente de Reconocimiento."""
+    recon_url = "http://recon-agent:8003/scan"
+    logger.info(f"📤 [ORQUESTADOR -> RECON-AGENT] Delegando escaneo de {target_url}...")
+    
+    async with httpx.AsyncClient(timeout=600.0) as client:
+        try:
+            response = await client.post(
+                recon_url,
+                json={"target_url": target_url, "scan_type": "sql_injection"}
+            )
+            return response.text
+        except Exception as e:
+            return f"Error al comunicarse con recon-agent: {str(e)}"
+
+recon_agent_tool = StructuredTool.from_function(
+    coroutine=call_recon_agent,
+    name="recon_agent",
+    description="Delega la fase de reconocimiento y descubrimiento de endpoints al Agente de Reconocimiento.",
+    args_schema=ReconAgentInput
+)

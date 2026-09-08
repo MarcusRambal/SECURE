@@ -1,7 +1,3 @@
-# skills_controller/mcp_tools_registry.py
-
-# skills_controller/mcp_tools_registry.py
-
 MCP_SKILLS_REGISTRY = {
     # =========================================================================
     # 1. OWASP ZAP - AJAX Spider (Para aplicaciones SPA / React / Angular)
@@ -15,22 +11,21 @@ MCP_SKILLS_REGISTRY = {
                 "properties": {
                     "target_url": {
                         "type": "string",
-                        "description": "URL objetivo completa a rastrear (ej: http://juice-shop-target:3000)"
+                        "description": "URL objetivo completa a rastrear (ej: http://juice-shop:3000)",
                     },
                     "minutes": {
                         "type": "integer",
-                        "description": "Tiempo máximo en minutos para el escaneo",
-                        "default": 1
-                    }
+                        "description": "Tiempo máximo en minutos para el escaneo (Recomendado: 1)",
+                        "default": 1,
+                    },
                 },
-                "required": ["target_url"]
-            }
+                "required": ["target_url"],
+            },
         },
         "image": "zaproxy/zap-stable:latest",
         "command_template": "zap-baseline.py -t {target_url} -m {minutes} -j -I",
-        "timeout": 300
+        "timeout": 600,
     },
-
     # =========================================================================
     # 2. OWASP ZAP - Baseline Spider (Para rastreo estático rápido y headers)
     # =========================================================================
@@ -43,23 +38,22 @@ MCP_SKILLS_REGISTRY = {
                 "properties": {
                     "target_url": {
                         "type": "string",
-                        "description": "URL objetivo completa a rastrear (ej: http://juice-shop-target:3000)"
+                        "description": "URL objetivo completa a rastrear (ej: http://juice-shop-target:3000)",
                     },
                     "minutes": {
                         "type": "integer",
                         "description": "Tiempo máximo en minutos para el escaneo estático",
-                        "default": 1
-                    }
+                        "default": 1,
+                    },
                 },
-                "required": ["target_url"]
-            }
+                "required": ["target_url"],
+            },
         },
         "image": "zaproxy/zap-stable:latest",
         # Sin el flag -j para enfocarse únicamente en el motor de spidering tradicional
         "command_template": "zap-baseline.py -t {target_url} -m {minutes} -I",
-        "timeout": 300
+        "timeout": 300,
     },
-
     # =========================================================================
     # 3. OWASP ZAP - API Scan (Para OpenAPI / Swagger / GraphQL)
     # =========================================================================
@@ -72,24 +66,23 @@ MCP_SKILLS_REGISTRY = {
                 "properties": {
                     "schema_url": {
                         "type": "string",
-                        "description": "URL de la especificación OpenAPI/Swagger o GraphQL (ej: http://juice-shop-target:3000/api-docs/openapi.json)"
+                        "description": "URL de la especificación OpenAPI/Swagger o GraphQL (ej: http://juice-shop-target:3000/api-docs/openapi.json)",
                     },
                     "format": {
                         "type": "string",
                         "description": "Formato de la especificación de API",
                         "enum": ["openapi", "soap", "graphql"],
-                        "default": "openapi"
-                    }
+                        "default": "openapi",
+                    },
                 },
-                "required": ["schema_url"]
-            }
+                "required": ["schema_url"],
+            },
         },
         "image": "zaproxy/zap-stable:latest",
         # zap-api-scan.py requiere especificar el formato (-f) y la URL del esquema (-t)
         "command_template": "zap-api-scan.py -t {schema_url} -f {format} -I",
-        "timeout": 300
+        "timeout": 300,
     },
-
     # =========================================================================
     # 4. Katana - Crawling y descubrimiento de URLs
     # =========================================================================
@@ -102,17 +95,16 @@ MCP_SKILLS_REGISTRY = {
                 "properties": {
                     "target_url": {
                         "type": "string",
-                        "description": "URL objetivo completa a rastrear (ej: http://juice-shop-target:3000)"
+                        "description": "URL objetivo completa a rastrear (ej: http://juice-shop-target:3000)",
                     }
                 },
-                "required": ["target_url"]
-            }
+                "required": ["target_url"],
+            },
         },
         "image": "projectdiscovery/katana:latest",
         "command_template": "-u {target_url} -silent -jc",
-        "timeout": 300
+        "timeout": 300,
     },
-
     # =========================================================================
     # 5. SQLMap - Detección y evaluación de Inyección SQL
     # =========================================================================
@@ -125,15 +117,15 @@ MCP_SKILLS_REGISTRY = {
                 "properties": {
                     "target_url": {
                         "type": "string",
-                        "description": "URL u objeto a evaluar (ej: http://juice-shop-target:3000/rest/user/login)"
+                        "description": "URL u objeto a evaluar (ej: http://juice-shop-target:3000/rest/user/login)",
                     }
                 },
-                "required": ["target_url"]
-            }
+                "required": ["target_url"],
+            },
         },
         "image": "sqlmapproject/sqlmap:latest",
-        "command_template": "-u \"{target_url}\" --batch --risk=1 --level=1",
-        "timeout": 300
-    }
-    
+        "command_template": '-u "{target_url}" --batch --risk=1 --level=1',
+        "timeout": 300,
+    },
 }
+ 

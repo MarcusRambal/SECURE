@@ -88,9 +88,11 @@ services:
     environment:
       - TESTER_AGENT_URL=http://validate-agent:8002/validate
       - GROQ_API_KEY=${GROQ_API_KEY}
+      - RABBITMQ_URL=${RABBITMQ_URL}
       - TARGET_URL=http://juice-shop:3000/#/login
     depends_on:
       - juice-shop
+      - rabbitmq
       - validate-agent
   
   # Agente de Validación
