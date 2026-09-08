@@ -9,3 +9,5 @@ langchain-google-genai
 langchain-groq
 langgraph
 aio-pika==10.0.1
+fastapi
+uvicorn[standard]

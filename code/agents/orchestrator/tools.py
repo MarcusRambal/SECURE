@@ -10,12 +10,13 @@ from pydantic import create_model, Field, BaseModel
 logger = logging.getLogger("orchestrator-tools")
 SKILLS_QUEUE = "skills_queue"
 
+
 async def call_mcp_skill(channel: aio_pika.Channel, tool_name: str, arguments: dict) -> str:
     """
     Publica la solicitud `tools/call` en `skills_queue` y espera la respuesta RPC.
     """
     correlation_id = str(uuid.uuid4())
-    
+
     # 1. Crear cola de respuesta exclusiva
     reply_queue = await channel.declare_queue(exclusive=True)
     future = asyncio.get_running_loop().create_future()
@@ -34,10 +35,7 @@ async def call_mcp_skill(channel: aio_pika.Channel, tool_name: str, arguments: d
         "jsonrpc": "2.0",
         "id": correlation_id,
         "method": "tools/call",
-        "params": {
-            "name": tool_name,
-            "arguments": arguments
-        }
+        "params": {"name": tool_name, "arguments": arguments},
     }
 
     logger.info(f"📤 [AGENTE -> SKILLS_QUEUE] Invocando tool MCP '{tool_name}'...")
@@ -48,9 +46,9 @@ async def call_mcp_skill(channel: aio_pika.Channel, tool_name: str, arguments: d
             body=json.dumps(mcp_payload).encode("utf-8"),
             correlation_id=correlation_id,
             reply_to=reply_queue.name,
-            content_type="application/json"
+            content_type="application/json",
         ),
-        routing_key=SKILLS_QUEUE
+        routing_key=SKILLS_QUEUE,
     )
 
     try:
@@ -78,20 +76,16 @@ async def get_mcp_catalog(channel: aio_pika.Channel) -> list:
 
     consumer_tag = await reply_queue.consume(on_response)
 
-    mcp_payload = {
-        "jsonrpc": "2.0",
-        "id": correlation_id,
-        "method": "tools/list"
-    }
+    mcp_payload = {"jsonrpc": "2.0", "id": correlation_id, "method": "tools/list"}
 
     await channel.default_exchange.publish(
         aio_pika.Message(
             body=json.dumps(mcp_payload).encode("utf-8"),
             correlation_id=correlation_id,
             reply_to=reply_queue.name,
-            content_type="application/json"
+            content_type="application/json",
         ),
-        routing_key=SKILLS_QUEUE
+        routing_key=SKILLS_QUEUE,
     )
 
     try:
@@ -112,7 +106,7 @@ def build_langchain_tools(mcp_catalog: list, channel: aio_pika.Channel) -> list:
     for mcp_tool in mcp_catalog:
         tool_name = mcp_tool["name"]
         description = mcp_tool["description"]
-        
+
         # 1. Extraer propiedades requeridas desde el catálogo MCP
         input_schema = mcp_tool.get("inputSchema", {})
         properties = input_schema.get("properties", {})
@@ -129,7 +123,7 @@ def build_langchain_tools(mcp_catalog: list, channel: aio_pika.Channel) -> list:
                 prop_type = bool
 
             prop_desc = prop_info.get("description", "")
-            
+
             if prop_name in required_fields:
                 fields[prop_name] = (prop_type, Field(..., description=prop_desc))
             else:
@@ -142,6 +136,7 @@ def build_langchain_tools(mcp_catalog: list, channel: aio_pika.Channel) -> list:
         def make_executor(name):
             async def _executor(**kwargs):
                 return await call_mcp_skill(channel, name, kwargs)
+
             return _executor
 
         # 4. Registrar la herramienta con su ArgsSchema
@@ -149,33 +144,41 @@ def build_langchain_tools(mcp_catalog: list, channel: aio_pika.Channel) -> list:
             coroutine=make_executor(tool_name),
             name=tool_name,
             description=description,
-            args_schema=ArgsSchema
+            args_schema=ArgsSchema,
         )
         langchain_tools.append(tool_instance)
 
     return langchain_tools
 
+
 class ReconAgentInput(BaseModel):
-    target_url: str = Field(description="URL objetivo completa a analizar por el agente de reconocimiento.")
+    target_url: str = Field(
+        description="URL objetivo completa a analizar por el agente de reconocimiento."
+    )
+
 
 async def call_recon_agent(target_url: str) -> str:
     """Llama al microservicio del Agente de Reconocimiento."""
     recon_url = "http://recon-agent:8003/scan"
     logger.info(f"📤 [ORQUESTADOR -> RECON-AGENT] Delegando escaneo de {target_url}...")
-    
+
     async with httpx.AsyncClient(timeout=600.0) as client:
         try:
-            response = await client.post(
-                recon_url,
-                json={"target_url": target_url, "scan_type": "sql_injection"}
+            response = await client.post(recon_url, json={"target_url": target_url})
+            data = response.json()
+            return json.dumps(
+                {
+                    "summary": data.get("summary", ""),
+                    "traceability": data.get("traceability", []),
+                }
             )
-            return response.text
         except Exception as e:
             return f"Error al comunicarse con recon-agent: {str(e)}"
+
 
 recon_agent_tool = StructuredTool.from_function(
     coroutine=call_recon_agent,
     name="recon_agent",
     description="Delega la fase de reconocimiento y descubrimiento de endpoints al Agente de Reconocimiento.",
-    args_schema=ReconAgentInput
+    args_schema=ReconAgentInput,
 )

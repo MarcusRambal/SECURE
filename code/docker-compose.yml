@@ -5,7 +5,7 @@ networks:
     name: internal-net
     driver: bridge
   sec-net:
-    name: sec-net  # <--- FUERZA A DOCKER A LLAMARLA EXACTAMENTE "sec-net"
+    name: sec-net # <--- FUERZA A DOCKER A LLAMARLA EXACTAMENTE "sec-net"
     driver: bridge
 
 services:
@@ -31,7 +31,7 @@ services:
     container_name: rabbitmq-broker
     restart: unless-stopped
     ports:
-      - "5672:5672"   # AMQP para los microservicios
+      - "5672:5672" # AMQP para los microservicios
       - "15672:15672" # UI Management
     environment:
       - RABBITMQ_DEFAULT_USER=${RABBITMQ_USER}
@@ -62,18 +62,24 @@ services:
     build:
       context: ./agents
       dockerfile: orchestrator/Dockerfile.orchestrator
+    ports:
+      - "8001:8001"
     env_file:
       - .env
     networks:
+      - public-net
       - internal-net
     environment:
       - RABBITMQ_URL=${RABBITMQ_URL}
       - GROQ_API_KEY=${GROQ_API_KEY}
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - LANGCHAIN_TRACING_V2=${LANGCHAIN_TRACING_V2}
+      - LANGCHAIN_ENDPOINT=${LANGCHAIN_ENDPOINT}
+      - LANGCHAIN_API_KEY=${LANGCHAIN_API_KEY}
+      - LANGCHAIN_PROJECT=${LANGCHAIN_PROJECT}
     depends_on:
       - rabbitmq
 
-# 4. Agente de Reconocimiento
+  # 4. Agente de Reconocimiento
   recon-agent:
     build:
       context: ./agents
@@ -90,11 +96,15 @@ services:
       - GROQ_API_KEY=${GROQ_API_KEY}
       - RABBITMQ_URL=${RABBITMQ_URL}
       - TARGET_URL=http://juice-shop:3000/#/login
+      - LANGCHAIN_TRACING_V2=${LANGCHAIN_TRACING_V2}
+      - LANGCHAIN_ENDPOINT=${LANGCHAIN_ENDPOINT}
+      - LANGCHAIN_API_KEY=${LANGCHAIN_API_KEY}
+      - LANGCHAIN_PROJECT=${LANGCHAIN_PROJECT}
     depends_on:
       - juice-shop
       - rabbitmq
       - validate-agent
-  
+
   # Agente de Validación
   validate-agent:
     build:
@@ -112,8 +122,6 @@ services:
     depends_on:
       - juice-shop
 
-    
-
   # 5. Entorno Vulnerable: WebGoat
   webgoat:
     image: webgoat/webgoat:latest
@@ -123,7 +131,7 @@ services:
     security_opt:
       - no-new-privileges:true
     ports:
-      - "8080:8080" 
+      - "8080:8080"
     networks:
       - sec-net
 

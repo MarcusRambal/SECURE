@@ -5,6 +5,7 @@ import uuid
 import asyncio
 import logging
 import aio_pika
+from datetime import datetime
 from fastapi import FastAPI, HTTPException
 from pydantic import create_model, Field
 from contract_schemas import ScanRequest
@@ -80,18 +81,19 @@ async def call_mcp_skill(channel: aio_pika.Channel, tool_name: str, arguments: d
     )
 
     try:
+        # Timeout de 600s para no cortar ejecuciones pesadas
         response = await asyncio.wait_for(future, timeout=600.0)
         content = response.get("result", {}).get("content", [])
         raw_output = content[0].get("text", "") if content else json.dumps(response)
 
-        # Pausa breve de 20s para no saturar el Rate Limit ITPM de Groq
+        # Pausa de 20s para proteger la cuota de Groq
         await asyncio.sleep(20)
 
-        # FILTRADO INTELIGENTE: Conserva 100% de endpoints, elimina 90% del texto basura
+        # FILTRADO INTELIGENTE: Conserva endpoints, elimina texto basura
         return parse_and_filter_endpoints(raw_output)
 
     except asyncio.TimeoutError:
-        return f"Error: La herramienta {tool_name} excedió el tiempo límite."
+        return f"Error: La herramienta {tool_name} excedió el tiempo límite de ejecución."
     finally:
         await reply_queue.cancel(consumer_tag)
         await reply_queue.delete(if_unused=False, if_empty=False)
@@ -123,6 +125,7 @@ async def get_mcp_catalog(channel: aio_pika.Channel) -> list:
     )
 
     try:
+        # Consulta rápida del catálogo MCP
         response = await asyncio.wait_for(future, timeout=30.0)
         return response.get("result", {}).get("tools", [])
     finally:
@@ -232,17 +235,48 @@ async def scan_target(request: ScanRequest):
 
         try:
             recon_output = ""
-            # SUBIMOS EL RECURSION_LIMIT A 12
+            traceability_log = []
+            step_count = 1
+
+            # recursion_limit = 12
             async for event in agent_executor.astream(
                 initial_input, config={"recursion_limit": 12}
             ):
                 for value in event.values():
                     last_msg = value["messages"][-1]
                     logger.info(f"\n[RECON-AGENT - {last_msg.type.upper()}]:\n{last_msg.content}")
-                    if last_msg.type == "ai":
+
+                    # Captura cuando la IA decide ejecutar una herramienta (Thought + Action)
+                    if getattr(last_msg, 'tool_calls', None):
+                        for tool in last_msg.tool_calls:
+                            traceability_log.append({
+                                "step": step_count,
+                                "timestamp": datetime.utcnow().isoformat() + "Z",
+                                "agent": "recon_agent",
+                                "thought_process": last_msg.content or "Evaluando target y seleccionando herramienta...",
+                                "tool_executed": tool["name"],
+                                "arguments": tool["args"],
+                                "status": "EXECUTED"
+                            })
+                            step_count += 1
+
+                    # Captura la salida enviada por la herramienta MCP (Observation)
+                    elif last_msg.type == "tool":
+                        if traceability_log:
+                            traceability_log[-1]["output_summary"] = (
+                                last_msg.content[:300] + ("..." if len(last_msg.content) > 300 else "")
+                            )
+
+                    # Captura la conclusión de la IA
+                    elif last_msg.type == "ai" and not getattr(last_msg, 'tool_calls', None):
                         recon_output = last_msg.content
 
-            return {"status": "SUCCESS", "target_url": request.target_url, "summary": recon_output}
+            return {
+                "status": "SUCCESS",
+                "target_url": request.target_url,
+                "traceability": traceability_log,
+                "summary": recon_output
+            }
 
         except Exception as e:
             logger.error(f"[RECON-AGENT] Error en razonamiento: {str(e)}", exc_info=True)
