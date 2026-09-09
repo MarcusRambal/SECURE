@@ -1,109 +1,283 @@
 import os
-import httpx
+import re
+import json
+import uuid
+import asyncio
+import logging
+import aio_pika
+from datetime import datetime
 from fastapi import FastAPI, HTTPException
-from playwright.async_api import async_playwright
-from contract_schemas import DiscoveredEntryPoint
+from pydantic import create_model, Field
+from contract_schemas import ScanRequest
 
-app = FastAPI(title="SECURE - Recon Agent (Agnóstico)")
+from langchain_groq import ChatGroq
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.tools import StructuredTool
+from langgraph.prebuilt import create_react_agent
 
-TESTER_AGENT_URL = os.getenv("TESTER_AGENT_URL", "http://validate-agent:8002/validate")
-TARGET_URL = os.getenv("TARGET_URL", "http://juice-shop:3000/#/login")
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("recon-agent")
+
+app = FastAPI(title="SECURE - Recon Agent Autónomo")
+
+RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://marcus:CampanaPlateada1902@rabbitmq-broker:5672/")
+SKILLS_QUEUE = "skills_queue"
+
+# --- 1. FILTRADO INTELIGENTE DE SALIDAS (SIN PERDER ENDPOINTS) ---
+
+
+def parse_and_filter_endpoints(raw_text: str) -> str:
+    """Extrae únicamente URLs y endpoints únicos del log, eliminando la paja sintáctica de ZAP/Katana."""
+    if not raw_text:
+        return "No se encontraron resultados en la herramienta."
+
+    # Expresión regular para capturar todas las URLs encontradas en los logs
+    urls_found = re.findall(r'https?://[^\s><")]+', raw_text)
+
+    # Eliminar duplicados manteniendo el orden
+    unique_urls = list(dict.fromkeys(urls_found))
+
+    if unique_urls:
+        formatted_list = "\n".join(
+            [f"- {url}" for url in unique_urls[:50]]
+        )  # Límite de 50 URLs clave
+        return f"Endpoints y rutas descubiertas ({len(unique_urls)} en total):\n{formatted_list}"
+
+    # Si no eran URLs (por ejemplo, resumen de errores), devolvemos las primeras 15 líneas
+    lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
+    return "\n".join(lines[:15])
+
+
+async def call_mcp_skill(channel: aio_pika.Channel, tool_name: str, arguments: dict) -> str:
+    correlation_id = str(uuid.uuid4())
+    reply_queue = await channel.declare_queue(exclusive=True)
+    future = asyncio.get_running_loop().create_future()
+
+    async def on_response(message: aio_pika.IncomingMessage):
+        async with message.process():
+            if message.correlation_id == correlation_id:
+                if not future.done():
+                    future.set_result(json.loads(message.body.decode("utf-8")))
+
+    consumer_tag = await reply_queue.consume(on_response)
+
+    mcp_payload = {
+        "jsonrpc": "2.0",
+        "id": correlation_id,
+        "method": "tools/call",
+        "params": {"name": tool_name, "arguments": arguments},
+    }
+
+    logger.info(f"📤 [RECON -> SKILLS] Invocando herramienta MCP '{tool_name}'...")
+
+    await channel.default_exchange.publish(
+        aio_pika.Message(
+            body=json.dumps(mcp_payload).encode("utf-8"),
+            correlation_id=correlation_id,
+            reply_to=reply_queue.name,
+            content_type="application/json",
+        ),
+        routing_key=SKILLS_QUEUE,
+    )
+
+    try:
+        # Timeout de 600s para no cortar ejecuciones pesadas
+        response = await asyncio.wait_for(future, timeout=600.0)
+        content = response.get("result", {}).get("content", [])
+        raw_output = content[0].get("text", "") if content else json.dumps(response)
+
+        # Pausa de 20s para proteger la cuota de Groq
+        await asyncio.sleep(20)
+
+        # FILTRADO INTELIGENTE: Conserva endpoints, elimina texto basura
+        return parse_and_filter_endpoints(raw_output)
+
+    except asyncio.TimeoutError:
+        return f"Error: La herramienta {tool_name} excedió el tiempo límite de ejecución."
+    finally:
+        await reply_queue.cancel(consumer_tag)
+        await reply_queue.delete(if_unused=False, if_empty=False)
+
+
+async def get_mcp_catalog(channel: aio_pika.Channel) -> list:
+    correlation_id = str(uuid.uuid4())
+    reply_queue = await channel.declare_queue(exclusive=True)
+    future = asyncio.get_running_loop().create_future()
+
+    async def on_response(message: aio_pika.IncomingMessage):
+        async with message.process():
+            if message.correlation_id == correlation_id:
+                if not future.done():
+                    future.set_result(json.loads(message.body.decode("utf-8")))
+
+    consumer_tag = await reply_queue.consume(on_response)
+
+    await channel.default_exchange.publish(
+        aio_pika.Message(
+            body=json.dumps(
+                {"jsonrpc": "2.0", "id": correlation_id, "method": "tools/list"}
+            ).encode("utf-8"),
+            correlation_id=correlation_id,
+            reply_to=reply_queue.name,
+            content_type="application/json",
+        ),
+        routing_key=SKILLS_QUEUE,
+    )
+
+    try:
+        # Consulta rápida del catálogo MCP
+        response = await asyncio.wait_for(future, timeout=30.0)
+        return response.get("result", {}).get("tools", [])
+    finally:
+        await reply_queue.cancel(consumer_tag)
+        await reply_queue.delete(if_unused=False, if_empty=False)
+
+
+def build_recon_tools(mcp_catalog: list, channel: aio_pika.Channel) -> list:
+    langchain_tools = []
+    recon_keywords = ["katana", "zap", "spider", "nikto"]
+
+    for mcp_tool in mcp_catalog:
+        tool_name = mcp_tool["name"]
+        if not any(kw in tool_name.lower() for kw in recon_keywords):
+            continue
+
+        description = mcp_tool["description"]
+        input_schema = mcp_tool.get("inputSchema", {})
+        properties = input_schema.get("properties", {})
+        required_fields = input_schema.get("required", [])
+
+        fields = {}
+        for prop_name, prop_info in properties.items():
+            prop_type = int if prop_info.get("type") == "integer" else str
+            prop_desc = prop_info.get("description", "")
+            if prop_name in required_fields:
+                fields[prop_name] = (prop_type, Field(..., description=prop_desc))
+            else:
+                fields[prop_name] = (
+                    prop_type,
+                    Field(prop_info.get("default", None), description=prop_desc),
+                )
+
+        ArgsSchema = create_model(f"{tool_name}_schema", **fields)
+
+        def make_executor(name):
+            async def _executor(**kwargs):
+                return await call_mcp_skill(channel, name, kwargs)
+
+            return _executor
+
+        tool_instance = StructuredTool.from_function(
+            coroutine=make_executor(tool_name),
+            name=tool_name,
+            description=description,
+            args_schema=ArgsSchema,
+        )
+        langchain_tools.append(tool_instance)
+
+    return langchain_tools
+
+
+# --- 2. ENDPOINT DE ESCANEO ---
+
 
 @app.post("/scan")
-async def scan_target():
-    print(f"[RECON] Iniciando análisis estático/pasivo en: {TARGET_URL}")
-    print("[RECON] Paso 1: inicializando Playwright")
-    
-    discovered_endpoint = None
+async def scan_target(request: ScanRequest):
+    logger.info(f"[RECON-AGENT] Tarea recibida para analizar: {request.target_url}")
 
-    async with async_playwright() as p:
-        print("[RECON] Paso 2: lanzando navegador")
-        browser = await p.chromium.launch(headless=True)
-        page = await browser.new_page()
+    connection = await aio_pika.connect_robust(RABBITMQ_URL)
+    async with connection:
+        channel = await connection.channel()
+
+        catalog = await get_mcp_catalog(channel)
+        tools = build_recon_tools(catalog, channel)
+
+        if not tools:
+            raise HTTPException(
+                status_code=500, detail="No hay herramientas MCP de recon disponibles."
+            )
+
+        groq_api_key = os.getenv("GROQ_API_KEY")
+        if not groq_api_key:
+            raise HTTPException(status_code=500, detail="GROQ_API_KEY no configurada.")
+
+        llm = ChatGroq(
+            model_name="qwen/qwen3.8-27b",
+            groq_api_key=groq_api_key,
+            temperature=0.1,
+            max_tokens=800,
+        )
+
+        system_prompt = SystemMessage(
+            content=(
+                "Eres un Especialista en Reconocimiento de Aplicaciones Web.\n"
+                "Tu objetivo es descubrir los endpoints principales del objetivo usando las herramientas MCP disponibles.\n\n"
+                "REGLAS DE OPERACIÓN:\n"
+                "1. Puedes ejecutar **hasta dos herramientas como máximo**.\n"
+                "2. Prioriza primero una herramienta de descubrimiento (por ejemplo, 'katana' o 'zap_ajax_spider').\n"
+                "3. Si lo consideras necesario, puedes ejecutar una segunda herramienta complementaria (por ejemplo, 'zap_baseline_spider').\n"
+                "4. Después de obtener los resultados de las herramientas, **NO ejecutes más herramientas**.\n"
+                "5. Genera inmediatamente un resumen final en texto claro con las URLs/endpoints descubiertos y finaliza la tarea.\n\n"
+                "IMPORTANTE: Evita ejecutar más de dos herramientas o repetir llamadas. El resumen final debe ser conciso y basado en los resultados obtenidos."
+            )
+        )
+
+        agent_executor = create_react_agent(model=llm, tools=tools, prompt=system_prompt)
+
+        initial_input = {
+            "messages": [
+                HumanMessage(
+                    content=f"Analiza la superficie del objetivo '{request.target_url}'. "
+                    f"Ejecuta la herramienta de rastreo adecuada y entrega el listado de endpoints encontrados."
+                )
+            ]
+        }
 
         try:
-            # 1. Cargar la página
-            print("[RECON] Paso 3: cargando la página objetivo")
-            await page.goto(TARGET_URL, wait_until="domcontentloaded", timeout=15000)
-            await page.wait_for_timeout(1000) # Tiempo mínimo de inicialización
-            print(f"[RECON] Paso 3.1: página cargada correctamente: {TARGET_URL}")
+            recon_output = ""
+            traceability_log = []
+            step_count = 1
 
-            # 2. Estrategia A: Analizar el DOM (Formularios HTML tradicionales)
-            print("[RECON] Paso 4: revisando formularios del DOM")
-            forms = await page.query_selector_all("form")
-            print(f"[RECON] Formularios encontrados: {len(forms)}")
-            if forms:
-                for idx, form in enumerate(forms, start=1):
-                    print(f"[RECON] Formulario #{idx}: analizando...")
-                    action = await form.get_attribute("action")
-                    method = (await form.get_attribute("method") or "POST").upper()
-                    print(f"[RECON] Formulario #{idx} -> action={action}, method={method}")
-                    
-                    # Extraer inputs
-                    inputs = await form.query_selector_all("input")
-                    payload_template = {}
-                    target_field = "email"
-                    print(f"[RECON] Formulario #{idx} -> inputs detectados: {len(inputs)}")
+            # recursion_limit = 12
+            async for event in agent_executor.astream(
+                initial_input, config={"recursion_limit": 12}
+            ):
+                for value in event.values():
+                    last_msg = value["messages"][-1]
+                    logger.info(f"\n[RECON-AGENT - {last_msg.type.upper()}]:\n{last_msg.content}")
 
-                    for inp in inputs:
-                        name = await inp.get_attribute("name") or await inp.get_attribute("id")
-                        inp_type = await inp.get_attribute("type") or "text"
-                        if name and inp_type not in ["submit", "button", "hidden"]:
-                            payload_template[name] = ""
-                            print(f"[RECON] Campo útil detectado: name={name}, type={inp_type}")
-                            if "email" in name.lower() or "user" in name.lower():
-                                target_field = name
+                    # Captura cuando la IA decide ejecutar una herramienta (Thought + Action)
+                    if getattr(last_msg, 'tool_calls', None):
+                        for tool in last_msg.tool_calls:
+                            traceability_log.append({
+                                "step": step_count,
+                                "timestamp": datetime.utcnow().isoformat() + "Z",
+                                "agent": "recon_agent",
+                                "thought_process": last_msg.content or "Evaluando target y seleccionando herramienta...",
+                                "tool_executed": tool["name"],
+                                "arguments": tool["args"],
+                                "status": "EXECUTED"
+                            })
+                            step_count += 1
 
-                    if action and payload_template:
-                        api_url = action if action.startswith("http") else f"{TARGET_URL.split('#')[0].rstrip('/')}/{action.lstrip('/')}"
-                        print(f"[RECON] Formulario #{idx} -> endpoint candidato: {api_url}")
-                        discovered_endpoint = DiscoveredEntryPoint(
-                            target_url=api_url,
-                            http_method=method,
-                            entry_point_type="sql_injection",
-                            headers={"Content-Type": "application/json"},
-                            payload_template=payload_template,
-                            target_field=target_field
-                        )
-                        print(f"[RECON] Formulario #{idx} -> contrato generado desde DOM")
-                        break
+                    # Captura la salida enviada por la herramienta MCP (Observation)
+                    elif last_msg.type == "tool":
+                        if traceability_log:
+                            traceability_log[-1]["output_summary"] = (
+                                last_msg.content[:300] + ("..." if len(last_msg.content) > 300 else "")
+                            )
 
-            # 3. Estrategia B: Fallback para Single Page Applications (Juice Shop / React / Angular)
-            # Si el DOM no tiene un <form action=...>, inferimos el endpoint REST estandar de Auth/Login
-            if not discovered_endpoint:
-                print("[RECON] Paso 5: no se encontró formulario; aplicando fallback para SPA")
-                
-                # Para Juice Shop / REST APIs de Auth comunes
-                base_url = TARGET_URL.split('#')[0].rstrip('/')
-                api_url = f"{base_url}/rest/user/login"
-                print(f"[RECON] Fallback -> endpoint inferido: {api_url}")
-                
-                discovered_endpoint = DiscoveredEntryPoint(
-                    target_url=api_url,
-                    http_method="POST",
-                    entry_point_type="sql_injection",
-                    headers={"Content-Type": "application/json"},
-                    payload_template={"email": "", "password": ""},
-                    target_field="email"
-                )
-                print("[RECON] Fallback -> contrato generado")
+                    # Captura la conclusión de la IA
+                    elif last_msg.type == "ai" and not getattr(last_msg, 'tool_calls', None):
+                        recon_output = last_msg.content
 
-        finally:
-            print("[RECON] Paso 6: cerrando navegador")
-            await browser.close()
+            return {
+                "status": "SUCCESS",
+                "target_url": request.target_url,
+                "traceability": traceability_log,
+                "summary": recon_output
+            }
 
-    if not discovered_endpoint:
-        print("[RECON] ERROR: no se pudo identificar ningún endpoint vulnerable")
-        raise HTTPException(status_code=404, detail="No se pudieron identificar endpoints vulnerables.")
-
-    print(f"[RECON] Endpoint descubierto: {discovered_endpoint.http_method} {discovered_endpoint.target_url}")
-    print(f"[RECON] Objeto descubierto: {discovered_endpoint.model_dump_json(indent=2)}")
-
-    # 4. Delegar al validate-agent
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        print(f"[RECON] Paso 7: enviando contrato a {TESTER_AGENT_URL}...")
-        payload = discovered_endpoint.model_dump()
-        print(f"[RECON] Payload JSON a tester_agent: {payload}")
-        res = await client.post(TESTER_AGENT_URL, json=payload)
-        print(f"[RECON] Respuesta recibida del tester_agent: {res.status_code} - {res.text}")
-        return res.json()
+        except Exception as e:
+            logger.error(f"[RECON-AGENT] Error en razonamiento: {str(e)}", exc_info=True)
+            raise HTTPException(status_code=500, detail=str(e))

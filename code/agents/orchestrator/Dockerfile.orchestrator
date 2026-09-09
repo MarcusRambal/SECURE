@@ -22,5 +22,5 @@ COPY orchestrator/ .
 RUN adduser --disabled-password --gecos "" appuser && chown -R appuser:appuser /app
 USER appuser
 
-# Comando de arranque: ejecuta el worker directamente 
-CMD ["python", "worker.py"]
+#  Inicia el servicio del orquestador (API FastAPI) escuchando en el puerto 8001
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001"]
