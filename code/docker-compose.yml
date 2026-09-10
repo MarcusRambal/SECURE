@@ -62,8 +62,6 @@ services:
     build:
       context: ./agents
       dockerfile: orchestrator/Dockerfile.orchestrator
-    ports:
-      - "8001:8001"
     env_file:
       - .env
     networks:
@@ -84,18 +82,12 @@ services:
     build:
       context: ./agents
       dockerfile: recon/Dockerfile.recon
-    ports:
-      - "8003:8003"
     networks:
-      sec-net:
-        aliases:
-          - recon-agent
-      internal-net:
+      - sec-net
+      - internal-net
     environment:
-      - TESTER_AGENT_URL=http://validate-agent:8002/validate
       - GROQ_API_KEY=${GROQ_API_KEY}
       - RABBITMQ_URL=${RABBITMQ_URL}
-      - TARGET_URL=http://juice-shop:3000/#/login
       - LANGCHAIN_TRACING_V2=${LANGCHAIN_TRACING_V2}
       - LANGCHAIN_ENDPOINT=${LANGCHAIN_ENDPOINT}
       - LANGCHAIN_API_KEY=${LANGCHAIN_API_KEY}
@@ -103,7 +95,6 @@ services:
     depends_on:
       - juice-shop
       - rabbitmq
-      - validate-agent
 
   # Agente de Validación
   validate-agent:

@@ -5,45 +5,29 @@ import uuid
 import asyncio
 import logging
 import aio_pika
-from datetime import datetime
-from fastapi import FastAPI, HTTPException
-from pydantic import create_model, Field
-from contract_schemas import ScanRequest
 
+from pydantic import create_model, Field
 from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.tools import StructuredTool
 from langgraph.prebuilt import create_react_agent
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("recon-agent")
+logger = logging.getLogger("recon-agent-worker")
 
-app = FastAPI(title="SECURE - Recon Agent Autónomo")
-
-RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://marcus:CampanaPlateada1902@rabbitmq-broker:5672/")
+RABBITMQ_URL = os.getenv("RABBITMQ_URL")
 SKILLS_QUEUE = "skills_queue"
-
-# --- 1. FILTRADO INTELIGENTE DE SALIDAS (SIN PERDER ENDPOINTS) ---
+RECON_QUEUE = "recon_queue"
 
 
 def parse_and_filter_endpoints(raw_text: str) -> str:
-    """Extrae únicamente URLs y endpoints únicos del log, eliminando la paja sintáctica de ZAP/Katana."""
     if not raw_text:
         return "No se encontraron resultados en la herramienta."
-
-    # Expresión regular para capturar todas las URLs encontradas en los logs
     urls_found = re.findall(r'https?://[^\s><")]+', raw_text)
-
-    # Eliminar duplicados manteniendo el orden
     unique_urls = list(dict.fromkeys(urls_found))
-
     if unique_urls:
-        formatted_list = "\n".join(
-            [f"- {url}" for url in unique_urls[:50]]
-        )  # Límite de 50 URLs clave
+        formatted_list = "\n".join([f"- {url}" for url in unique_urls[:50]])
         return f"Endpoints y rutas descubiertas ({len(unique_urls)} en total):\n{formatted_list}"
-
-    # Si no eran URLs (por ejemplo, resumen de errores), devolvemos las primeras 15 líneas
     lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
     return "\n".join(lines[:15])
 
@@ -68,8 +52,6 @@ async def call_mcp_skill(channel: aio_pika.Channel, tool_name: str, arguments: d
         "params": {"name": tool_name, "arguments": arguments},
     }
 
-    logger.info(f"📤 [RECON -> SKILLS] Invocando herramienta MCP '{tool_name}'...")
-
     await channel.default_exchange.publish(
         aio_pika.Message(
             body=json.dumps(mcp_payload).encode("utf-8"),
@@ -81,19 +63,11 @@ async def call_mcp_skill(channel: aio_pika.Channel, tool_name: str, arguments: d
     )
 
     try:
-        # Timeout de 600s para no cortar ejecuciones pesadas
         response = await asyncio.wait_for(future, timeout=600.0)
         content = response.get("result", {}).get("content", [])
         raw_output = content[0].get("text", "") if content else json.dumps(response)
-
-        # Pausa de 20s para proteger la cuota de Groq
         await asyncio.sleep(20)
-
-        # FILTRADO INTELIGENTE: Conserva endpoints, elimina texto basura
         return parse_and_filter_endpoints(raw_output)
-
-    except asyncio.TimeoutError:
-        return f"Error: La herramienta {tool_name} excedió el tiempo límite de ejecución."
     finally:
         await reply_queue.cancel(consumer_tag)
         await reply_queue.delete(if_unused=False, if_empty=False)
@@ -125,7 +99,6 @@ async def get_mcp_catalog(channel: aio_pika.Channel) -> list:
     )
 
     try:
-        # Consulta rápida del catálogo MCP
         response = await asyncio.wait_for(future, timeout=30.0)
         return response.get("result", {}).get("tools", [])
     finally:
@@ -178,106 +151,81 @@ def build_recon_tools(mcp_catalog: list, channel: aio_pika.Channel) -> list:
     return langchain_tools
 
 
-# --- 2. ENDPOINT DE ESCANEO ---
+async def process_recon_task(channel: aio_pika.Channel, target_url: str) -> str:
+    catalog = await get_mcp_catalog(channel)
+    tools = build_recon_tools(catalog, channel)
+    if not tools:
+        return "No hay herramientas MCP de recon disponibles."
 
+    groq_api_key = os.getenv("GROQ_API_KEY")
+    llm = ChatGroq(
+        model_name="qwen/qwen3.8-27b", groq_api_key=groq_api_key, temperature=0.1, max_tokens=800
+    )
 
-@app.post("/scan")
-async def scan_target(request: ScanRequest):
-    logger.info(f"[RECON-AGENT] Tarea recibida para analizar: {request.target_url}")
-
-    connection = await aio_pika.connect_robust(RABBITMQ_URL)
-    async with connection:
-        channel = await connection.channel()
-
-        catalog = await get_mcp_catalog(channel)
-        tools = build_recon_tools(catalog, channel)
-
-        if not tools:
-            raise HTTPException(
-                status_code=500, detail="No hay herramientas MCP de recon disponibles."
-            )
-
-        groq_api_key = os.getenv("GROQ_API_KEY")
-        if not groq_api_key:
-            raise HTTPException(status_code=500, detail="GROQ_API_KEY no configurada.")
-
-        llm = ChatGroq(
-            model_name="qwen/qwen3.8-27b",
-            groq_api_key=groq_api_key,
-            temperature=0.1,
-            max_tokens=800,
+    system_prompt = SystemMessage(
+        content=(
+            "Eres un Especialista en Reconocimiento de Aplicaciones Web.\n"
+            "Tu objetivo es descubrir los endpoints principales del objetivo usando las herramientas MCP disponibles.\n\n"
+            "REGLAS DE OPERACIÓN:\n"
+            "1. Puedes ejecutar **hasta dos herramientas como máximo**.\n"
+            "2. Prioriza primero una herramienta de descubrimiento (por ejemplo, 'katana' o 'zap_ajax_spider').\n"
+            "3. Si lo consideras necesario, puedes ejecutar una segunda herramienta complementaria (por ejemplo, 'zap_baseline_spider').\n"
+            "4. Después de obtener los resultados de las herramientas, **NO ejecutes más herramientas**.\n"
+            "5. Genera inmediatamente un resumen final en texto claro con las URLs/endpoints descubiertos y finaliza la tarea.\n\n"
+            "IMPORTANTE: Evita ejecutar más de dos herramientas o repetir llamadas. El resumen final debe ser conciso y basado en los resultados obtenidos."
         )
+    )
 
-        system_prompt = SystemMessage(
-            content=(
-                "Eres un Especialista en Reconocimiento de Aplicaciones Web.\n"
-                "Tu objetivo es descubrir los endpoints principales del objetivo usando las herramientas MCP disponibles.\n\n"
-                "REGLAS DE OPERACIÓN:\n"
-                "1. Puedes ejecutar **hasta dos herramientas como máximo**.\n"
-                "2. Prioriza primero una herramienta de descubrimiento (por ejemplo, 'katana' o 'zap_ajax_spider').\n"
-                "3. Si lo consideras necesario, puedes ejecutar una segunda herramienta complementaria (por ejemplo, 'zap_baseline_spider').\n"
-                "4. Después de obtener los resultados de las herramientas, **NO ejecutes más herramientas**.\n"
-                "5. Genera inmediatamente un resumen final en texto claro con las URLs/endpoints descubiertos y finaliza la tarea.\n\n"
-                "IMPORTANTE: Evita ejecutar más de dos herramientas o repetir llamadas. El resumen final debe ser conciso y basado en los resultados obtenidos."
-            )
-        )
+    agent_executor = create_react_agent(model=llm, tools=tools, prompt=system_prompt)
+    initial_input = {
+        "messages": [HumanMessage(content=f"Analiza la superficie del objetivo '{target_url}'.")]
+    }
 
-        agent_executor = create_react_agent(model=llm, tools=tools, prompt=system_prompt)
+    recon_output = ""
+    async for event in agent_executor.astream(initial_input, config={"recursion_limit": 12}):
+        for value in event.values():
+            last_msg = value["messages"][-1]
+            if last_msg.type == "ai" and not getattr(last_msg, "tool_calls", None):
+                recon_output = last_msg.content
 
-        initial_input = {
-            "messages": [
-                HumanMessage(
-                    content=f"Analiza la superficie del objetivo '{request.target_url}'. "
-                    f"Ejecuta la herramienta de rastreo adecuada y entrega el listado de endpoints encontrados."
-                )
-            ]
-        }
+    return recon_output
 
+
+async def start_recon_worker():
+    while True:
         try:
-            recon_output = ""
-            traceability_log = []
-            step_count = 1
+            logger.info(f"Conectando Recon-Agent a RabbitMQ en {RABBITMQ_URL}...")
+            connection = await aio_pika.connect_robust(RABBITMQ_URL)
+            async with connection:
+                channel = await connection.channel()
+                queue = await channel.declare_queue(RECON_QUEUE, durable=True)
+                logger.info(f"🎧 Recon-Agent escuchando en la cola '{RECON_QUEUE}'...")
 
-            # recursion_limit = 12
-            async for event in agent_executor.astream(
-                initial_input, config={"recursion_limit": 12}
-            ):
-                for value in event.values():
-                    last_msg = value["messages"][-1]
-                    logger.info(f"\n[RECON-AGENT - {last_msg.type.upper()}]:\n{last_msg.content}")
+                async with queue.iterator() as queue_iter:
+                    async for message in queue_iter:
+                        async with message.process():
+                            payload = json.loads(message.body.decode("utf-8"))
+                            target_url = payload.get("target_url")
+                            logger.info(f"📥 [RECON-AGENT] Tarea recibida para {target_url}")
 
-                    # Captura cuando la IA decide ejecutar una herramienta (Thought + Action)
-                    if getattr(last_msg, 'tool_calls', None):
-                        for tool in last_msg.tool_calls:
-                            traceability_log.append({
-                                "step": step_count,
-                                "timestamp": datetime.utcnow().isoformat() + "Z",
-                                "agent": "recon_agent",
-                                "thought_process": last_msg.content or "Evaluando target y seleccionando herramienta...",
-                                "tool_executed": tool["name"],
-                                "arguments": tool["args"],
-                                "status": "EXECUTED"
-                            })
-                            step_count += 1
+                            summary = await process_recon_task(channel, target_url)
 
-                    # Captura la salida enviada por la herramienta MCP (Observation)
-                    elif last_msg.type == "tool":
-                        if traceability_log:
-                            traceability_log[-1]["output_summary"] = (
-                                last_msg.content[:300] + ("..." if len(last_msg.content) > 300 else "")
-                            )
-
-                    # Captura la conclusión de la IA
-                    elif last_msg.type == "ai" and not getattr(last_msg, 'tool_calls', None):
-                        recon_output = last_msg.content
-
-            return {
-                "status": "SUCCESS",
-                "target_url": request.target_url,
-                "traceability": traceability_log,
-                "summary": recon_output
-            }
-
+                            if message.reply_to:
+                                response_body = json.dumps(
+                                    {"status": "SUCCESS", "summary": summary}
+                                )
+                                await channel.default_exchange.publish(
+                                    aio_pika.Message(
+                                        body=response_body.encode("utf-8"),
+                                        correlation_id=message.correlation_id,
+                                        content_type="application/json",
+                                    ),
+                                    routing_key=message.reply_to,
+                                )
         except Exception as e:
-            logger.error(f"[RECON-AGENT] Error en razonamiento: {str(e)}", exc_info=True)
-            raise HTTPException(status_code=500, detail=str(e))
+            logger.warning(f"Error en Recon Worker ({e}). Reintentando en 3s...")
+            await asyncio.sleep(3)
+
+
+if __name__ == "__main__":
+    asyncio.run(start_recon_worker())
