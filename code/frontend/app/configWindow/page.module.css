@@ -1,0 +1,11 @@
+
+.configurationWindowContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  color: #f8fafc;
+  background-color: #0f172a;
+  height: 100vh;
+  padding: 1.25rem;
+}
+
