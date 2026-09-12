@@ -1,0 +1,13 @@
+FROM golang:1.22-alpine AS builder
+RUN go install github.com/ffuf/ffuf/v2@latest
+
+FROM alpine:latest
+RUN apk add --no-cache ca-certificates curl
+COPY --from=builder /go/bin/ffuf /usr/local/bin/ffuf
+
+# Crear directorio y descargar wordlist estándar
+RUN mkdir -p /wordlists && \
+    curl -sL https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/Web-Content/common.txt \
+    -o /wordlists/common.txt
+
+ENTRYPOINT ["ffuf"]
