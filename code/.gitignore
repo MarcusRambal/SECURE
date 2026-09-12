@@ -1,72 +1,84 @@
 # ==========================================
-# Variables de entorno y secretos
+# Dependencias
+# ==========================================
+node_modules/
+.pnpm-store/
+.yarn/
+.npm/
+
+# ==========================================
+# Archivos de Construcción y Caché (Builds)
+# ==========================================
+dist/
+build/
+out/
+.next/
+.nuxt/
+.vuepress/dist/
+.astro/
+.output/
+.turbo/
+.cache/
+.parcel-cache/
+
+# ==========================================
+# Logs y Monitoreo
+# ==========================================
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+*.log
+
+# ==========================================
+# Variables de Entorno y Secretos
 # ==========================================
 .env
-.env.*
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.*.local
 !.env.example
 !.env.template
 
 # ==========================================
-# Llaves, Certificados y Llaves SSH/SSL
-# ==========================================
-*.pem
-*.key
-*.crt
-*.csr
-*.pfx
-*.p12
-*.pub
-
-# ==========================================
-# Python & Bytecode (Caches)
-# ==========================================
-__pycache__/
-*.py[cod]
-*$py.class
-
-# ==========================================
-# Entornos Virtuales
-# ==========================================
-venv/
-.venv/
-env/
-ENV/
-env.bak/
-venv.bak/
-
-# ==========================================
 # IDEs y Editores de Código
 # ==========================================
-.vscode/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
 .idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
 *.swp
 *.swo
-*.sublime-project
-*.sublime-workspace
 
 # ==========================================
-# Logs, Almacenamiento y Base de Datos
+# Pruebas y Cobertura (Testing)
 # ==========================================
-*.log
-*.sqlite
-*.sqlite3
-*.db
-logs/
-data/
-storage/
-exports/
-reports/
+coverage/
+.nyc_output/
+cypress/videos/
+cypress/screenshots/
+playwright-report/
+test-results/
 
 # ==========================================
-# Docker & Volúmenes Locales
-# ==========================================
-.docker/
-docker-volumes/
-*.tar
-
-# ==========================================
-# OS Garbage
+# Archivos Temporales e Historias de SO
 # ==========================================
 .DS_Store
+.DS_Store?
 Thumbs.db
 Desktop.ini
+*.bak
+*.tmp
+
+# ==========================================
+# Paquetes y Empaquetado
+# ==========================================
+*.tgz
+*.tar.gz

@@ -1,8 +1,10 @@
 // components/dashboard/ConfigPanel.tsx
 "use client";
 
-import { ReactEventHandler, useState } from "react";
+import { ReactEventHandler, useState, useTransition } from "react";
 import styles from "./ConfigPanel.module.css";
+
+import { submitScanConfigAction } from '../../actions/scanActions'
 
 import { ATTACK_CATEGORIES, AVAILABLE_LLM_MODELS } from "../configVariables/variables";
 
@@ -12,6 +14,8 @@ export const ConfigPanel = () => {
   const [selectedCategory, setSelectedCategory] = useState<string>("injection");
   const [selectedAttack, setSelectedAttack] = useState<string>(ATTACK_CATEGORIES.injection.attacks[0].id);
   const [agentModels, setAgentModels] = useState({scanner: "GPT-4o-mini (OpenAI)", attacker: "Claude 3.5 Sonnet (Anthropic)", reporter: "GPT-4o-mini (OpenAI)"});
+  const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
 
   const handleCategoryChange = (key: string) => {
     setSelectedCategory(key);
@@ -22,19 +26,35 @@ export const ConfigPanel = () => {
   const currentAttacks = ATTACK_CATEGORIES[selectedCategory as keyof typeof ATTACK_CATEGORIES]?.attacks || [];
 
   const handleSubmit = (e: React.SubmitEvent<HTMLFormElement>) => {
-    e.preventDefault(); // Evita la recarga de página por defecto
+    e.preventDefault();
+    setError(null);
 
-    // Construcción del payload final
-    const configPayload = {
+    /* const payload = {
+        targetUrl,
+        category: selectedCategory,
+        attackType: selectedAttack,
+        // Opcional: podrías explícitamente enviar un flag de modo
+        configMode: activeTab, 
+        agentModels: activeTab === "advanced" ? agentModels : DEFAULT_AGENT_MODELS,
+        }; */
+    const payload = {
       targetUrl,
       category: selectedCategory,
       attackType: selectedAttack,
       agentModels,
-      submittedAt: new Date().toISOString(),
     };
 
-    console.log("=== Configuración del Scan Enviada ===");
-    console.log(configPayload);
+    // Executamos la Server Action usando React Transition
+    startTransition(async () => {
+      const response = await submitScanConfigAction(payload);
+
+      if (!response.success) {
+        setError(response.error);
+        return;
+      }
+
+      console.log('Tarea creada con éxito:', response.data);
+    });
   };
 
   return (

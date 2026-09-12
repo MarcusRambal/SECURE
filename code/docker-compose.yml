@@ -10,6 +10,24 @@ networks:
 
 services:
 
+
+  frontend: 
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.frontend
+    container_name: frontend
+    ports:
+     - "3000:3000"  
+    networks:
+      - "public-net" 
+    volumes: 
+      - ./frontend:/app             
+      - /app/node_modules        
+      - /app/.next
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000  
+      - INTERNAL_API_URL=http://api:8000
+
   # 1. API Gateway (FastAPI)
   api:
     build:
@@ -144,6 +162,6 @@ services:
     security_opt:
       - no-new-privileges:true
     ports:
-      - "3000:3000"
+      - "3001:3000"
     networks:
       - sec-net

@@ -26,3 +26,7 @@ export const AVAILABLE_LLM_MODELS = [
   "Llama 3.3 70B (Ollama / Local)",
   "DeepSeek-R1",
 ];
+
+export const DEFAULT_AGENT_MODELS = [
+  
+]

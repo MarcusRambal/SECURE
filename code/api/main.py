@@ -28,7 +28,7 @@ app = FastAPI(
 #Configuración de CORS para permitir solicitudes desde cualquier origen, sin embargo esto debe cambiar en producción para restringir a dominios específicos.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"], # Reemplazar por el dominio exacto del frontend
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -47,12 +47,15 @@ async def start_scan(request: TaskRequest):
     payload = {
         "task_id": task_id,
         "target_url": request.target_url,
+        "category": request.category,
         "attack_type": request.attack_type,
+        "agent_models": request.agent_models.model_dump() if request.agent_models else None,
         "status": "INITIATED"
     }
 
     try:
         # 3. Enviamos el trabajo a RabbitMQ
+        print("Payload enviado a rabbitmq: ", payload)
         await rabbitmq_client.publish_task_request(payload)
     except Exception as e:
         raise HTTPException(
