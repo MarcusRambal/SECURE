@@ -1,14 +1,18 @@
 // components/dashboard/ConfigPanel.tsx
 "use client";
 
-import { ReactEventHandler, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import styles from "./ConfigPanel.module.css";
 
 import { submitScanConfigAction } from '../../actions/scanActions'
 
 import { ATTACK_CATEGORIES, AVAILABLE_LLM_MODELS } from "../configVariables/variables";
 
-export const ConfigPanel = () => {
+interface ConfigPanelProps {
+  onTaskCreated: (taskId: string) => void;
+}
+
+export const ConfigPanel = ({ onTaskCreated }: ConfigPanelProps) => {
   const [activeTab, setActiveTab] = useState<"basic" | "advanced">("basic");
   const [targetUrl, setTargetUrl] = useState<string>("");
   const [selectedCategory, setSelectedCategory] = useState<string>("injection");
@@ -49,11 +53,16 @@ export const ConfigPanel = () => {
       const response = await submitScanConfigAction(payload);
 
       if (!response.success) {
-        setError(response.error);
+        setError(response.error ?? "No se pudo crear la tarea.");
         return;
       }
 
-      console.log('Tarea creada con éxito:', response.data);
+      if (!response.data) {
+        setError("La API no devolvió un identificador de tarea.");
+        return;
+      }
+
+      onTaskCreated(response.data.taskId);
     });
   };
 
@@ -193,10 +202,12 @@ export const ConfigPanel = () => {
 
         {/* Botón de Envío del Formulario */}
         <div className={styles.submitContainer}>
-          <button type="submit" className={styles.submitButton}>
-            Iniciar Escaneo
+          <button type="submit" className={styles.submitButton} disabled={isPending}>
+            {isPending ? "Encolando..." : "Iniciar Escaneo"}
           </button>
         </div>
+
+        {error && <p role="alert">{error}</p>}
 
       </form>
 

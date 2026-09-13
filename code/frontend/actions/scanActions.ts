@@ -13,7 +13,8 @@ export async function submitScanConfigAction(payload: CreateTaskPayload) {
     const result = await scanService.createScanTask(payload);
 
     return { success: true, data: result };
-  } catch (error: any) {
-    return { success: false, error: error.message || 'Error al procesar el escaneo' };
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Error al procesar el escaneo';
+    return { success: false, error: message };
   }
 }

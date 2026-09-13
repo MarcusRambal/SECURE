@@ -1,11 +1,12 @@
 import uuid
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.schemas.task import TaskRequest, TaskResponse
 from app.core.rabbitmq import rabbitmq_client
+from app.websockets.manager import websocket_manager
 
 logging.basicConfig(level=logging.INFO)
 
@@ -37,6 +38,19 @@ app.add_middleware(
 @app.get("/")
 async def root():
     return {"status": "online", "service": "API Gateway"}
+
+
+@app.websocket("/ws/scans/{task_id}")
+async def scan_events(websocket: WebSocket, task_id: str):
+    await websocket_manager.connect(task_id, websocket)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        await websocket_manager.disconnect(task_id, websocket)
+    except Exception:
+        await websocket_manager.disconnect(task_id, websocket)
+
 
 @app.post("/api/task", response_model=TaskResponse)
 async def start_scan(request: TaskRequest):

@@ -13,6 +13,7 @@ export interface CreateTaskPayload {
 export interface TaskResponse {
   taskId: string;
   status: string;
+  message?: string;
 }
 
 const isServer = typeof window === 'undefined';
@@ -41,6 +42,12 @@ export const scanService = {
       throw new Error(errorData.detail || `Error del servidor (${response.status})`);
     }
 
-    return response.json();
+    const data = await response.json();
+
+    return {
+      taskId: data.task_id ?? data.taskId,
+      status: data.status,
+      message: data.message,
+    };
   },
 };
