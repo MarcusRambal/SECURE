@@ -23,7 +23,7 @@ MCP_SKILLS_REGISTRY = {
                     "minutes": {
                         "type": "integer",
                         "description": "Tiempo máximo en minutos para el escaneo",
-                        "default": 1,
+                        "default": 3,
                     },
                 },
                 "required": ["target_url"],
@@ -31,7 +31,7 @@ MCP_SKILLS_REGISTRY = {
         },
         "image": "zaproxy/zap-stable:latest",
         "command_template": "zap-baseline.py -t {target_url} -m {minutes} -j -I",
-        "timeout": 600,
+        "timeout": 900,
         "success_exit_codes": [0, 1, 2, 3],
     },
     # =========================================================================
@@ -155,9 +155,9 @@ MCP_SKILLS_REGISTRY = {
                 "required": ["target_url"],
             },
         },
-        "image": "sqlmapproject/sqlmap:latest",
+        "image": "parrotsec/sqlmap:latest",
         "command_template": '-u "{target_url}" --batch --risk=1 --level=1',
-        "timeout": 300,
+        "timeout": 900,
         "success_exit_codes": [0],
     },
     # =========================================================================
@@ -184,9 +184,9 @@ MCP_SKILLS_REGISTRY = {
             },
         },
         "image": "hahwul/dalfox:latest",
-        "command_template": 'url "{target_url}" --silence',
+        "command_template": './dalfox url "{target_url}" --silence',
         "timeout": 300,
-        "success_exit_codes": [0],
+        "success_exit_codes": [0,2],
     },
     # =========================================================================
     # 7. Commix - Inyección de Comandos del SO (Command Injection)
@@ -214,7 +214,7 @@ MCP_SKILLS_REGISTRY = {
         },
         "image": "local-commix:latest",
         "command_template": '--url="{target_url}" --batch',
-        "timeout": 300,
+        "timeout": 900,
         "success_exit_codes": [0],
     },
     # =========================================================================
@@ -247,7 +247,7 @@ MCP_SKILLS_REGISTRY = {
         },
         "image": "local-nuclei:latest",
         "command_template": '-u "{target_url}" -tags {tags} -silent -nc',
-        "timeout": 300,
+        "timeout": 600,
         "success_exit_codes": [0],
     },
     # =========================================================================

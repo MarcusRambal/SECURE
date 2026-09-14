@@ -1,13 +1,17 @@
 FROM python:3.11-slim
 
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
 WORKDIR /app
 
-# Copia los requerimientos desde el contexto ./agents
+# Dependencias del agente
 COPY recon/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copia el código fuente del agente de reconocimiento
+# Contrato compartido y lógica del recon
+COPY contract_schemas.py .
+COPY llm_factory.py .
 COPY recon/main.py .
 
-# Ejecuta el worker de recon directamente
 CMD ["python", "main.py"]

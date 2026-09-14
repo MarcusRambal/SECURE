@@ -1,26 +1,25 @@
 FROM python:3.12-slim
 
-# Evita que Python escriba archivos .pyc en disco y fuerza la salida de logs en tiempo real
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
 WORKDIR /app
 
-# Instalar dependencias del sistema mínimas necesarias
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    && rm -rf /var/lib/apt-get/lists/*
-
+# Dependencias del agente
 COPY orchestrator/requirements.txt .
-
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copiar todo el contenido de la carpeta orchestrator/ 
+# Contrato compartido y lógica del orchestrator
+COPY contract_schemas.py .
+COPY llm_factory.py .
 COPY orchestrator/ .
 
-# Crear un usuario sin privilegios por seguridad y asignar permisos sobre /app
 RUN adduser --disabled-password --gecos "" appuser && chown -R appuser:appuser /app
 USER appuser
 
-# Inicia el agente orquestador como un worker asíncrono que consume tareas de RabbitMQ
+EXPOSE 8001
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')" || exit 1
+
 CMD ["python", "main.py"]

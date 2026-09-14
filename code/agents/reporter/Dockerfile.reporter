@@ -1,0 +1,17 @@
+FROM python:3.11-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+WORKDIR /app
+
+# Dependencias del agente
+COPY reporter/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Contrato compartido y lógica del reporter
+COPY contract_schemas.py .
+COPY llm_factory.py .
+COPY reporter/main.py .
+
+CMD ["python", "main.py"]
