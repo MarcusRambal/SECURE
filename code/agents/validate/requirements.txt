@@ -1,5 +1,6 @@
-fastapi
-uvicorn[standard]
-playwright
 pydantic
-httpx
+langchain
+langchain-core
+langchain-groq
+langgraph
+aio-pika==10.0.1
