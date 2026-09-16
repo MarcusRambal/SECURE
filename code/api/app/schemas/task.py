@@ -2,17 +2,17 @@
 from pydantic import BaseModel, Field
 from typing import Optional
 
+
+class AgentModelsSchema(BaseModel):
+    scanner: str
+    attacker: str
+    reporter: str
+
 class TaskRequest(BaseModel):
-    target_url: str = Field(
-        ..., 
-        example="http://juice-shop:3000/#/login",
-        description="URL o IP del objetivo a analizar"
-    )
-    attack_type: Optional[str] = Field(
-        default="full", 
-        example="full",
-        description="Tipo de ataque a realizar (ej: full, sql_injection, xss)"
-    )
+    target_url: str
+    category: str
+    attack_type: Optional[str] 
+    agent_models: Optional[AgentModelsSchema] = None
 
 class TaskResponse(BaseModel):
     task_id: str
