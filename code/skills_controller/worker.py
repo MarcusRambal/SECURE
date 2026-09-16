@@ -6,13 +6,13 @@ import os
 from mcp_server import mcp_server
 
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - [%(levelname)s] - %(name)s - %(message)s"
+    level=logging.INFO, format="%(asctime)s - [%(levelname)s] - %(name)s - %(message)s"
 )
 logger = logging.getLogger("skills-controller")
 
 RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://guest:guest@rabbitmq-broker:5672/")
 INPUT_QUEUE = "skills_queue"
+
 
 async def main():
     connection = None
@@ -43,7 +43,9 @@ async def main():
                         correlation_id = message.correlation_id or payload.get("id")
                         reply_to = message.reply_to or "orchestrator_results_queue"
 
-                        logger.info(f"📩 Petición MCP recibida: Método '{method}' | ID: {correlation_id}")
+                        logger.info(
+                            f"📩 Petición MCP recibida: Método '{method}' | ID: {correlation_id}"
+                        )
 
                         if method == "tools/list":
                             mcp_response = mcp_server.list_tools()
@@ -61,9 +63,9 @@ async def main():
                                 "jsonrpc": "2.0",
                                 "error": {
                                     "code": -32601,
-                                    "message": f"Método MCP '{method}' no soportado."
+                                    "message": f"Método MCP '{method}' no soportado.",
                                 },
-                                "id": correlation_id
+                                "id": correlation_id,
                             }
 
                         mcp_response["id"] = correlation_id
@@ -72,14 +74,17 @@ async def main():
                             aio_pika.Message(
                                 body=json.dumps(mcp_response).encode("utf-8"),
                                 correlation_id=correlation_id,
-                                content_type="application/json"
+                                content_type="application/json",
                             ),
-                            routing_key=reply_to
+                            routing_key=reply_to,
                         )
-                        logger.info(f"✅ Respuesta MCP enviada a '{reply_to}' para ID: {correlation_id}")
+                        logger.info(
+                            f"✅ Respuesta MCP enviada a '{reply_to}' para ID: {correlation_id}"
+                        )
 
                     except Exception as e:
                         logger.error(f"Error procesando el mensaje en Skills Controller: {str(e)}")
+
 
 if __name__ == "__main__":
     asyncio.run(main())

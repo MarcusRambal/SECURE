@@ -1,14 +1,7 @@
-google-genai
-playwright
 pydantic
 requests
 langchain
 langchain-core
-langchain-google-genai
 langchain-groq
 langgraph
-playwright
-fastapi
-uvicorn[standard]
-httpx
 aio-pika==10.0.1

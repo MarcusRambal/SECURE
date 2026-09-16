@@ -3,25 +3,155 @@ import json
 import logging
 import asyncio
 import aio_pika
-from contextlib import asynccontextmanager
-from datetime import datetime
-from fastapi import FastAPI
-from langchain_groq import ChatGroq
+import uvicorn
+from fastapi import FastAPI, HTTPException, Response
+from llm_factory import get_llm
+
 from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.prebuilt import create_react_agent
 
-from tools import recon_agent_tool
+from tools import TASK_STATE, create_orchestrator_tools
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("orchestrator-main")
 
-RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://marcus:CampanaPlateada1902@rabbitmq-broker:5672/")
+RABBITMQ_URL = os.getenv("RABBITMQ_URL")
 ORCHESTRATOR_QUEUE = "orchestrator_queue"
 
-TASKS_RESULTS_DB = {}
+# Resultados finales por task_id (en memoria, no persistente).
+TASKS_RESULTS_DB: dict[str, dict] = {}
 
-# Worker de RabbitMQ integrado
-async def start_rabbitmq_consumer():
+app = FastAPI(title="SECURE - Orchestrator Gateway API", version="1.0.0")
+
+
+@app.get("/health")
+async def health_check():
+    return {"status": "ok", "service": "orchestrator"}
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    return Response(status_code=204)
+
+
+@app.get("/api/task/{task_id}")
+async def get_task_result(task_id: str):
+    """Permite consultar el estado y el reporte final en Markdown de una tarea."""
+    if task_id in TASKS_RESULTS_DB:
+        return TASKS_RESULTS_DB[task_id]
+    if task_id in TASK_STATE:
+        return {
+            "task_id": task_id,
+            "status": TASK_STATE[task_id].get("status", "PROCESSING"),
+            "target_url": TASK_STATE[task_id].get("target_url"),
+            "attack_type": TASK_STATE[task_id].get("attack_type"),
+        }
+    raise HTTPException(status_code=404, detail=f"Tarea '{task_id}' no encontrada.")
+
+
+async def execute_orchestration_flow(payload: dict, channel: aio_pika.Channel):
+    """Ejecuta el pipeline secuencial y persiste el resultado en TASKS_RESULTS_DB."""
+    task_id = payload.get("task_id", "N/A")
+    target_url = payload.get("target_url")
+    attack_type = payload.get("attack_type", "full")
+
+    logger.info("============================================================")
+    logger.info(f"🚀 [AUDITORÍA INICIADA] Task ID: {task_id}")
+    logger.info(f"   Objetivo: {target_url} | Tipo: {attack_type}")
+    logger.info("============================================================")
+
+    TASK_STATE[task_id] = {
+        "task_id": task_id,
+        "target_url": target_url,
+        "attack_type": attack_type,
+        "status": "PROCESSING",
+        "recon_data": None,
+        "validation_data": None,
+        "report_markdown": None,
+        "recon_used_fallback": False,
+        "validate_used_fallback": False,
+        "reporter_used_fallback": False,
+        # Cómo se recuperó cada fase: "clean" | "recovered" | "fallback" | "error".
+        "recon_recovery_mode": None,
+        "validate_recovery_mode": None,
+    }
+
+    try:
+        llm = get_llm("orchestrator")
+
+        tools = create_orchestrator_tools(channel)
+        logger.info(f"Agentes cargados en LangChain: {[t.name for t in tools]}")
+
+        system_prompt = SystemMessage(
+            content=(
+                "Eres el Agente Orquestador Principal de Ciberseguridad.\n"
+                "Tu función única es coordinar la ejecución en secuencia estricta de los 3 agentes especializados invocando sus herramientas pasando únicamente el 'task_id':\n\n"
+                "SECUENCIA OBLIGATORIA DE HERRAMIENTAS:\n"
+                "1. Llama a 'recon_agent' con 'task_id'.\n"
+                "2. Llama a 'validate_agent' con 'task_id'.\n"
+                "3. Llama a 'reporter_agent' con 'task_id'.\n"
+                "4. Una vez que 'reporter_agent' confirme la generación del informe, emite como tu MENSAJE FINAL ÚNICAMENTE la frase: 'Pipeline completado'.\n\n"
+                "REGLAS STRICTAS:\n"
+                "- NO intentes copiar ni reproducir el texto Markdown del reporte en tu mensaje final.\n"
+                "- NO redactes conclusiones ni resúmenes.\n"
+                "- Pasa ÚNICAMENTE 'task_id' en cada llamada a herramienta."
+            )
+        )
+
+        agent_executor = create_react_agent(model=llm, tools=tools, prompt=system_prompt)
+
+        initial_input = {
+            "messages": [
+                HumanMessage(
+                    content=f"Inicia el pipeline de auditoría pasando task_id='{task_id}'."
+                )
+            ]
+        }
+
+        async for event in agent_executor.astream(initial_input, config={"recursion_limit": 10}):
+            for value in event.values():
+                last_msg = value["messages"][-1]
+                if last_msg.type == "tool":
+                    logger.info(f"[TOOL]: {str(last_msg.content)[:180]}...")
+                elif last_msg.type == "ai" and not getattr(last_msg, "tool_calls", None):
+                    logger.info(f"[AI FINAL]: {str(last_msg.content)[:180]}")
+
+        completed_state = TASK_STATE.get(task_id, {})
+        final_status = completed_state.get("status", "COMPLETED")
+
+        TASKS_RESULTS_DB[task_id] = {
+            "task_id": task_id,
+            "target_url": target_url,
+            "attack_type": attack_type,
+            "status": final_status,
+            "report_markdown": completed_state.get("report_markdown"),
+            "recon_used_fallback": completed_state.get("recon_used_fallback", False),
+            "validate_used_fallback": completed_state.get("validate_used_fallback", False),
+            "reporter_used_fallback": completed_state.get("reporter_used_fallback", False),
+            "recon_recovery_mode": completed_state.get("recon_recovery_mode"),
+            "validate_recovery_mode": completed_state.get("validate_recovery_mode"),
+        }
+
+        logger.info(
+            f"✅ Auditoría {task_id} finalizada ({final_status}) y persistida en TASKS_RESULTS_DB."
+        )
+
+    except Exception as e:
+        logger.error(f"❌ Error durante la ejecución del orquestador: {e}", exc_info=True)
+        TASKS_RESULTS_DB[task_id] = {
+            "task_id": task_id,
+            "target_url": target_url,
+            "attack_type": attack_type,
+            "status": "FAILED",
+            "error": str(e),
+        }
+    finally:
+        # Liberación limpia de memoria del estado intermedio de la tarea
+        TASK_STATE.pop(task_id, None)
+
+
+async def start_orchestrator_worker():
+    """Worker asíncrono que escucha solicitudes en RabbitMQ."""
     while True:
         try:
             logger.info(f"Conectando Orquestador a RabbitMQ en {RABBITMQ_URL}...")
@@ -30,142 +160,30 @@ async def start_rabbitmq_consumer():
                 channel = await connection.channel()
                 queue = await channel.declare_queue(ORCHESTRATOR_QUEUE, durable=True)
                 logger.info(f"🎧 Orquestador escuchando en '{ORCHESTRATOR_QUEUE}'...")
-                
+
                 async with queue.iterator() as queue_iter:
                     async for message in queue_iter:
                         async with message.process():
                             payload = json.loads(message.body.decode("utf-8"))
-                            await execute_orchestration_flow(payload)
+                            await execute_orchestration_flow(payload, channel)
         except Exception as e:
-            logger.warning(f"RabbitMQ no disponible aún ({e}). Reintentando en 3s...")
+            logger.warning(f"Error en Worker del Orquestador ({e}). Reintentando en 3s...")
             await asyncio.sleep(3)
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Arranca la escucha de eventos en segundo plano junto con la API
-    consumer_task = asyncio.create_task(start_rabbitmq_consumer())
-    yield
-    consumer_task.cancel()
 
-app = FastAPI(title="SECURE - Orchestrator Main", lifespan=lifespan)
+async def start_http_server():
+    """Servidor FastAPI HTTP para exponer los endpoints de consulta."""
+    config = uvicorn.Config(app, host="0.0.0.0", port=8001, log_level="info")
+    server = uvicorn.Server(config)
+    await server.serve()
 
-@app.get("/api/task/{task_id}")
-async def get_task_result(task_id: str):
-    if task_id not in TASKS_RESULTS_DB:
-        return {
-            "task_id": task_id,
-            "status": "PROCESSING",
-            "message": "La tarea sigue en ejecución..."
-        }
-    return TASKS_RESULTS_DB[task_id]
 
-async def execute_orchestration_flow(payload: dict):
-    task_id = payload.get("task_id")
-    target_url = payload.get("target_url")
-    attack_type = payload.get("attack_type", "scan")
-
-    logger.info("============================================================")
-    logger.info(f"   [NUEVA TAREA RECIBIDA] ID: {task_id}")
-    logger.info(f"   Objetivo: {target_url} | Tipo: {attack_type}")
-    logger.info("============================================================")
-
-    TASKS_RESULTS_DB[task_id] = {
-        "task_id": task_id,
-        "status": "PROCESSING",
-        "target_url": target_url
-    }
-
-    tools = [recon_agent_tool]
-    groq_api_key = os.getenv("GROQ_API_KEY")
-    if not groq_api_key:
-        logger.error("GROQ_API_KEY no encontrada.")
-        TASKS_RESULTS_DB[task_id] = {
-            "task_id": task_id,
-            "status": "FAILED",
-            "error": "GROQ_API_KEY faltante"
-        }
-        return
-
-    llm = ChatGroq(
-        model_name="qwen/qwen3.8-27b",
-        groq_api_key=groq_api_key,
-        temperature=0.1,
-        max_tokens=800
+async def main():
+    await asyncio.gather(
+        start_orchestrator_worker(),
+        start_http_server(),
     )
 
-    system_prompt = SystemMessage(
-        content=(
-            "Eres el Agente Orquestador Principal de Ciberseguridad.\n"
-            "Tu única responsabilidad es planificar y delegar tareas a tus agentes especializados.\n"
-            "Para auditorías de escaneo o reconocimiento, DEBES invocar al 'recon_agent'.\n"
-            "Una vez que el agente te devuelva los resultados, consolida la respuesta final para el usuario."
-        )
-    )
 
-    agent_executor = create_react_agent(model=llm, tools=tools, prompt=system_prompt)
-    initial_input = {
-        "messages": [
-            HumanMessage(
-                content=f"Inicia una auditoría de reconocimiento sobre la URL objetivo '{target_url}' delegando en el agente correspondiente."
-            )
-        ]
-    }
-
-    try:
-        final_summary = ""
-        global_traceability = []
-
-        async for event in agent_executor.astream(initial_input, config={"recursion_limit": 6}):
-            for value in event.values():
-                last_msg = value["messages"][-1]
-                logger.info(f"\n[{last_msg.type.upper()}]:\n{last_msg.content}")
-
-                if getattr(last_msg, "tool_calls", None):
-                    for tool in last_msg.tool_calls:
-                        global_traceability.append({
-                            "timestamp": datetime.utcnow().isoformat() + "Z",
-                            "agent": "orchestrator",
-                            "action": f"Delegando tarea a '{tool['name']}'",
-                            "arguments": tool["args"]
-                        })
-
-                elif last_msg.type == "tool":
-                    try:
-                        tool_data = json.loads(last_msg.content)
-                        if isinstance(tool_data, dict) and "traceability" in tool_data:
-                            global_traceability.extend(tool_data["traceability"])
-                        else:
-                            global_traceability.append({
-                                "timestamp": datetime.utcnow().isoformat() + "Z",
-                                "agent": last_msg.name or "sub_agent",
-                                "action": "Resultado recibido",
-                                "output": str(last_msg.content)[:300]
-                            })
-                    except Exception:
-                        global_traceability.append({
-                            "timestamp": datetime.utcnow().isoformat() + "Z",
-                            "agent": last_msg.name or "sub_agent",
-                            "action": "Resultado recibido",
-                            "output": str(last_msg.content)[:300]
-                        })
-
-                elif last_msg.type == "ai" and not getattr(last_msg, "tool_calls", None):
-                    final_summary = last_msg.content
-
-        TASKS_RESULTS_DB[task_id] = {
-            "task_id": task_id,
-            "status": "COMPLETED",
-            "target_url": target_url,
-            "attack_type": attack_type,
-            "global_traceability": global_traceability,
-            "final_report": final_summary
-        }
-        logger.info(f"Tarea {task_id} procesada exitosamente.\n")
-
-    except Exception as e:
-        logger.error(f"Error durante la ejecución del orquestador: {str(e)}", exc_info=True)
-        TASKS_RESULTS_DB[task_id] = {
-            "task_id": task_id,
-            "status": "FAILED",
-            "error": str(e)
-        }
+if __name__ == "__main__":
+    asyncio.run(main())

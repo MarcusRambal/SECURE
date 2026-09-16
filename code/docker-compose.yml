@@ -5,7 +5,7 @@ networks:
     name: internal-net
     driver: bridge
   sec-net:
-    name: sec-net # <--- FUERZA A DOCKER A LLAMARLA EXACTAMENTE "sec-net"
+    name: sec-net
     driver: bridge
 
 services:
@@ -23,7 +23,8 @@ services:
       - public-net
       - internal-net
     depends_on:
-      - rabbitmq
+      rabbitmq:
+        condition: service_healthy
 
   # 2. Message Broker (RabbitMQ)
   rabbitmq:
@@ -40,6 +41,12 @@ services:
       - ./enable_plugins:/etc/rabbitmq/enabled_plugins:ro
     networks:
       - internal-net
+    healthcheck:
+      test: [ "CMD", "rabbitmq-diagnostics", "-q", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
   # 3. Controlador de Skills (Servidor MCP + Docker Socket)
   skills-controller:
@@ -48,81 +55,76 @@ services:
       dockerfile: Dockerfile.skills_controller
     container_name: ctnr-skills-controller
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock # <--- Acceso al Engine de Docker
+      - /var/run/docker.sock:/var/run/docker.sock # Acceso al Engine de Docker
     env_file:
       - .env
-    environment:
-      - RABBITMQ_URL=${RABBITMQ_URL}
     networks:
       - internal-net
     depends_on:
-      - rabbitmq
+      rabbitmq:
+        condition: service_healthy
 
+  # 4. Orquestador Principal (LLM Router)
   orchestrator:
     build:
       context: ./agents
       dockerfile: orchestrator/Dockerfile.orchestrator
     ports:
       - "8001:8001"
+    restart: unless-stopped
     env_file:
       - .env
     networks:
       - public-net
       - internal-net
-    environment:
-      - RABBITMQ_URL=${RABBITMQ_URL}
-      - GROQ_API_KEY=${GROQ_API_KEY}
-      - LANGCHAIN_TRACING_V2=${LANGCHAIN_TRACING_V2}
-      - LANGCHAIN_ENDPOINT=${LANGCHAIN_ENDPOINT}
-      - LANGCHAIN_API_KEY=${LANGCHAIN_API_KEY}
-      - LANGCHAIN_PROJECT=${LANGCHAIN_PROJECT}
     depends_on:
-      - rabbitmq
+      rabbitmq:
+        condition: service_healthy
 
-  # 4. Agente de Reconocimiento
+  # 5. Agente de Reconocimiento
   recon-agent:
     build:
       context: ./agents
       dockerfile: recon/Dockerfile.recon
-    ports:
-      - "8003:8003"
+    env_file:
+      - .env
     networks:
-      sec-net:
-        aliases:
-          - recon-agent
-      internal-net:
-    environment:
-      - TESTER_AGENT_URL=http://validate-agent:8002/validate
-      - GROQ_API_KEY=${GROQ_API_KEY}
-      - RABBITMQ_URL=${RABBITMQ_URL}
-      - TARGET_URL=http://juice-shop:3000/#/login
-      - LANGCHAIN_TRACING_V2=${LANGCHAIN_TRACING_V2}
-      - LANGCHAIN_ENDPOINT=${LANGCHAIN_ENDPOINT}
-      - LANGCHAIN_API_KEY=${LANGCHAIN_API_KEY}
-      - LANGCHAIN_PROJECT=${LANGCHAIN_PROJECT}
+      - sec-net
+      - internal-net
     depends_on:
-      - juice-shop
-      - rabbitmq
-      - validate-agent
+      rabbitmq:
+        condition: service_healthy
 
-  # Agente de Validación
+  # 6. Agente de Validación
   validate-agent:
     build:
       context: ./agents
       dockerfile: validate/Dockerfile.validate
-    ports:
-      - "8002:8002"
+    env_file:
+      - .env
     networks:
-      sec-net:
-        aliases:
-          - validate-agent
-      internal-net:
-    environment:
-      - GROQ_API_KEY=${GROQ_API_KEY}
+      - sec-net
+      - internal-net
     depends_on:
-      - juice-shop
+      rabbitmq:
+        condition: service_healthy
 
-  # 5. Entorno Vulnerable: WebGoat
+  # 7. Agente Reportador (Generación de Informes Markdown)
+  reporter-agent:
+    build:
+      context: ./agents
+      dockerfile: reporter/Dockerfile.reporter
+    restart: unless-stopped
+    env_file:
+      - .env
+    networks:
+      - sec-net
+      - internal-net
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  # 8. Entorno Vulnerable: WebGoat
   webgoat:
     image: webgoat/webgoat:latest
     container_name: webgoat-target
@@ -135,7 +137,7 @@ services:
     networks:
       - sec-net
 
-  # 6. Entorno Vulnerable: OWASP Juice Shop
+  # 9. Entorno Vulnerable: OWASP Juice Shop
   juice-shop:
     image: bkimminich/juice-shop:latest
     container_name: juice-shop-target
