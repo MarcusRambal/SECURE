@@ -12,7 +12,9 @@ class SkillsMCPServer:
         tools_list = [skill["mcp_schema"] for skill in MCP_SKILLS_REGISTRY.values()]
         return {"jsonrpc": "2.0", "result": {"tools": tools_list}}
 
-    async def call_tool(self, tool_name: str, arguments: dict) -> dict:
+    async def call_tool(
+        self, tool_name: str, arguments: dict, timeout_override: int = None
+    ) -> dict:
         if tool_name not in MCP_SKILLS_REGISTRY:
             return {
                 "jsonrpc": "2.0",
@@ -48,7 +50,7 @@ class SkillsMCPServer:
         result = await docker_runner.execute_tool(
             image=tool_config["image"],
             command=formatted_args,
-            timeout=tool_config["timeout"],
+            timeout=timeout_override or tool_config["timeout"],
             success_exit_codes=tool_config.get("success_exit_codes", [0]),
         )
 

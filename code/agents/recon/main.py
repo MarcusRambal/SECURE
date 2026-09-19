@@ -6,7 +6,7 @@ import asyncio
 import logging
 import aio_pika
 from datetime import datetime, timezone
-from llm_factory import get_llm
+from llm_factory import get_int_env, get_llm
 
 from pydantic import BaseModel, Field, ValidationError
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -22,7 +22,10 @@ logger = logging.getLogger("recon-agent-worker")
 RABBITMQ_URL = os.getenv("RABBITMQ_URL")
 SKILLS_QUEUE = "skills_queue"
 RECON_QUEUE = "recon_queue"
-MAX_ENDPOINTS_IN_OUTPUT = 10
+MAX_ENDPOINTS_IN_OUTPUT = get_int_env("MAX_ENDPOINTS_IN_OUTPUT", 10)
+MCP_OUTPUT_MAX_CHARS = get_int_env("MCP_OUTPUT_MAX_CHARS", 1500)
+MAX_RECON_TOOL_CALLS = get_int_env("MAX_RECON_TOOL_CALLS", 2)
+RECON_ONLY_TOOL = os.getenv("RECON_ONLY_TOOL", "").strip().lower()
 
 
 # ============================================================================
@@ -45,7 +48,7 @@ class SubmitReconInput(BaseModel):
 
     target_url: str = Field(description="URL principal analizada")
     endpoints: list[SimpleEndpoint] = Field(
-        description="Lista de endpoints descubiertos (máximo 7)"
+        description="Lista completa de endpoints descubiertos"
     )
     technologies: list[str] = Field(
         description="Tecnologías detectadas (ej: Angular, Express). Lista vacía [] si no hay."
@@ -157,14 +160,17 @@ def _build_from_submitted_args(args: dict, target_url: str, started_at: str) -> 
     if isinstance(technologies, str):
         technologies = [t.strip() for t in technologies.split(",") if t.strip()]
 
-    return ReconOutput(
+    recon_output = ReconOutput(
         target_url=args.get("target_url", target_url),
-        endpoints=endpoints[:MAX_ENDPOINTS_IN_OUTPUT],
+        endpoints=endpoints,
         technologies=technologies,
         passive_findings=[],
         scan_started_at=started_at,
         scan_finished_at=datetime.now(timezone.utc).isoformat(),
     )
+
+    logger.info("ReconOutput preparado con %d endpoints", len(recon_output.endpoints))
+    return recon_output
 
 
 def build_fallback_recon_output(
@@ -182,9 +188,10 @@ def build_fallback_recon_output(
     combined_text = "\n".join(raw_tool_outputs) + "\n" + (raw_llm_text or "")
     urls = parse_raw_text_to_urls(combined_text)
 
+    endpoint_limit = MAX_ENDPOINTS_IN_OUTPUT if MAX_ENDPOINTS_IN_OUTPUT > 0 else None
     endpoints = [
         DiscoveredEndpoint(url=u, method="GET", source="fallback_regex")
-        for u in urls[:MAX_ENDPOINTS_IN_OUTPUT]
+        for u in (urls[:endpoint_limit] if endpoint_limit else urls)
     ]
     if not endpoints:
         endpoints = [DiscoveredEndpoint(url=target_url, method="GET", source="target_root")]
@@ -243,9 +250,9 @@ async def call_mcp_skill(channel: aio_pika.Channel, tool_name: str, arguments: d
 
         # NOTA: el output de la herramienta se acumula en el contexto del LLM
         # y consume ITPM. Limitamos a 1500 caracteres para preservar el cupo.
-        if len(raw_output) > 1500:
+        if MCP_OUTPUT_MAX_CHARS > 0 and len(raw_output) > MCP_OUTPUT_MAX_CHARS:
             raw_output = (
-                raw_output[:1500]
+            raw_output[:MCP_OUTPUT_MAX_CHARS]
                 + f"\n\n[... salida truncada. Total original: {len(raw_output)} caracteres]"
             )
         return raw_output
@@ -297,7 +304,9 @@ def build_recon_tools(mcp_catalog: list, channel: aio_pika.Channel) -> list:
 
     for mcp_tool in mcp_catalog:
         tool_name = mcp_tool["name"]
-        if not any(kw in tool_name.lower() for kw in recon_keywords):
+        if RECON_ONLY_TOOL and tool_name.lower() != RECON_ONLY_TOOL:
+            continue
+        if not RECON_ONLY_TOOL and not any(kw in tool_name.lower() for kw in recon_keywords):
             continue
 
         description = mcp_tool["description"]
@@ -356,7 +365,8 @@ async def process_recon_task(channel: aio_pika.Channel, target_url: str) -> tupl
     started_at = datetime.now(timezone.utc).isoformat()
 
     catalog = await get_mcp_catalog(channel)
-    tools = build_recon_tools(catalog, channel)
+    tools =  build_recon_tools(catalog, channel)
+    logger.info("Herramientas Recon activas: %s", [tool.name for tool in tools])
 
     if not tools or len(tools) <= 1:
 
@@ -373,14 +383,24 @@ async def process_recon_task(channel: aio_pika.Channel, target_url: str) -> tupl
         return empty, "fallback"
 
     llm = get_llm("recon")
+    tool_limit_text = (
+        "sin límite artificial"
+        if MAX_RECON_TOOL_CALLS <= 0
+        else f"máximo {MAX_RECON_TOOL_CALLS}"
+    )
+    endpoint_limit_text = (
+        "sin límite artificial"
+        if MAX_ENDPOINTS_IN_OUTPUT <= 0
+        else f"máximo {MAX_ENDPOINTS_IN_OUTPUT}"
+    )
 
     system_prompt = SystemMessage(
         content=(
             "Eres el Agente Especialista en Reconocimiento de Aplicaciones Web.\n"
-            "Tu objetivo es mapear la superficie del objetivo usando las herramientas MCP disponibles (ej: katana, zap_ajax_spider).\n\n"
+            f"Tu objetivo es mapear la superficie del objetivo usando exclusivamente la herramienta '{RECON_ONLY_TOOL or 'las herramientas MCP disponibles'}'.\n\n"
             "REGLAS ESTRICTAS DE OPERACIÓN:\n"
-            "1. Puedes ejecutar máximo 2 herramientas de reconocimiento (katana, zap_*).\n"
-            f"2. Incluye un MÁXIMO de {MAX_ENDPOINTS_IN_OUTPUT} endpoints, priorizando rutas con parámetros, /api/, /rest/, /admin/, /login y formularios.\n\n"
+            f"1. Puedes ejecutar {tool_limit_text} veces la herramienta '{RECON_ONLY_TOOL or 'de reconocimiento'}'.\n"
+            f"2. Incluye {endpoint_limit_text} endpoints, priorizando rutas con parámetros, /api/, /rest/, /admin/, /login y formularios.\n\n"
             "REGLA CRÍTICA DE FINALIZACIÓN:\n"
             "Cuando termines de ejecutar las herramientas, NO escribas el JSON como texto plano. "
             "ESTÁS OBLIGADO a llamar a la herramienta 'submit_recon_output' pasando tus hallazgos "
@@ -390,7 +410,7 @@ async def process_recon_task(channel: aio_pika.Channel, target_url: str) -> tupl
             "tu tarea termina.\n\n"
             "ESTRUCTURA DE ARGUMENTOS DE 'submit_recon_output':\n"
             "- target_url: string (URL principal)\n"
-            "- endpoints: array de {url, method, parameters} (máx 7)\n"
+            "- endpoints: array completo de {url, method, parameters}\n"
             "- technologies: array de strings\n\n"
             "EJEMPLO DE LLAMADA VÁLIDA:\n"
             "submit_recon_output(\n"

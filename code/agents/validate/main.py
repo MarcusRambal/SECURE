@@ -6,7 +6,7 @@ import asyncio
 import logging
 import aio_pika
 from datetime import datetime, timezone
-from llm_factory import get_llm
+from llm_factory import get_int_env, get_llm
 
 from pydantic import BaseModel, Field, ValidationError
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -23,7 +23,10 @@ RABBITMQ_URL = os.getenv("RABBITMQ_URL")
 SKILLS_QUEUE = "skills_queue"
 VALIDATE_QUEUE = "validate_queue"
 
-MAX_ENDPOINTS_TO_VALIDATE = 10
+MAX_ENDPOINTS_TO_VALIDATE = get_int_env("MAX_ENDPOINTS_TO_VALIDATE", 10)
+MCP_OUTPUT_MAX_CHARS = get_int_env("MCP_OUTPUT_MAX_CHARS", 1500)
+MAX_VALIDATE_TOOL_CALLS = get_int_env("MAX_VALIDATE_TOOL_CALLS", 3)
+VALIDATE_ONLY_TOOL = os.getenv("VALIDATE_ONLY_TOOL", "").strip().lower()
 ALLOWED_ATTACK_TYPES = {"full", "sql_injection", "xss", "command_injection"}
 
 # Mapeo estricto de herramientas permitidas según attack_type
@@ -103,6 +106,8 @@ submit_validate_tool = StructuredTool.from_function(
 
 def sanitize_attack_type(attack_type: str) -> str:
     """Valida y sanitiza el attack_type recibido."""
+    if VALIDATE_ONLY_TOOL == "sqlmap":
+        return "sql_injection"
     if not attack_type or attack_type.lower() not in ALLOWED_ATTACK_TYPES:
         logger.warning(f"attack_type '{attack_type}' no reconocido. Aplicando 'full'.")
         return "full"
@@ -131,6 +136,8 @@ def prioritize_endpoints(endpoints: list[dict]) -> list[dict]:
         return s
 
     sorted_endpoints = sorted(unique_endpoints, key=score, reverse=True)
+    if MAX_ENDPOINTS_TO_VALIDATE <= 0:
+        return sorted_endpoints
     return sorted_endpoints[:MAX_ENDPOINTS_TO_VALIDATE]
 
 
@@ -424,9 +431,9 @@ async def call_mcp_skill(channel: aio_pika.Channel, tool_name: str, arguments: d
 
         # NOTA: el output de la herramienta se acumula en el contexto del LLM
         # y consume ITPM. Limitamos a 1500 caracteres para preservar el cupo.
-        if len(raw_output) > 1500:
+        if MCP_OUTPUT_MAX_CHARS > 0 and len(raw_output) > MCP_OUTPUT_MAX_CHARS:
             raw_output = (
-                raw_output[:1500]
+            raw_output[:MCP_OUTPUT_MAX_CHARS]
                 + f"\n\n[... salida truncada. Total original: {len(raw_output)} caracteres]"
             )
         return raw_output
@@ -472,7 +479,9 @@ async def get_mcp_catalog(channel: aio_pika.Channel) -> list:
 def build_validation_tools(mcp_catalog: list, channel: aio_pika.Channel, attack_type: str) -> list:
     """Construye herramientas LangChain orientadas al attack_type + submit tool."""
     langchain_tools = []
-    allowed_tools = TOOL_MAP.get(attack_type, TOOL_MAP["full"])
+    allowed_tools = [VALIDATE_ONLY_TOOL] if VALIDATE_ONLY_TOOL else TOOL_MAP.get(
+        attack_type, TOOL_MAP["full"]
+    )
 
     from pydantic import create_model, Field
 
@@ -558,6 +567,7 @@ async def process_validate_task(
 
     catalog = await get_mcp_catalog(channel)
     tools = build_validation_tools(catalog, channel, clean_attack_type)
+    logger.info("Herramientas Validate activas: %s", [tool.name for tool in tools])
 
     real_tools = [t for t in tools if t.name != "submit_validate_output"]
     if not real_tools:
@@ -582,6 +592,12 @@ async def process_validate_task(
         fallback = build_fallback_validate_output(target_url, [], [], started_at)
         return fallback, "fallback"
 
+    tool_limit_text = (
+        "sin límite artificial"
+        if MAX_VALIDATE_TOOL_CALLS <= 0
+        else f"máximo {MAX_VALIDATE_TOOL_CALLS}"
+    )
+
     system_prompt = SystemMessage(
         content=(
             "Eres el Agente Especialista en Validación de Vulnerabilidades de Ciberseguridad.\n"
@@ -593,12 +609,11 @@ async def process_validate_task(
             "- Cobertura multivectorial basada en plantillas → 'nuclei'\n"
             "- Fuzzing de rutas o parámetros con 'ffuf': la URL objetivo DEBE contener la palabra literal 'FUZZ'.\n\n"
             "REGLAS ESTRICTAS DE OPERACIÓN:\n"
-            "1. Ejecuta máximo 3 herramientas reales (sqlmap, dalfox, commix, nuclei, ffuf).\n"
+            f"1. Ejecuta {tool_limit_text} veces la herramienta '{VALIDATE_ONLY_TOOL or 'permitida'}'.\n"
             "2. Los parámetros de las herramientas se llaman EXACTAMENTE como aparecen en su schema. "
             "Por ejemplo, 'dalfox' espera 'target_url' (no 'url' ni 'target'). Siempre usa 'target_url'.\n\n"
             "REGLA CRÍTICA DE FINALIZACIÓN:\n"
             "Cuando termines, NO devuelvas el JSON como texto plano. "
-            "ESTÁS OBLIGADO a llamar a la herramienta 'submit_validate_output' pasando tus hallazgos "
             "como argumentos estructurados (target_url, vulnerabilities). "
             "NO inventes nombres de herramientas como 'ValidateOutput', 'json' o 'Vulnerability'. "
             "La ÚNICA herramienta de finalización válida es 'submit_validate_output'.\n\n"
@@ -619,8 +634,6 @@ async def process_validate_task(
             '  vulnerabilities=[{"type": "SQL Injection", "severity": "HIGH", "endpoint": "/rest/user/login", '
             '"parameter": "id", "evidence": "Error SQL expuesto", "confidence": "HIGH", "tools_used": ["sqlmap"]}]\n'
             ")\n\n"
-            "Si NO encuentras vulnerabilidades, llama a 'submit_validate_output' con "
-            "'vulnerabilities': [] (lista vacía)."
         )
     )
 

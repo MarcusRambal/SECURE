@@ -1,0 +1,11 @@
+FROM mcr.microsoft.com/playwright/python:v1.63.0-noble
+
+WORKDIR /app
+
+# Instalar la librería de Playwright para Python
+RUN pip install --no-cache-dir playwright
+
+# Copiar el script de extracción
+COPY spa_crawler.py /app/spa_crawler.py
+
+ENTRYPOINT ["python", "/app/spa_crawler.py"]
