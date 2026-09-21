@@ -6,15 +6,13 @@ import asyncio
 import logging
 import aio_pika
 from datetime import datetime, timezone
-from llm_factory import get_llm
+from llm_factory import get_int_env, get_llm
 
-from pydantic import BaseModel, Field, ValidationError
+from typing import List
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_core.tools import StructuredTool
-from langgraph.prebuilt import create_react_agent
-from groq import APIStatusError
+from langchain.agents import create_agent
 
-from contract_schemas import ReconOutput, DiscoveredEndpoint
+from contract_schemas import ReconSummary, HighPriorityTarget, ReconPlannerOutput
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("recon-agent-worker")
@@ -22,51 +20,13 @@ logger = logging.getLogger("recon-agent-worker")
 RABBITMQ_URL = os.getenv("RABBITMQ_URL")
 SKILLS_QUEUE = "skills_queue"
 RECON_QUEUE = "recon_queue"
-MAX_ENDPOINTS_IN_OUTPUT = 10
+MCP_OUTPUT_MAX_CHARS = get_int_env("MCP_OUTPUT_MAX_CHARS", 1500)
 
 
-# ============================================================================
-# SCHEMAS PARA EL SUBMIT TOOL
-# ============================================================================
-
-
-class SimpleEndpoint(BaseModel):
-    """Versión simplificada de DiscoveredEndpoint para tool calling."""
-
-    url: str = Field(description="URL completa o ruta relativa del endpoint")
-    method: str = Field(description="Método HTTP: GET, POST, PUT, DELETE, etc.")
-    parameters: list[str] = Field(
-        description="Parámetros detectados en la URL o body. Lista vacía [] si no hay."
-    )
-
-
-class SubmitReconInput(BaseModel):
-    """Schema plano del submit tool para ReconOutput."""
-
-    target_url: str = Field(description="URL principal analizada")
-    endpoints: list[SimpleEndpoint] = Field(
-        description="Lista de endpoints descubiertos (máximo 7)"
-    )
-    technologies: list[str] = Field(
-        description="Tecnologías detectadas (ej: Angular, Express). Lista vacía [] si no hay."
-    )
-
-
-async def _submit_recon_executor(**kwargs) -> str:
-    """Ejecutor del submit tool. No hace nada real, solo devuelve acuse."""
-    return "Recon report received. Task complete."
-
-
-submit_recon_tool = StructuredTool.from_function(
-    coroutine=_submit_recon_executor,
-    name="submit_recon_output",
-    description=(
-        "OBLIGATORIO: Llama a esta herramienta EXACTAMENTE UNA VEZ al terminar el reconocimiento "
-        "para entregar el reporte final estructurado. Esta es la ÚNICA forma válida de terminar. "
-        "NO devuelvas el JSON como texto plano."
-    ),
-    args_schema=SubmitReconInput,
-)
+def log_preview(value: object, limit: int = 500) -> str:
+    """Resume valores grandes para mantener los logs legibles y seguros."""
+    text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, default=str)
+    return text if len(text) <= limit else f"{text[:limit]}... [{len(text)} chars]"
 
 
 # ============================================================================
@@ -74,129 +34,140 @@ submit_recon_tool = StructuredTool.from_function(
 # ============================================================================
 
 
-def parse_raw_text_to_urls(raw_text: str) -> list[str]:
-    """Extrae URLs de salidas crudas de herramientas MCP mediante expresiones regulares."""
-    if not raw_text:
-        return []
-    urls_found = re.findall(r'https?://[^\s><")]+', raw_text)
-    return list(dict.fromkeys(urls_found))
-
-
 def clean_json_response(raw_response: str) -> str:
-    """Elimina delimitadores de Markdown de código JSON si los hay."""
-    cleaned = raw_response.strip()
-    if cleaned.startswith("```"):
-        cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
-        cleaned = re.sub(r"\s*```$", "", cleaned)
-    return cleaned.strip()
+    """Extrae exclusivamente el JSON del bloque Markdown final del LLM."""
+    match = re.search(r"```json\s*(.*?)\s*```", raw_response, flags=re.IGNORECASE | re.DOTALL)
+    if not match:
+        raise ValueError("La respuesta del LLM no contiene un bloque ```json```")
+    return match.group(1).strip()
 
 
-def _extract_from_groq_error(error: APIStatusError) -> dict | None:
-    """
-    Capa 2: Intenta recuperar el JSON que el modelo quiso entregar cuando Groq
-    rechazó un tool_call inventado (code='tool_use_failed'). Devuelve el dict de
-    arguments si tiene éxito, o None si el JSON viene truncado o corrupto.
-    """
+def deduplicate_urls(*url_groups: list[str]) -> list[str]:
+    """Combina descubrimientos manteniendo el primer origen de cada URL."""
+    unique_urls: list[str] = []
+    seen: set[str] = set()
+    for group in url_groups:
+        for url in group:
+            normalized_url = url.strip().rstrip(".,);]")
+            if normalized_url and normalized_url not in seen:
+                seen.add(normalized_url)
+                unique_urls.append(normalized_url)
+    return unique_urls
+
+
+def extract_urls_from_katana(raw_output: str) -> list[str]:
+    """Extrae URLs tanto de la salida plana como de líneas JSON de Katana."""
+    return deduplicate_urls(
+        re.findall(r"https?://[^\s\"<>]+", raw_output or "")
+    )
+
+
+def load_request_context(max_files: int = 12, max_chars: int = 18000) -> dict:
+    """Lee una muestra priorizada de requests raw y resume el HAR disponible."""
+    requests_dir = "/app/requests"
+    request_files = []
+    for filename in os.listdir(requests_dir) if os.path.isdir(requests_dir) else []:
+        if filename.endswith(".req"):
+            request_files.append(filename)
+
+    def request_priority(filename: str) -> tuple[int, str]:
+        upper_name = filename.upper()
+        priority = 0
+        if "POST" in upper_name:
+            priority -= 3
+        if any(keyword in upper_name for keyword in ("LOGIN", "SEARCH", "QUERY", "USER")):
+            priority -= 2
+        return priority, filename
+
+    selected_files = sorted(request_files, key=request_priority)[:max_files]
+    samples = []
+    chars_used = 0
+    for filename in selected_files:
+        path = os.path.join(requests_dir, filename)
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as request_file:
+                content = request_file.read()
+        except OSError:
+            logger.warning("[RECON] No se pudo leer request raw: %s", path)
+            continue
+
+        remaining = max_chars - chars_used
+        if remaining <= 0:
+            break
+        content = content[:remaining]
+        samples.append({"file": f"/app/requests/{filename}", "raw": content})
+        chars_used += len(content)
+
+    har_path = os.path.join(requests_dir, "session_traffic.har")
+    har_summary = {
+        "file": "/app/requests/session_traffic.har",
+        "exists": os.path.isfile(har_path),
+        "size_bytes": os.path.getsize(har_path) if os.path.isfile(har_path) else 0,
+    }
+    if har_summary["exists"]:
+        try:
+            with open(har_path, "r", encoding="utf-8") as har_file:
+                har_data = json.load(har_file)
+            har_summary["entries"] = len(har_data.get("log", {}).get("entries", []))
+        except (OSError, json.JSONDecodeError):
+            har_summary["entries"] = "unavailable"
+
+    return {
+        "request_files_available": len(request_files),
+        "request_samples": samples,
+        "har": har_summary,
+    }
+
+
+def persist_recon_artifact(filename: str, content: str) -> None:
+    """Guarda artefactos del reconocimiento en el volumen compartido."""
+    artifact_path = os.path.join("/app/requests", filename)
     try:
-        error_body = getattr(error, "body", None) or {}
-        if not isinstance(error_body, dict):
-            return None
-
-        inner = error_body.get("error", error_body)
-        if not isinstance(inner, dict):
-            return None
-
-        code = inner.get("code")
-        if code != "tool_use_failed":
-            return None
-
-        failed_gen = inner.get("failed_generation", "")
-        if not failed_gen:
-            return None
-
-        logger.info(
-            f"🔍 [RECOVERY] Intentando recuperar JSON de failed_generation "
-            f"({len(failed_gen)} chars)"
-        )
-
-        # Caso típico: '{"name": "json", "arguments": {...}}'
-        parsed = json.loads(failed_gen)
-        args = parsed.get("arguments") if isinstance(parsed, dict) else None
-
-        # A veces arguments viene como string JSON escapado
-        if isinstance(args, str):
-            args = json.loads(args)
-
-        if isinstance(args, dict):
-            return args
-
-    except (json.JSONDecodeError, AttributeError, TypeError, ValueError) as e:
-        logger.warning(f"⚠️ [RECOVERY] No se pudo recuperar JSON del error: {e}")
-
-    return None
+        os.makedirs(os.path.dirname(artifact_path), exist_ok=True)
+        with open(artifact_path, "w", encoding="utf-8") as artifact_file:
+            artifact_file.write(content)
+        logger.info("[RECON] Artefacto guardado: %s", artifact_path)
+    except OSError:
+        logger.exception("[RECON] No se pudo guardar el artefacto: %s", artifact_path)
 
 
-def _build_from_submitted_args(args: dict, target_url: str, started_at: str) -> ReconOutput:
-    """Construye un ReconOutput desde los argumentos del submit tool o del recovery."""
-    endpoints_raw = args.get("endpoints", [])
-    endpoints: list[DiscoveredEndpoint] = []
+def build_planner_output_from_dict( data: dict, target_url: str, attack_type_filter: str) -> ReconPlannerOutput:
+    """
+    Capa 1/2: Construye y valida un ReconPlannerOutput a partir de un diccionario JSON
+    extraído de la respuesta del LLM.
+    """
+    summary_data = data.get("recon_summary", {})
+    targets_data = data.get("high_priority_targets", [])
 
-    for ep in endpoints_raw:
-        if isinstance(ep, dict):
-            endpoints.append(
-                DiscoveredEndpoint(
-                    url=ep.get("url", ""),
-                    method=ep.get("method", "GET"),
-                    parameters=ep.get("parameters", []) or [],
-                    source="submit_tool",
-                    notes=ep.get("notes", "") or "",
+    # Garantizar campos mínimos en recon_summary si vienen incompletos
+    summary = ReconSummary(
+        target_url=summary_data.get("target_url", target_url),
+        attack_type_filter=summary_data.get("attack_type_filter", attack_type_filter),
+        total_targets_identified=summary_data.get("total_targets_identified", len(targets_data)),
+        har_session_file=summary_data.get("har_session_file", "/app/requests/session_traffic.har")
+    )
+
+    targets: List[HighPriorityTarget] = []
+    for idx, t in enumerate(targets_data, start=1):
+        if isinstance(t, dict):
+            targets.append(
+                HighPriorityTarget(
+                    target_id=t.get("target_id", f"target_{idx:03d}"),
+                    vulnerability_target=t.get("vulnerability_target", f"{attack_type_filter} Vulnerability"),
+                    endpoint=t.get("endpoint", target_url),
+                    method=t.get("method", "GET").upper(),
+                    req_file_path=t.get("req_file_path", ""),
+                    recommended_tool=t.get("recommended_tool", "sqlmap")
                 )
             )
 
-    technologies = args.get("technologies", [])
-    if isinstance(technologies, str):
-        technologies = [t.strip() for t in technologies.split(",") if t.strip()]
-
-    return ReconOutput(
-        target_url=args.get("target_url", target_url),
-        endpoints=endpoints[:MAX_ENDPOINTS_IN_OUTPUT],
-        technologies=technologies,
-        passive_findings=[],
-        scan_started_at=started_at,
-        scan_finished_at=datetime.now(timezone.utc).isoformat(),
+    output = ReconPlannerOutput(
+        recon_summary=summary,
+        high_priority_targets=targets
     )
-
-
-def build_fallback_recon_output(
-    target_url: str,
-    raw_llm_text: str,
-    raw_tool_outputs: list[str],
-    started_at: str,
-) -> ReconOutput:
-    """
-    Capa 3: Construye un ReconOutput usando las salidas crudas de las herramientas.
-    Es la opción más degradada (marcada como PARTIAL por el worker).
-    """
-    logger.warning("Construyendo ReconOutput mediante fallback de regex...")
-
-    combined_text = "\n".join(raw_tool_outputs) + "\n" + (raw_llm_text or "")
-    urls = parse_raw_text_to_urls(combined_text)
-
-    endpoints = [
-        DiscoveredEndpoint(url=u, method="GET", source="fallback_regex")
-        for u in urls[:MAX_ENDPOINTS_IN_OUTPUT]
-    ]
-    if not endpoints:
-        endpoints = [DiscoveredEndpoint(url=target_url, method="GET", source="target_root")]
-
-    return ReconOutput(
-        target_url=target_url,
-        endpoints=endpoints,
-        technologies=["Uncertain"],
-        passive_findings=[],
-        scan_started_at=started_at,
-        scan_finished_at=datetime.now(timezone.utc).isoformat(),
-    )
+    
+    logger.info("ReconPlannerOutput preparado con %d objetivos prioritarios", len(output.high_priority_targets))
+    return output
 
 
 # ============================================================================
@@ -204,9 +175,20 @@ def build_fallback_recon_output(
 # ============================================================================
 
 
-async def call_mcp_skill(channel: aio_pika.Channel, tool_name: str, arguments: dict) -> str:
+async def call_mcp_skill(
+    channel: aio_pika.Channel,
+    tool_name: str,
+    arguments: dict,
+    max_output_chars: int | None = None,
+) -> str:
     """Invoca una herramienta MCP en skills_controller a través de RabbitMQ."""
     correlation_id = str(uuid.uuid4())
+    logger.info(
+        "[MCP] Publicando tool=%s correlation_id=%s arguments=%s",
+        tool_name,
+        correlation_id,
+        log_preview(arguments),
+    )
     reply_queue = await channel.declare_queue(exclusive=True)
     future = asyncio.get_running_loop().create_future()
 
@@ -237,18 +219,37 @@ async def call_mcp_skill(channel: aio_pika.Channel, tool_name: str, arguments: d
 
     try:
         response = await asyncio.wait_for(future, timeout=1000.0)
+        logger.info(
+            "[MCP] Respuesta recibida tool=%s correlation_id=%s is_error=%s",
+            tool_name,
+            correlation_id,
+            response.get("result", {}).get("isError", False),
+        )
+        is_error = response.get("result", {}).get("isError", False)
         content = response.get("result", {}).get("content", [])
         raw_output = content[0].get("text", "") if content else json.dumps(response)
+        if is_error:
+            raise RuntimeError(f"MCP tool '{tool_name}' failed: {raw_output}")
         await asyncio.sleep(2)
 
         # NOTA: el output de la herramienta se acumula en el contexto del LLM
         # y consume ITPM. Limitamos a 1500 caracteres para preservar el cupo.
-        if len(raw_output) > 1500:
+        output_limit = MCP_OUTPUT_MAX_CHARS if max_output_chars is None else max_output_chars
+        if output_limit > 0 and len(raw_output) > output_limit:
             raw_output = (
-                raw_output[:1500]
+            raw_output[:output_limit]
                 + f"\n\n[... salida truncada. Total original: {len(raw_output)} caracteres]"
             )
+        logger.info(
+            "[MCP] Resultado tool=%s chars=%d preview=%s",
+            tool_name,
+            len(raw_output),
+            log_preview(raw_output),
+        )
         return raw_output
+    except Exception:
+        logger.exception("[MCP] Error esperando respuesta tool=%s correlation_id=%s", tool_name, correlation_id)
+        raise
     finally:
         await reply_queue.cancel(consumer_tag)
         await reply_queue.delete(if_unused=False, if_empty=False)
@@ -257,6 +258,7 @@ async def call_mcp_skill(channel: aio_pika.Channel, tool_name: str, arguments: d
 async def get_mcp_catalog(channel: aio_pika.Channel) -> list:
     """Consulta las herramientas MCP registradas en skills_controller."""
     correlation_id = str(uuid.uuid4())
+    logger.info("[MCP] Solicitando catálogo correlation_id=%s", correlation_id)
     reply_queue = await channel.declare_queue(exclusive=True)
     future = asyncio.get_running_loop().create_future()
 
@@ -282,59 +284,20 @@ async def get_mcp_catalog(channel: aio_pika.Channel) -> list:
 
     try:
         response = await asyncio.wait_for(future, timeout=30.0)
-        return response.get("result", {}).get("tools", [])
+        tools = response.get("result", {}).get("tools", [])
+        logger.info(
+            "[MCP] Catálogo recibido correlation_id=%s tools=%d names=%s",
+            correlation_id,
+            len(tools),
+            [tool.get("name") for tool in tools],
+        )
+        return tools
+    except Exception:
+        logger.exception("[MCP] Error obteniendo catálogo correlation_id=%s", correlation_id)
+        raise
     finally:
         await reply_queue.cancel(consumer_tag)
         await reply_queue.delete(if_unused=False, if_empty=False)
-
-
-def build_recon_tools(mcp_catalog: list, channel: aio_pika.Channel) -> list:
-    """Crea StructuredTools de LangChain para reconocimiento + submit tool."""
-    langchain_tools = []
-    recon_keywords = ["katana", "zap", "spider", "nikto"]
-
-    from pydantic import create_model, Field
-
-    for mcp_tool in mcp_catalog:
-        tool_name = mcp_tool["name"]
-        if not any(kw in tool_name.lower() for kw in recon_keywords):
-            continue
-
-        description = mcp_tool["description"]
-        input_schema = mcp_tool.get("inputSchema", {})
-        properties = input_schema.get("properties", {})
-        required_fields = input_schema.get("required", [])
-
-        fields = {}
-        for prop_name, prop_info in properties.items():
-            prop_type = int if prop_info.get("type") == "integer" else str
-            prop_desc = prop_info.get("description", "")
-            if prop_name in required_fields:
-                fields[prop_name] = (prop_type, Field(..., description=prop_desc))
-            else:
-                fields[prop_name] = (
-                    prop_type,
-                    Field(prop_info.get("default", None), description=prop_desc),
-                )
-
-        ArgsSchema = create_model(f"{tool_name}_schema", **fields)
-
-        def make_executor(name):
-            async def _executor(**kwargs):
-                return await call_mcp_skill(channel, name, kwargs)
-
-            return _executor
-
-        tool_instance = StructuredTool.from_function(
-            coroutine=make_executor(tool_name),
-            name=tool_name,
-            description=description,
-            args_schema=ArgsSchema,
-        )
-        langchain_tools.append(tool_instance)
-
-    langchain_tools.append(submit_recon_tool)
-    return langchain_tools
 
 
 # ============================================================================
@@ -342,150 +305,196 @@ def build_recon_tools(mcp_catalog: list, channel: aio_pika.Channel) -> list:
 # ============================================================================
 
 
-async def process_recon_task(channel: aio_pika.Channel, target_url: str) -> tuple[ReconOutput, str]:
+async def process_recon_task(
+    channel: aio_pika.Channel,
+    target_url: str,
+    attack_type_filter: str = "full",
+) -> tuple[ReconPlannerOutput, str]:
     """
     Ejecuta el pipeline de reconocimiento con 3 capas de resiliencia.
 
-    Retorna:
-        (ReconOutput, recovery_mode)
-        recovery_mode ∈ {"clean", "recovered", "fallback"}
-          - "clean": submit tool llamada correctamente.
-          - "recovered": JSON recuperado del error 400 de Groq.
-          - "fallback": regex sobre logs crudos (degradado).
+        Retorna el plan validado y el modo de recuperación usado.
     """
     started_at = datetime.now(timezone.utc).isoformat()
+    logger.info(
+        "[RECON] Inicio target=%s attack_type=%s started_at=%s output_limit=%s",
+        target_url,
+        attack_type_filter,
+        started_at,
+        MCP_OUTPUT_MAX_CHARS,
+    )
 
     catalog = await get_mcp_catalog(channel)
-    tools = build_recon_tools(catalog, channel)
-
-    if not tools or len(tools) <= 1:
-
-        # Solo está el submit tool, no hay herramientas reales
-        logger.error("No se encontraron herramientas MCP de reconocimiento disponibles.")
-        empty = ReconOutput(
-            target_url=target_url,
-            endpoints=[],
-            technologies=[],
-            passive_findings=[],
-            scan_started_at=started_at,
-            scan_finished_at=datetime.now(timezone.utc).isoformat(),
+    catalog_names = {tool.get("name") for tool in catalog}
+    mandatory_tools = {"spa_crawler", "katana_full"}
+    missing_tools = mandatory_tools - catalog_names
+    if missing_tools:
+        raise RuntimeError(
+            f"Faltan herramientas obligatorias de Recon en MCP: {sorted(missing_tools)}"
         )
-        return empty, "fallback"
 
+    logger.info("[RECON] Fase obligatoria 1/2: ejecutando spa_crawler target=%s", target_url)
+    crawler_output = await call_mcp_skill(
+        channel,
+        "spa_crawler",
+        {"target_url": target_url},
+        max_output_chars=max(MCP_OUTPUT_MAX_CHARS, 12000),
+    )
+    try:
+        crawler_data = json.loads(crawler_output)
+    except json.JSONDecodeError as error:
+        raise RuntimeError(f"spa_crawler no devolvió JSON válido: {error}") from error
+
+    crawler_data["har_file"] = "/app/requests/session_traffic.har"
+    logger.info(
+        "[RECON] spa_crawler completado captured=%s routes=%d api=%d har=%s",
+        crawler_data.get("captured_requests_count", "unknown"),
+        len(crawler_data.get("navigation_routes", [])),
+        len(crawler_data.get("api_endpoints", [])),
+        crawler_data["har_file"],
+    )
+
+    logger.info("[RECON] Fase obligatoria 2/2: ejecutando katana_full target=%s", target_url)
+    katana_output = await call_mcp_skill(
+        channel,
+        "katana_full",
+        {"target_url": target_url},
+        max_output_chars=max(MCP_OUTPUT_MAX_CHARS, 12000),
+    )
+    katana_urls = extract_urls_from_katana(katana_output)
+    crawler_urls = deduplicate_urls(
+        crawler_data.get("navigation_routes", []),
+        crawler_data.get("api_endpoints", []),
+    )
+    discovered_urls = deduplicate_urls(crawler_urls, katana_urls)
+    request_context = load_request_context()
+    available_tools = [
+        {
+            "name": tool.get("name"),
+            "description": tool.get("description", ""),
+        }
+        for tool in catalog
+        if tool.get("name") not in {"spa_crawler", "katana_full"}
+    ]
+    recon_sources = {
+        "spa_crawler": crawler_data,
+        "katana_full_raw_output": katana_output,
+        "katana_full_urls": katana_urls,
+        "deduplicated_urls": discovered_urls,
+        "request_context": request_context,
+        "available_validation_tools": available_tools,
+    }
+    persist_recon_artifact(
+        "recon_sources.json",
+        json.dumps(recon_sources, ensure_ascii=False, indent=2),
+    )
+    logger.info(
+        "[RECON] Fuentes consolidadas crawler=%d katana=%d deduplicadas=%d",
+        len(crawler_urls),
+        len(katana_urls),
+        len(discovered_urls),
+    )
+
+    # Recon solo analiza; Validate ejecutará las herramientas de seguridad después.
+
+    logger.info("[RECON] Cargando LLM de reconocimiento")
     llm = get_llm("recon")
 
+     # Prompt del Sistema enfocado en Planificación de Ataque
     system_prompt = SystemMessage(
         content=(
-            "Eres el Agente Especialista en Reconocimiento de Aplicaciones Web.\n"
-            "Tu objetivo es mapear la superficie del objetivo usando las herramientas MCP disponibles (ej: katana, zap_ajax_spider).\n\n"
-            "REGLAS ESTRICTAS DE OPERACIÓN:\n"
-            "1. Puedes ejecutar máximo 2 herramientas de reconocimiento (katana, zap_*).\n"
-            f"2. Incluye un MÁXIMO de {MAX_ENDPOINTS_IN_OUTPUT} endpoints, priorizando rutas con parámetros, /api/, /rest/, /admin/, /login y formularios.\n\n"
+            "Eres un Agente Especialista en Reconocimiento y Planificación de Vectores de Ataque Web.\n"
+            f"Tu objetivo principal es analizar el objetivo '{target_url}' y planificar un flujo de ataque enfocado en: {attack_type_filter}, .\n\n"
+            "INSTRUCCIONES DE EJECUCIÓN:\n"
+            "1. Las fases obligatorias spa_crawler y katana_full ya fueron ejecutadas. Analiza ambas salidas y los requests raw incluidos en request_context.\n"
+            "2. Usa el contenido real de los .req para identificar método, ruta, query, headers y body. El HAR completo está disponible en la ruta indicada, pero no lo inventes ni asumas su contenido más allá del resumen.\n"
+            f"3. Limpia los duplicados usando la lista consolidada y filtra las rutas y parámetros sospechosos de ser vulnerables a '{attack_type_filter}'.\n"
+            "4. Decide después el plan de acción: objetivos prioritarios, método, archivo '.req' y herramienta recomendada.\n"
+            "5. Este agente es exclusivamente analítico. No ejecutes sqlmap, nuclei, dalfox, commix, ffuf ni ninguna otra herramienta.\n\n"
+            "6. Para recommended_tool usa únicamente un nombre presente en available_validation_tools.\n\n"
             "REGLA CRÍTICA DE FINALIZACIÓN:\n"
-            "Cuando termines de ejecutar las herramientas, NO escribas el JSON como texto plano. "
-            "ESTÁS OBLIGADO a llamar a la herramienta 'submit_recon_output' pasando tus hallazgos "
-            "como argumentos estructurados (target_url, endpoints, technologies). "
-            "Esta es la ÚNICA forma válida de entregar tu reporte final. "
-            "El sistema se encargará de procesarlo. Después de llamar a 'submit_recon_output', "
-            "tu tarea termina.\n\n"
-            "ESTRUCTURA DE ARGUMENTOS DE 'submit_recon_output':\n"
-            "- target_url: string (URL principal)\n"
-            "- endpoints: array de {url, method, parameters} (máx 7)\n"
-            "- technologies: array de strings\n\n"
-            "EJEMPLO DE LLAMADA VÁLIDA:\n"
-            "submit_recon_output(\n"
-            f'  target_url="{target_url}",\n'
-            '  endpoints=[{"url": "/rest/user/login", "method": "POST", "parameters": ["email", "password"]}],\n'
-            '  technologies=["Express", "Angular"]\n'
-            ")"
+            "Analiza primero toda la salida de spa_crawler. Al final responde con una breve explicación y, como último contenido, un único bloque Markdown ```json ... ``` válido.\n"
+            "El JSON debe tener esta estructura:\n"
+            "{\n"
+            '  "recon_summary": {\n'
+            f'    "target_url": "{target_url}",\n'
+            f'    "attack_type_filter": "{attack_type_filter}",\n'
+            '    "total_targets_identified": <numero_int>,\n'
+            '    "har_session_file": "/app/requests/session_traffic.har"\n'
+            "  },\n"
+            '  "high_priority_targets": [\n'
+            "    {\n"
+            '      "target_id": "target_001",\n'
+            f'      "vulnerability_target": "{attack_type_filter} (POST-based Auth Bypass)",\n'
+            '      "endpoint": "http://...",\n'
+            '      "method": "POST",\n'
+            '      "req_file_path": "/app/requests/req_008_POST_rest_user_login.req",\n'
+            '      "recommended_tool": "sqlmap"\n'
+            "    }\n"
+            "  ]\n"
+            "}\n"
+            "No pongas texto después del bloque JSON."
         )
     )
 
-    agent_executor = create_react_agent(model=llm, tools=tools, prompt=system_prompt)
+    agent_executor = create_agent(model=llm, tools=[], system_prompt=system_prompt)
+    logger.info("[RECON] Agente analítico creado sin tools de ataque; iniciando stream")
     initial_input = {
-        "messages": [HumanMessage(content=f"Analiza la superficie del objetivo '{target_url}'.")]
+        "messages": [
+            HumanMessage(
+                content=(
+                    f"Analiza la superficie del objetivo '{target_url}' y planifica el siguiente paso.\n\n"
+                    "Fuentes obligatorias de reconocimiento ya ejecutadas:\n"
+                    f"{json.dumps(recon_sources, ensure_ascii=False, indent=2)}\n\n"
+                    "Los artefactos persistidos están disponibles en /app/requests/: "
+                    "session_traffic.har y los archivos .req. Usa esas rutas exactas en el plan."
+                )
+            )
+        ]
     }
 
     raw_final_output = ""
-    raw_tool_outputs: list[str] = []
-    submitted_args: dict | None = None
+    llm_outputs: list[str] = []
 
-    # CAPA 1: stream normal + detección de submit tool
-    try:
-        async for event in agent_executor.astream(initial_input, config={"recursion_limit": 10}):
-            for value in event.values():
-                last_msg = value["messages"][-1]
-
-                # Capturar salidas de herramientas para el fallback
-                if last_msg.type == "tool":
-                    if isinstance(last_msg.content, str):
-                        raw_tool_outputs.append(last_msg.content)
-
-                # Detectar tool_calls (reales y submit)
-                elif last_msg.type == "ai" and getattr(last_msg, "tool_calls", None):
-                    for tc in last_msg.tool_calls:
-                        tc_name = (
-                            tc.get("name") if isinstance(tc, dict) else getattr(tc, "name", None)
-                        )
-                        if tc_name == "submit_recon_output":
-                            tc_args = (
-                                tc.get("args")
-                                if isinstance(tc, dict)
-                                else getattr(tc, "args", None)
-                            )
-                            if tc_args:
-                                submitted_args = tc_args
-                                logger.info(
-                                    "🎯 [SUBMIT TOOL] Recibidos argumentos del submit tool."
-                                )
-
-                # Capturar texto plano final (por si el modelo ignora el submit)
-                elif last_msg.type == "ai" and not getattr(last_msg, "tool_calls", None):
-                    if isinstance(last_msg.content, str):
-                        raw_final_output = last_msg.content
-
-    except APIStatusError as e:
-        # CAPA 2: recuperar del error 400 de Groq
-        logger.warning(f"⚠️ Groq APIStatusError interceptado (status={e.status_code})")
-        recovered = _extract_from_groq_error(e)
-        if recovered:
-            submitted_args = recovered
-            logger.info("🎯 [RECOVERY] JSON recuperado del error de Groq.")
-
-    # PRIORIDAD 1: submit tool o recovery
-    if submitted_args:
-        try:
-            recon_output = _build_from_submitted_args(submitted_args, target_url, started_at)
-            mode = "recovered" if not raw_final_output else "clean"
+    event_number = 0
+    async for event in agent_executor.astream(initial_input, config={"recursion_limit": 10}):
+        event_number += 1
+        logger.info("[RECON] Evento #%d recibido keys=%s", event_number, list(event.keys()))
+        for value in event.values():
+            last_msg = value["messages"][-1]
             logger.info(
-                f"✅ ReconOutput construido ({len(recon_output.endpoints)} endpoints, "
-                f"mode={mode})."
+                "[RECON] Mensaje #%d type=%s content=%s",
+                event_number,
+                last_msg.type,
+                log_preview(last_msg.content),
             )
-            return recon_output, mode
-        except (ValidationError, KeyError, TypeError) as e:
-            logger.warning(f"⚠️ Argumentos del submit tool inválidos: {e}")
 
-    # PRIORIDAD 2: JSON en texto plano
-    cleaned_json_str = clean_json_response(raw_final_output)
-    if cleaned_json_str:
-        try:
-            parsed = json.loads(cleaned_json_str)
-            parsed["scan_started_at"] = started_at
-            parsed["scan_finished_at"] = datetime.now(timezone.utc).isoformat()
-            recon_output = ReconOutput.model_validate(parsed)
-            logger.info(
-                f"✅ JSON de texto plano validado con éxito "
-                f"({len(recon_output.endpoints)} endpoints)."
-            )
-            return recon_output, "clean"
-        except (ValidationError, json.JSONDecodeError) as e:
-            logger.error(f"❌ Fallo al validar JSON de texto plano: {e}")
+            if last_msg.type == "ai" and isinstance(last_msg.content, str):
+                llm_outputs.append(last_msg.content)
 
-    # PRIORIDAD 3: fallback regex (degradado)
-    fallback = build_fallback_recon_output(
-        target_url, raw_final_output, raw_tool_outputs, started_at
+            if last_msg.type == "tool":
+                logger.info(
+                    "[RECON] Tool finalizada name=%s output_chars=%d",
+                    getattr(last_msg, "name", "unknown"),
+                    len(last_msg.content) if isinstance(last_msg.content, str) else 0,
+                )
+
+            elif last_msg.type == "ai" and not getattr(last_msg, "tool_calls", None):
+                if isinstance(last_msg.content, str):
+                    raw_final_output = last_msg.content
+                    logger.info("[RECON] Respuesta textual final capturada")
+
+    full_llm_output = "\n\n--- LLM event ---\n\n".join(llm_outputs)
+    persist_recon_artifact("recon_llm_output.txt", full_llm_output)
+    logger.info("[RECON] Parseando bloque JSON final chars=%d", len(raw_final_output))
+    parsed_dict = json.loads(clean_json_response(raw_final_output))
+    recon_output = build_planner_output_from_dict(parsed_dict, target_url, attack_type_filter)
+    persist_recon_artifact(
+        "recon_plan.json",
+        json.dumps(recon_output.model_dump(), ensure_ascii=False, indent=2),
     )
-    return fallback, "fallback"
+    logger.info("[RECON] Plan JSON validado targets=%d", len(recon_output.high_priority_targets))
+    return recon_output, "clean"
 
 
 # ============================================================================
@@ -513,19 +522,17 @@ async def start_recon_worker():
                             try:
                                 payload = json.loads(message.body.decode("utf-8"))
                                 target_url = payload.get("target_url")
+                                attack_type_filter = payload.get("attack_type", "full")
                                 logger.info(f"📥 [RECON-AGENT] Tarea recibida para {target_url}")
 
                                 recon_data, recovery_mode = await process_recon_task(
-                                    channel, target_url
+                                    channel,
+                                    target_url,
+                                    attack_type_filter,
                                 )
 
-                                if recovery_mode == "fallback":
-                                    status = "PARTIAL"
-                                    used_fallback = True
-                                else:
-                                    # "clean" y "recovered" son éxitos limpios
-                                    status = "SUCCESS"
-                                    used_fallback = False
+                                status = "SUCCESS"
+                                used_fallback = False
 
                                 response_body = json.dumps(
                                     {

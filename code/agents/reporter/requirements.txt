@@ -3,3 +3,4 @@ langchain
 langchain-core
 langchain-groq
 aio-pika==10.0.1
+langchain-ollama

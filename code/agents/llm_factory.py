@@ -1,62 +1,71 @@
 import os
 import logging
-from langchain_groq import ChatGroq
+from langchain_core.language_models import BaseChatModel
+from langchain_ollama import ChatOllama
 
 logger = logging.getLogger("llm-factory")
 
-# Presupuesto máximo por agente para no agotar los 8,000 TPM del tier gratuito.
+# Fallback en código si no se encuentra ninguna variable de entorno
+DEFAULT_MODEL = "qwen2.5:7b-instruct"
+
+# Contexto fijo para ejecuciones secuenciales (16k tokens)
+FIXED_NUM_CTX = 16384 
+
 DEFAULT_MAX_TOKENS = {
-    "orchestrator": 300,
-    "recon": 1200,  
-    "validate": 1200,  
-    "reporter": 1800,  
+    "orchestrator": 500,
+    "recon": 2000,
+    "validate": 2000,
+    "reporter": 4000,
 }
 
 
-def get_llm(agent_name: str) -> ChatGroq:
+def get_int_env(name: str, default: int) -> int:
+    """Lee una opción numérica de las variables de entorno."""
+    try:
+        return int(os.getenv(name, str(default)))
+    except ValueError:
+        logger.warning("Valor no válido para %s; usando %s", name, default)
+        return default
+
+
+def get_llm(agent_name: str) -> BaseChatModel:
     """
-    Instancia y retorna un objeto ChatGroq configurado dinámicamente según:
-      - MODEL_<AGENT_NAME>          (formato: "groq:<nombre-modelo>")
-      - GROQ_ACCOUNT_<AGENT_NAME>   ("friend" o "mine", default: "friend")
-      - MAX_TOKENS_<AGENT_NAME>     (opcional, override del default)
+    Instancia el modelo local en Ollama mapeando las variables de entorno especificadas.
     """
     agent_upper = agent_name.upper()
 
-    # 1. Determinar modelo
-    model_spec = os.getenv(
-        f"MODEL_{agent_upper}",
-        "groq:openai/gpt-oss-20b",
+    # 1. Búsqueda jerárquica del modelo:
+    # Primero busca MODEL_ORCHESTRATOR / MODEL_RECON / etc.
+    # Luego OLLAMA_DEFAULT_MODEL, y como último recurso DEFAULT_MODEL
+    model_name = (
+        os.getenv(f"MODEL_{agent_upper}")
+        or os.getenv("OLLAMA_DEFAULT_MODEL")
+        or DEFAULT_MODEL
     )
-    if not model_spec.startswith("groq:"):
-        raise ValueError(
-            f"Formato no soportado en MODEL_{agent_upper}: '{model_spec}'. "
-            "Debe comenzar con 'groq:'."
-        )
-    model_name = model_spec.split("groq:", 1)[1]
 
-    # 2. Determinar cuenta y API key
-    account = os.getenv(f"GROQ_ACCOUNT_{agent_upper}", "friend").lower()
-    if account == "mine":
-        api_key = os.getenv("GROQ_API_KEY_MINE")
-        if not api_key:
-            raise RuntimeError(f"GROQ_API_KEY_MINE no configurada para el agente '{agent_name}'.")
-    else:
-        api_key = os.getenv("GROQ_API_KEY_FRIEND")
-        if not api_key:
-            raise RuntimeError(f"GROQ_API_KEY_FRIEND no configurada para el agente '{agent_name}'.")
+    # 2. Lee OLLAMA_BASE_URL (http://host.docker.internal:11434 por defecto si viene de tu env)
+    ollama_url = os.getenv("OLLAMA_BASE_URL", "http://host.docker.internal:11434")
 
-    # 3. Determinar max_tokens (override por env, o default por agente)
-    default_tokens = DEFAULT_MAX_TOKENS.get(agent_name, 900)
-    max_tokens = int(os.getenv(f"MAX_TOKENS_{agent_upper}", default_tokens))
+    # 3. Límite de tokens de respuesta por agente (lee MAX_TOKENS_ORCHESTRATOR, etc. si existen)
+    default_tokens = DEFAULT_MAX_TOKENS.get(agent_name, 1500)
+    max_tokens = get_int_env(f"MAX_TOKENS_{agent_upper}", default_tokens)
+
+    # 4. Opciones del motor Ollama
+    ollama_options = {
+        "num_predict": -1 if max_tokens <= 0 else max_tokens,
+        "num_ctx": FIXED_NUM_CTX,  # Mantiene el contexto amplio e independiente
+        "num_keep": 0,             # Fuerza la desasignación de tokens en caché al cambiar de agente
+    }
 
     logger.info(
-        f"🤖 Agente '{agent_name}' → modelo '{model_name}' "
-        f"(cuenta: {account}, max_tokens: {max_tokens})"
+        f"🏠 [LOCAL OLLAMA] Agente '{agent_name}' → Modelo '{model_name}' "
+        f"en '{ollama_url}' (max_tokens_salida: {max_tokens}, num_ctx_entrada: {FIXED_NUM_CTX})"
     )
 
-    return ChatGroq(
-        model_name=model_name,
-        groq_api_key=api_key,
+    return ChatOllama(
+        base_url=ollama_url,
+        model=model_name,
         temperature=0.1,
-        max_tokens=max_tokens,
+        num_ctx=FIXED_NUM_CTX,
+        options=ollama_options,
     )

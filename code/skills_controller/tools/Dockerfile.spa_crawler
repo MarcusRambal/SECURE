@@ -1,0 +1,23 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# 1. Instalar dependencias del sistema necesarias para Chromium
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    wget \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# 2. Instalar el paquete de Python de Playwright
+RUN pip install --no-cache-dir playwright
+
+# 3. Instalar únicamente el navegador Chromium y sus dependencias de Linux
+RUN playwright install chromium --with-deps
+
+# 4. Crear el directorio interno para las peticiones
+RUN mkdir -p /app/captured_requests
+
+# 5. Copiar el script unificado de rastreo y captura
+COPY spa_crawler.py /app/spa_crawler.py
+
+ENTRYPOINT ["python", "/app/spa_crawler.py"]

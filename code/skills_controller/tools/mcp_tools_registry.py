@@ -1,134 +1,52 @@
 MCP_SKILLS_REGISTRY = {
+    
+    "katana_full": {
+            "mcp_schema": {
+                        "name": "katana_full",
+                        "description": (
+                            "Escaneo profundo de la Web, ideal para ataques"
+                        ),
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "target_url": {
+                                    "type": "string",
+                                    "description": "URL objetivo a rastrear",
+                                }
+                            },
+                            "required": ["target_url"],
+                        },
+                    },
+                    "image": "projectdiscovery/katana:latest",
+                    "command_template": "-u {target_url} -silent -d 5 -jc -jsl -xhr -fx -aff -kf all -td -kb-endpoints",
+                    "timeout": 3600,
+                    "success_exit_codes": [0],
+    },
     # =========================================================================
-    # 1. OWASP ZAP - AJAX Spider
+    # 4. SPA Crawler - Descubrimiento de rutas de aplicaciones JavaScript
     # =========================================================================
-    "zap_ajax_spider": {
+    "spa_crawler": {
         "mcp_schema": {
-            "name": "zap_ajax_spider",
+            "name": "spa_crawler",
             "description": (
-                "Rastreo dinámico profundo con navegador headless para aplicaciones SPA/JavaScript "
-                "(React, Angular, Vue). USAR CUANDO el objetivo sea una SPA o requiera ejecutar "
-                "código JS para revelar botones y rutas ocultas (ej: Juice Shop). NO usar para "
-                "sitios estáticos simples o APIs puras. Input esperado: URL raíz completa "
-                "(ej: http://juice-shop-target:3000). Devuelve: URLs dinámicas descubiertas y "
-                "alertas de seguridad pasivas."
+                "Crawler basado en navegador para aplicaciones SPA. Abre la aplicación con Chromium, "
+                "detecta enlaces, rutas hash como /#/login, directivas routerLink y peticiones API "
+                "XHR/fetch. USAR para complementar Katana cuando la aplicación dependa de JavaScript."
             ),
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "target_url": {
                         "type": "string",
-                        "description": "URL objetivo completa a rastrear (ej: http://juice-shop-target:3000)",
-                    },
-                    "minutes": {
-                        "type": "integer",
-                        "description": "Tiempo máximo en minutos para el escaneo",
-                        "default": 3,
-                    },
-                },
-                "required": ["target_url"],
-            },
-        },
-        "image": "zaproxy/zap-stable:latest",
-        "command_template": "zap-baseline.py -t {target_url} -m {minutes} -j -I",
-        "timeout": 900,
-        "success_exit_codes": [0, 1, 2, 3],
-    },
-    # =========================================================================
-    # 2. OWASP ZAP - Baseline Spider
-    # =========================================================================
-    "zap_baseline_spider": {
-        "mcp_schema": {
-            "name": "zap_baseline_spider",
-            "description": (
-                "Rastreo estático rápido y análisis pasivo de cabeceras HTTP, cookies, robots.txt "
-                "y sitemaps. USAR CUANDO necesites un escaneo superficial inicial de cabeceras o "
-                "para sitios HTML tradicionales. NO usar para SPA complejas basadas en JS. "
-                "Input esperado: URL raíz (ej: http://target:8080). Devuelve: Análisis pasivo de "
-                "configuración de seguridad (CSP, HSTS, Flags de Cookie)."
-            ),
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "target_url": {
-                        "type": "string",
-                        "description": "URL objetivo completa a rastrear (ej: http://webgoat-target:8080)",
-                    },
-                    "minutes": {
-                        "type": "integer",
-                        "description": "Tiempo máximo en minutos para el escaneo",
-                        "default": 1,
-                    },
-                },
-                "required": ["target_url"],
-            },
-        },
-        "image": "zaproxy/zap-stable:latest",
-        "command_template": "zap-baseline.py -t {target_url} -m {minutes} -I",
-        "timeout": 300,
-        "success_exit_codes": [0, 1, 2, 3],
-    },
-    # =========================================================================
-    # 3. OWASP ZAP - API Scan
-    # =========================================================================
-    "zap_api_scan": {
-        "mcp_schema": {
-            "name": "zap_api_scan",
-            "description": (
-                "Escaneo de vulnerabilidades enfocado exclusivamente en endpoints de API REST/GraphQL. "
-                "USAR UNICAMENTE CUANDO tengas la URL directa de la documentación OpenAPI/Swagger o "
-                "esquema GraphQL (ej: /api-docs/openapi.json). NO usar sobre URLs de páginas HTML o "
-                "sitios web navegables. Input esperado: URL del esquema JSON/YAML. Devuelve: Fallos de "
-                "seguridad en contratos de API."
-            ),
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "schema_url": {
-                        "type": "string",
-                        "description": "URL directa a la especificación OpenAPI (ej: http://target:3000/api-docs/openapi.json)",
-                    },
-                    "format": {
-                        "type": "string",
-                        "description": "Formato del esquema de la API",
-                        "enum": ["openapi", "soap", "graphql"],
-                        "default": "openapi",
-                    },
-                },
-                "required": ["schema_url"],
-            },
-        },
-        "image": "zaproxy/zap-stable:latest",
-        "command_template": "zap-api-scan.py -t {schema_url} -f {format} -I",
-        "timeout": 300,
-        "success_exit_codes": [0, 1, 2, 3],
-    },
-    # =========================================================================
-    # 4. Katana - Crawling ligero y veloz
-    # =========================================================================
-    "katana": {
-        "mcp_schema": {
-            "name": "katana",
-            "description": (
-                "Crawler/Rastreador ultrarrápido de endpoints. USAR COMO PRIMERA OPCIÓN en la fase de "
-                "reconocimiento para mapear toda la superficie de ataque y listar rutas navegables. "
-                "Es más ligero y rápido que ZAP. Input esperado: URL raíz del objetivo. Devuelve: "
-                "Lista limpia de endpoints y URLs encontradas."
-            ),
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "target_url": {
-                        "type": "string",
-                        "description": "URL objetivo a rastrear (ej: http://juice-shop-target:3000)",
+                        "description": "URL raíz de la SPA a explorar",
                     }
                 },
                 "required": ["target_url"],
             },
         },
-        "image": "projectdiscovery/katana:latest",
-        "command_template": "-u {target_url} -silent -jc",
-        "timeout": 300,
+        "image": "local-spa-crawler:latest",
+        "command_template": '"{target_url}"',
+        "timeout": 1800,
         "success_exit_codes": [0],
     },
     # =========================================================================
@@ -141,7 +59,7 @@ MCP_SKILLS_REGISTRY = {
                 "Evaluación y explotación automática de inyecciones SQL (SQLi). USAR EN FASE DE VALIDACIÓN "
                 "CUANDO existan endpoints con parámetros o campos vulnerables a base de datos (ej: formulación "
                 "de login, búsquedas, IDs). NO usar como escáner general sobre la raíz del sitio. "
-                "Input esperado: URL con parámetros o endpoint específico (ej: http://target/rest/user/login). "
+                "Input esperado: URL con parámetros o endpoint específico. "
                 "Devuelve: Confirmación del vector SQLi, tipo de BD y payloads funcionales."
             ),
             "inputSchema": {
@@ -149,7 +67,7 @@ MCP_SKILLS_REGISTRY = {
                 "properties": {
                     "target_url": {
                         "type": "string",
-                        "description": "Endpoint o URL a evaluar (ej: http://juice-shop-target:3000/rest/user/login)",
+                        "description": "Endpoint o URL a evaluar",
                     }
                 },
                 "required": ["target_url"],
@@ -157,7 +75,7 @@ MCP_SKILLS_REGISTRY = {
         },
         "image": "parrotsec/sqlmap:latest",
         "command_template": '-u "{target_url}" --batch --risk=1 --level=1',
-        "timeout": 900,
+        "timeout": 3600,
         "success_exit_codes": [0],
     },
     # =========================================================================
@@ -184,8 +102,8 @@ MCP_SKILLS_REGISTRY = {
             },
         },
         "image": "hahwul/dalfox:latest",
-        "command_template": './dalfox url "{target_url}" --silence',
-        "timeout": 300,
+        "command_template": './dalfox url --url "{target_url}" --silence',
+        "timeout": 1800,
         "success_exit_codes": [0,2],
     },
     # =========================================================================
@@ -214,7 +132,7 @@ MCP_SKILLS_REGISTRY = {
         },
         "image": "local-commix:latest",
         "command_template": '--url="{target_url}" --batch',
-        "timeout": 900,
+        "timeout": 3600,
         "success_exit_codes": [0],
     },
     # =========================================================================
@@ -247,7 +165,7 @@ MCP_SKILLS_REGISTRY = {
         },
         "image": "local-nuclei:latest",
         "command_template": '-u "{target_url}" -tags {tags} -silent -nc',
-        "timeout": 600,
+        "timeout": 3600,
         "success_exit_codes": [0],
     },
     # =========================================================================
@@ -276,7 +194,7 @@ MCP_SKILLS_REGISTRY = {
         },
         "image": "local-ffuf:latest",
         "command_template": '-u "{target_url}" -w /wordlists/common.txt -s',
-        "timeout": 300,
+        "timeout": 1800,
         "success_exit_codes": [0],
     },
 }

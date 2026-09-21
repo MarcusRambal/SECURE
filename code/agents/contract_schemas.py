@@ -6,40 +6,24 @@ from typing import List, Dict, Any, Literal, Optional
 # ============================================================================
 
 
-class DiscoveredEndpoint(BaseModel):
-    url: str = Field(..., description="URL completa del endpoint o ruta descubierta")
-    method: str = Field(default="GET", description="Método HTTP asociado (GET, POST, etc.)")
-    parameters: List[str] = Field(
-        default_factory=list, description="Parámetros detectados en la URL o body"
-    )
-    source: Optional[str] = Field(
-        None,
-        description="Herramienta MCP que descubrió este endpoint (ej: katana, zap_ajax_spider)",
-    )
-    notes: Optional[str] = Field(
-        None, description="Detalles adicionales (ej. formulario de login, campo de búsqueda)"
-    )
+class ReconSummary(BaseModel):
+    target_url: str
+    attack_type_filter: str
+    total_targets_identified: int
+    har_session_file: str
 
+class HighPriorityTarget(BaseModel):
+    target_id: str
+    vulnerability_target: str
+    endpoint: str
+    method: str
+    req_file_path: str
+    recommended_tool: str
 
-class ReconOutput(BaseModel):
-    target_url: str = Field(..., description="URL raíz del objetivo auditado")
-    endpoints: List[DiscoveredEndpoint] = Field(
-        default_factory=list, description="Lista de endpoints descubiertos"
-    )
-    technologies: List[str] = Field(
-        default_factory=list,
-        description="Tecnologías/cabeceras detectadas (ej. Express, React, Nginx)",
-    )
-    passive_findings: List[Dict[str, Any]] = Field(
-        default_factory=list,
-        description="Hallazgos pasivos (ej. cabeceras faltantes, cookies sin Secure flag)",
-    )
-    scan_started_at: Optional[str] = Field(
-        None, description="Timestamp de inicio del reconocimiento (ISO 8601)"
-    )
-    scan_finished_at: Optional[str] = Field(
-        None, description="Timestamp de finalización del reconocimiento (ISO 8601)"
-    )
+class ReconPlannerOutput(BaseModel):
+    recon_summary: ReconSummary
+    high_priority_targets: List[HighPriorityTarget]
+
 
 
 # ============================================================================
@@ -108,5 +92,5 @@ class ReporterInput(BaseModel):
     validate_used_fallback: bool = Field(
         default=False, description="Indica si el Validate-Agent utilizó mecanismo de respaldo"
     )
-    recon_data: ReconOutput = Field(..., description="Datos consolidados de reconocimiento")
+    recon_data: ReconPlannerOutput = Field(..., description="Datos consolidados de reconocimiento")
     validation_data: ValidateOutput = Field(..., description="Datos consolidados de validación")

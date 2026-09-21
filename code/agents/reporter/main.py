@@ -4,7 +4,7 @@ import asyncio
 import logging
 import aio_pika
 
-from llm_factory import get_llm
+from llm_factory import get_int_env, get_llm
 from pydantic import ValidationError
 from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -15,6 +15,16 @@ logger = logging.getLogger("reporter-agent-worker")
 
 RABBITMQ_URL = os.getenv("RABBITMQ_URL")
 REPORTER_QUEUE = "reporter_queue"
+REPORTER_MAX_ENDPOINTS = get_int_env("REPORTER_MAX_ENDPOINTS", 15)
+REPORTER_MAX_EVIDENCE_CHARS = get_int_env("REPORTER_MAX_EVIDENCE_CHARS", 200)
+
+
+def _limit_items(items: list, limit: int) -> list:
+    return items if limit <= 0 else items[:limit]
+
+
+def _limit_text(text: str, limit: int) -> str:
+    return text if limit <= 0 or len(text) <= limit else text[:limit] + "..."
 
 
 def build_fallback_markdown_report(reporter_input: ReporterInput, raw_error: str) -> str:
@@ -89,7 +99,7 @@ def build_reporter_context(reporter_input: ReporterInput) -> str:
             "endpoints_count": len(reporter_input.recon_data.endpoints),
             "top_endpoints": [
                 {"url": e.url, "method": e.method, "parameters": e.parameters, "source": e.source}
-                for e in reporter_input.recon_data.endpoints[:15]
+                for e in _limit_items(reporter_input.recon_data.endpoints, REPORTER_MAX_ENDPOINTS)
             ],
             "technologies": reporter_input.recon_data.technologies,
             "scan_started_at": reporter_input.recon_data.scan_started_at,
@@ -103,7 +113,7 @@ def build_reporter_context(reporter_input: ReporterInput) -> str:
                     "endpoint": v.endpoint,
                     "parameter": v.parameter,
                     "confidence": v.confidence,
-                    "evidence": (v.evidence[:200] + "...") if len(v.evidence) > 200 else v.evidence,
+                    "evidence": _limit_text(v.evidence, REPORTER_MAX_EVIDENCE_CHARS),
                     "reproducible_command": v.reproducible_command,
                     "tools_used": v.tools_used,
                 }
@@ -177,7 +187,7 @@ async def process_report_task(payload: dict) -> tuple[str, bool]:
             "REGLAS STRICTAS:\n"
             "- NO inventes hallazgos que no estén presentes en validation_summary.\n"
             "- MANTÉN INTACTOS los comandos de `reproducible_command` sin alterarlos.\n"
-            "- Sé conciso. Prioriza los hallazgos críticos y altos. Para severidades bajas, agrupa en una línea. Máximo 900 tokens de salida.\n"
+            "- Sé conciso, pero incluye todos los hallazgos y evidencias recibidos.\n"
             "- Retorna ÚNICAMENTE el texto en MARKDOWN puro. Sin envoltorios JSON."
         )
     )

@@ -5,10 +5,10 @@ import asyncio
 import aio_pika
 import uvicorn
 from fastapi import FastAPI, HTTPException, Response
-from llm_factory import get_llm
+from llm_factory import get_int_env, get_llm
 
 from langchain_core.messages import HumanMessage, SystemMessage
-from langgraph.prebuilt import create_react_agent
+from langchain.agents import create_agent
 
 from tools import TASK_STATE, create_orchestrator_tools
 
@@ -20,6 +20,8 @@ ORCHESTRATOR_QUEUE = "orchestrator_queue"
 
 # Resultados finales por task_id (en memoria, no persistente).
 TASKS_RESULTS_DB: dict[str, dict] = {}
+RECURSION_LIMIT = get_int_env("AGENT_RECURSION_LIMIT", 10)
+LANGGRAPH_RECURSION_LIMIT = RECURSION_LIMIT if RECURSION_LIMIT > 0 else 100000
 
 app = FastAPI(title="SECURE - Orchestrator Gateway API", version="1.0.0")
 
@@ -98,7 +100,7 @@ async def execute_orchestration_flow(payload: dict, channel: aio_pika.Channel):
             )
         )
 
-        agent_executor = create_react_agent(model=llm, tools=tools, prompt=system_prompt)
+        agent_executor = create_agent(model=llm, tools=tools, system_prompt=system_prompt)
 
         initial_input = {
             "messages": [
@@ -108,7 +110,9 @@ async def execute_orchestration_flow(payload: dict, channel: aio_pika.Channel):
             ]
         }
 
-        async for event in agent_executor.astream(initial_input, config={"recursion_limit": 10}):
+        async for event in agent_executor.astream(
+            initial_input, config={"recursion_limit": LANGGRAPH_RECURSION_LIMIT}
+        ):
             for value in event.values():
                 last_msg = value["messages"][-1]
                 if last_msg.type == "tool":
