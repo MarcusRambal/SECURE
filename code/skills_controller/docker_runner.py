@@ -51,7 +51,7 @@ class EphemeralDockerRunner:
                     network=target_network,
                     volumes={
                         REQUESTS_VOLUME: {
-                            "bind": "/app/captured_requests",
+                            "bind": "/app/requests",
                             "mode": "rw",
                         }
                     },

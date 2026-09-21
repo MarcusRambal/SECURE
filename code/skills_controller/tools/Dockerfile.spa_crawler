@@ -15,7 +15,7 @@ RUN pip install --no-cache-dir playwright
 RUN playwright install chromium --with-deps
 
 # 4. Crear el directorio interno para las peticiones
-RUN mkdir -p /app/captured_requests
+RUN mkdir -p /app/requests
 
 # 5. Copiar el script unificado de rastreo y captura
 COPY spa_crawler.py /app/spa_crawler.py

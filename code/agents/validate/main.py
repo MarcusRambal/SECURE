@@ -39,7 +39,7 @@ TOOL_MAP = {
 
 # IMPORTANTE: mantener sincronizado con skills_controller/tools/mcp_tools_registry.py
 TOOL_COMMAND_TEMPLATES = {
-    "sqlmap": 'sqlmap -u "{target_url}" --batch --risk=1 --level=1',
+    "sqlmap": 'sqlmap -r "{req_file_path}" --batch --level=5 --risk=3 --ignore-stdin --ignore-code=401 --no-escape',
     "dalfox": 'dalfox url "{target_url}" --silence',
     "commix": 'commix --url="{target_url}" --batch',
     "nuclei": 'nuclei -u "{target_url}" -tags {tags} -silent -nc',
@@ -433,7 +433,7 @@ async def call_mcp_skill(channel: aio_pika.Channel, tool_name: str, arguments: d
         # y consume ITPM. Limitamos a 1500 caracteres para preservar el cupo.
         if MCP_OUTPUT_MAX_CHARS > 0 and len(raw_output) > MCP_OUTPUT_MAX_CHARS:
             raw_output = (
-            raw_output[:MCP_OUTPUT_MAX_CHARS]
+                raw_output[:MCP_OUTPUT_MAX_CHARS]
                 + f"\n\n[... salida truncada. Total original: {len(raw_output)} caracteres]"
             )
         return raw_output
@@ -479,8 +479,8 @@ async def get_mcp_catalog(channel: aio_pika.Channel) -> list:
 def build_validation_tools(mcp_catalog: list, channel: aio_pika.Channel, attack_type: str) -> list:
     """Construye herramientas LangChain orientadas al attack_type + submit tool."""
     langchain_tools = []
-    allowed_tools = [VALIDATE_ONLY_TOOL] if VALIDATE_ONLY_TOOL else TOOL_MAP.get(
-        attack_type, TOOL_MAP["full"]
+    allowed_tools = (
+        [VALIDATE_ONLY_TOOL] if VALIDATE_ONLY_TOOL else TOOL_MAP.get(attack_type, TOOL_MAP["full"])
     )
 
     from pydantic import create_model, Field
@@ -613,18 +613,26 @@ async def process_validate_task(
         content=(
             "Eres el Agente Especialista en Validación de Vulnerabilidades de Ciberseguridad.\n"
             f"Tu objetivo es comprobar fallos en la URL objetivo auditando endpoints prioritarios (Modalidad: '{clean_attack_type}').\n\n"
+            "REGLAS SOBRE RUTAS DE PETICIÓN:\n"
+            "1. Cada target en 'high_priority_targets' puede tener un campo 'req_file_path' "
+            "con la ruta a un archivo .req que contiene la petición HTTP completa (método, headers, body).\n"
+            "2. PREFIERE SIEMPRE usar 'req_file_path' sobre 'target_url' cuando exista. "
+            "Las herramientas lo necesitan para atacar endpoints con POST, headers o body específicos.\n"
+            "3. Solo si 'req_file_path' no existe o está vacío, usa 'target_url'.\n\n"
             "GUÍA DE HERRAMIENTAS SEGÚN VECTOR:\n"
-            "- Endpoints con parámetros de búsqueda o BD → 'sqlmap'\n"
-            "- Endpoints con parámetros reflejados o inputs de texto → 'dalfox'\n"
-            "- Endpoints con ejecuciones del sistema, pings o subida de archivos → 'commix'\n"
+            "- Endpoints con parámetros de búsqueda o BD (SQLi) → 'sqlmap' (prefiere 'req_file_path')\n"
+            "- Endpoints con parámetros reflejados o inputs de texto (XSS) → 'dalfox'\n"
+            "- Endpoints con ejecuciones del sistema, pings o subida de archivos (Command Injection) → 'commix'\n"
             "- Cobertura multivectorial basada en plantillas → 'nuclei'\n"
             "- Fuzzing de rutas o parámetros con 'ffuf': la URL objetivo DEBE contener la palabra literal 'FUZZ'.\n\n"
             "REGLAS ESTRICTAS DE OPERACIÓN:\n"
             f"1. Ejecuta {tool_limit_text} veces la herramienta '{VALIDATE_ONLY_TOOL or 'permitida'}'.\n"
             "2. Los parámetros de las herramientas se llaman EXACTAMENTE como aparecen en su schema. "
-            "Por ejemplo, 'dalfox' espera 'target_url' (no 'url' ni 'target'). Siempre usa 'target_url'.\n\n"
+            "Por ejemplo, 'dalfox' espera 'target_url' (no 'url' ni 'target'), y 'sqlmap' acepta tanto "
+            "'target_url' como 'req_file_path'.\n\n"
             "REGLA CRÍTICA DE FINALIZACIÓN:\n"
             "Cuando termines, NO devuelvas el JSON como texto plano. "
+            "ESTÁS OBLIGADO a llamar a la herramienta 'submit_validate_output' pasando tus hallazgos "
             "como argumentos estructurados (target_url, vulnerabilities). "
             "NO inventes nombres de herramientas como 'ValidateOutput', 'json' o 'Vulnerability'. "
             "La ÚNICA herramienta de finalización válida es 'submit_validate_output'.\n\n"
@@ -642,8 +650,10 @@ async def process_validate_task(
             "EJEMPLO DE LLAMADA VÁLIDA:\n"
             "submit_validate_output(\n"
             f'  target_url="{target_url}",\n'
-            '  vulnerabilities=[{"type": "SQL Injection", "severity": "HIGH", "endpoint": "/rest/user/login", '
-            '"parameter": "id", "evidence": "Error SQL expuesto", "confidence": "HIGH", "tools_used": ["sqlmap"]}]\n'
+            '  vulnerabilities=[{"type": "SQL Injection", "severity": "HIGH", '
+            '"endpoint": "/rest/user/login", "parameter": "email", '
+            '"evidence": "Payload boolean-based blind confirmado por SQLMap", '
+            '"confidence": "HIGH", "tools_used": ["sqlmap"]}]\n'
             ")\n\n"
         )
     )

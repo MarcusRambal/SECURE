@@ -34,8 +34,25 @@ class SkillsMCPServer:
             if prop_name not in merged_args and "default" in prop_spec:
                 merged_args[prop_name] = prop_spec["default"]
 
+        # Fallback: si el template usa {req_file_path} pero no viene, usamos target_url
+        template = tool_config["command_template"]
+        if "{req_file_path}" in template and not merged_args.get("req_file_path"):
+            if not merged_args.get("target_url"):
+                return {
+                    "jsonrpc": "2.0",
+                    "error": {
+                        "code": -32602,
+                        "message": "Se requiere 'req_file_path' o 'target_url'.",
+                    },
+                }
+            
+            template = template.replace('-r "{req_file_path}"', '-u "{target_url}"')
+            logger.info(
+                f"⚠️ Fallback a target_url para '{tool_name}' (no se proporcionó req_file_path)"
+            )
+
         try:
-            formatted_args = tool_config["command_template"].format(**merged_args)
+            formatted_args = template.format(**merged_args)
         except KeyError as e:
             return {
                 "jsonrpc": "2.0",

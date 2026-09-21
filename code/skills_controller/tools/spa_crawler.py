@@ -4,7 +4,7 @@ import json
 import urllib.parse
 from playwright.sync_api import sync_playwright
 
-OUTPUT_REQ_DIR = "/app/captured_requests"
+OUTPUT_REQ_DIR = "/app/requests"
 
 def save_raw_request(request, index):
     try:
