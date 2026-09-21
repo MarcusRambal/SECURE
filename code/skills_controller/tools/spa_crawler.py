@@ -4,7 +4,7 @@ import json
 import urllib.parse
 from playwright.sync_api import sync_playwright
 
-OUTPUT_REQ_DIR = "/app/captured_requests"
+OUTPUT_REQ_DIR = "/app/requests"
 
 def save_raw_request(request, index):
     try:
@@ -34,37 +34,107 @@ def save_raw_request(request, index):
     except Exception as e:
         sys.stderr.write(f"Error guardando petición raw: {str(e)}\n")
 
-def interact_and_submit_forms(page):
-    """Detecta inputs de formulario, los rellena con datos de prueba y hace submit."""
+def dismiss_popups_and_overlays(page):
+    """Cierra modales de bienvenida, avisos de cookies o diálogos flotantes."""
     try:
-        # 1. Rellenar campos de email/usuario
-        user_inputs = page.query_selector_all('input[type="email"], input[name*="user"], input[name*="email"], input[id*="email"], input[aria-label*="Email"]')
-        for inp in user_inputs:
-            if inp.is_visible():
-                inp.fill("test@example.com")
+        # Botones comunes para cerrar overlays (adaptado para Juice Shop y SPAs comunes)
+        overlay_selectors = [
+            'button[aria-label="Close Welcome Banner"]',
+            'a.cc-btn.cc-dismiss',
+            'button[aria-label="dismiss cookie message"]',
+            'button.close',
+            'div.cdk-overlay-backdrop'
+        ]
+        for sel in overlay_selectors:
+            elements = page.query_selector_all(sel)
+            for el in elements:
+                if el.is_visible():
+                    el.click()
+                    page.wait_for_timeout(300)
+    except Exception:
+        pass
 
-        # 2. Rellenar campos de contraseña
-        pass_inputs = page.query_selector_all('input[type="password"], input[name*="pass"], input[id*="pass"]')
-        for inp in pass_inputs:
-            if inp.is_visible():
-                inp.fill("password123")
+def interact_with_all_elements(page):
+    """Interactúa masivamente con formularios, botones, selects y elementos cliqueables."""
+    try:
+        dismiss_popups_and_overlays(page)
 
-        # 3. Rellenar inputs de texto genéricos (búsquedas, comentarios)
-        text_inputs = page.query_selector_all('input[type="text"]:not([readonly]), textarea')
-        for inp in text_inputs:
-            if inp.is_visible():
-                inp.fill("test_query")
+        # 1. Rellenar TODOS los campos de entrada según su tipo/nombre
+        inputs = page.query_selector_all('input, textarea, select')
+        for inp in inputs:
+            try:
+                if not inp.is_visible() or inp.is_disabled():
+                    continue
 
+                input_type = (inp.get_attribute("type") or "text").lower()
+                name_attr = (inp.get_attribute("name") or "").lower()
+                id_attr = (inp.get_attribute("id") or "").lower()
+
+                if input_type in ["email"] or "email" in name_attr or "email" in id_attr:
+                    inp.fill("test@example.com")
+                elif input_type in ["password"] or "pass" in name_attr or "pass" in id_attr:
+                    inp.fill("password123")
+                elif input_type in ["number"]:
+                    inp.fill("1")
+                elif input_type in ["text", "search"]:
+                    inp.fill("apple")
+                elif input_type == "checkbox":
+                    inp.check()
+            except Exception:
+                continue
+
+        page.wait_for_timeout(400)
+
+        # 2. Hacer scroll para activar lazy-loading e infini-scroll
+        page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
         page.wait_for_timeout(500)
 
-        # 4. Hacer clic en el botón Submit / Login / Search
-        submit_btn = page.query_selector('button[type="submit"], button#loginButton, button[aria-label*="Log in"], button[aria-label*="login"]')
-        if submit_btn and submit_btn.is_visible():
-            submit_btn.click(timeout=3000)
-            page.wait_for_timeout(1500)
+        # 3. Hacer clic en elementos interactivos (Botones, Tarjetas, Paginación, Menús)
+        clickable_selectors = [
+            'button:not([disabled])',
+            '[role="button"]',
+            'mat-card',                 # Componentes Angular comunes
+            'mat-select',               # Desplegables
+            '.mat-paginator-navigation-next', # Paginación
+            'a[routerlink]',
+            '[ng-click]'
+        ]
+
+        for selector in clickable_selectors:
+            elements = page.query_selector_all(selector)
+            # Limitamos la interacción a los primeros 10 elementos por selector para evitar loops infinitos
+            for el in elements[:10]:
+                try:
+                    if el.is_visible():
+                        el.click(timeout=1500)
+                        page.wait_for_timeout(300)
+                        dismiss_popups_and_overlays(page)
+                except Exception:
+                    continue
+
     except Exception as e:
-        # Ignorar fallos de interacción en páginas sin formulario
-        pass
+        sys.stderr.write(f"Error durante la interacción amplia: {str(e)}\n")
+
+def extract_all_discovered_routes(page, target_url):
+    """Extrae enlaces HTML, atributos de frameworks (Angular/React) y fragmentos de URL (#)."""
+    routes = set()
+    try:
+        # Extraer enlaces href
+        links = page.eval_on_selector_all('a[href]', 'els => els.map(e => e.getAttribute("href"))')
+        for link in links:
+            if link:
+                if link.startswith("/") or "#" in link:
+                    routes.add(urllib.parse.urljoin(target_url, link))
+
+        # Extraer routerlink (Angular)
+        rlinks = page.eval_on_selector_all('[routerlink]', 'els => els.map(e => e.getAttribute("routerlink"))')
+        for rlink in rlinks:
+            if rlink:
+                routes.add(f"{target_url.rstrip('/')}/#/{rlink.strip('/')}")
+
+    except Exception as e:
+        sys.stderr.write(f"Error extrayendo rutas: {str(e)}\n")
+    return routes
 
 def crawl_and_capture(target_url):
     endpoints = set()
@@ -74,7 +144,7 @@ def crawl_and_capture(target_url):
     if not os.path.exists(OUTPUT_REQ_DIR):
         os.makedirs(OUTPUT_REQ_DIR, exist_ok=True)
 
-    # Cada reconocimiento debe producir un conjunto coherente de artefactos.
+    # Limpieza de ejecuciones anteriores
     for filename in os.listdir(OUTPUT_REQ_DIR):
         if filename.endswith((".req", ".har")) or filename == "spa_crawler_output.json":
             try:
@@ -97,7 +167,8 @@ def crawl_and_capture(target_url):
         def handle_request(request):
             nonlocal req_counter
             url = request.url
-            if any(ext in url for ext in [".js", ".css", ".png", ".jpg", ".jpeg", ".svg", ".woff", ".woff2", ".ttf"]):
+            # Filtrar estáticos de bajo valor
+            if any(ext in url.lower() for ext in [".js", ".css", ".png", ".jpg", ".jpeg", ".svg", ".woff", ".woff2", ".ttf", ".ico"]):
                 return
 
             api_requests.add(url)
@@ -107,38 +178,45 @@ def crawl_and_capture(target_url):
         page.on("request", handle_request)
 
         try:
-            # FASE 1: Carga inicial y recolección de rutas
+            # FASE 1: Carga e Interacción Inicial
             page.goto(target_url, wait_until="networkidle", timeout=30000)
             page.wait_for_timeout(2000)
 
-            # Extraer enlaces
-            links = page.eval_on_selector_all('a[href]', 'els => els.map(e => e.getAttribute("href"))')
-            for link in links:
-                if link and ("#" in link or link.startswith("/")):
-                    if link.startswith("#"):
-                        endpoints.add(f"{target_url.rstrip('/')}/{link.lstrip('/')}")
-                    elif link.startswith("/"):
-                        endpoints.add(f"{target_url.rstrip('/')}{link}")
+            # Cierre inicial de anuncios/modales e interacción
+            dismiss_popups_and_overlays(page)
+            interact_with_all_elements(page)
 
-            router_links = page.eval_on_selector_all('[routerlink]', 'els => els.map(e => e.getAttribute("routerlink"))')
-            for rlink in router_links:
-                if rlink:
-                    endpoints.add(f"{target_url.rstrip('/')}/#/{rlink.strip('/')}")
+            # Recolectar rutas iniciales
+            endpoints.update(extract_all_discovered_routes(page, target_url))
 
-            # FASE 2: Navegar a cada vista e INTERACTUAR con sus formularios
-            nav_list = [url for url in endpoints if target_url in url]
+            # FASE 2: Navegación recursiva e Interacción Profunda
+            visited_urls = set()
+            nav_list = list(endpoints)
+
             for nav_url in nav_list:
+                if nav_url in visited_urls or target_url not in nav_url:
+                    continue
+
+                visited_urls.add(nav_url)
                 try:
-                    page.goto(nav_url, wait_until="networkidle", timeout=10000)
+                    page.goto(nav_url, wait_until="networkidle", timeout=12000)
                     page.wait_for_timeout(1000)
-                    
-                    # Intentar rellenar y enviar formularios en esta vista (ej: /#/login)
-                    interact_and_submit_forms(page)
+
+                    # Interactuar profundamente con la nueva vista cargada
+                    interact_with_all_elements(page)
+
+                    # Descubrir nuevas rutas que hayan aparecido tras interactuar
+                    new_routes = extract_all_discovered_routes(page, target_url)
+                    for nr in new_routes:
+                        if nr not in visited_urls and nr not in nav_list:
+                            nav_list.append(nr)
+                            endpoints.add(nr)
+
                 except Exception as nav_err:
                     sys.stderr.write(f"Error visitando {nav_url}: {str(nav_err)}\n")
 
         except Exception as e:
-            sys.stderr.write(f"Error durante la ejecución: {str(e)}\n")
+            sys.stderr.write(f"Error durante la ejecución principal: {str(e)}\n")
         finally:
             context.close()
             browser.close()
@@ -148,10 +226,9 @@ def crawl_and_capture(target_url):
         "captured_requests_count": req_counter,
         "har_file": har_path,
         "navigation_routes": sorted(list(endpoints)),
-        "api_endpoints": sorted(list(api_requests))
+        "api_endpoints": sorted(list(api_requests)),
+        "output_json_file": output_json_path
     }
-
-    result["output_json_file"] = output_json_path
 
     try:
         with open(output_json_path, "w", encoding="utf-8") as output_file:
@@ -159,6 +236,7 @@ def crawl_and_capture(target_url):
             output_file.write("\n")
     except OSError as output_error:
         sys.stderr.write(f"Error guardando salida JSON del crawler: {output_error}\n")
+
     return result
 
 if __name__ == "__main__":

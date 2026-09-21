@@ -317,7 +317,7 @@ async def process_recon_task(
     """
     started_at = datetime.now(timezone.utc).isoformat()
     logger.info(
-        "[RECON] Inicio target=%s attack_type=%s started_at=%s limits=(tools=%s,endpoints=%s)",
+        "[RECON] Inicio target=%s attack_type=%s started_at=%s output_limit=%s",
         target_url,
         attack_type_filter,
         started_at,
@@ -404,7 +404,7 @@ async def process_recon_task(
     system_prompt = SystemMessage(
         content=(
             "Eres un Agente Especialista en Reconocimiento y Planificación de Vectores de Ataque Web.\n"
-            f"Tu objetivo principal es analizar el objetivo '{target_url}' y planificar un flujo de ataque enfocado en: {attack_type_filter}.\n\n"
+            f"Tu objetivo principal es analizar el objetivo '{target_url}' y planificar un flujo de ataque enfocado en: {attack_type_filter}, .\n\n"
             "INSTRUCCIONES DE EJECUCIÓN:\n"
             "1. Las fases obligatorias spa_crawler y katana_full ya fueron ejecutadas. Analiza ambas salidas y los requests raw incluidos en request_context.\n"
             "2. Usa el contenido real de los .req para identificar método, ruta, query, headers y body. El HAR completo está disponible en la ruta indicada, pero no lo inventes ni asumas su contenido más allá del resumen.\n"
