@@ -1,26 +1,23 @@
 MCP_SKILLS_REGISTRY = {
-    
     "katana_full": {
-            "mcp_schema": {
-                        "name": "katana_full",
-                        "description": (
-                            "Escaneo profundo de la Web, ideal para ataques"
-                        ),
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "target_url": {
-                                    "type": "string",
-                                    "description": "URL objetivo a rastrear",
-                                }
-                            },
-                            "required": ["target_url"],
-                        },
-                    },
-                    "image": "projectdiscovery/katana:latest",
-                    "command_template": "-u {target_url} -silent -d 5 -jc -jsl -xhr -fx -aff -kf all -td -kb-endpoints",
-                    "timeout": 3600,
-                    "success_exit_codes": [0],
+        "mcp_schema": {
+            "name": "katana_full",
+            "description": ("Escaneo profundo de la Web, ideal para ataques"),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "target_url": {
+                        "type": "string",
+                        "description": "URL objetivo a rastrear",
+                    }
+                },
+                "required": ["target_url"],
+            },
+        },
+        "image": "projectdiscovery/katana:latest",
+        "command_template": "-u {target_url} -silent -d 5 -jc -jsl -xhr -fx -aff -kf all -td -kb-endpoints",
+        "timeout": 3600,
+        "success_exit_codes": [0],
     },
     # =========================================================================
     # 4. SPA Crawler - Descubrimiento de rutas de aplicaciones JavaScript
@@ -59,7 +56,8 @@ MCP_SKILLS_REGISTRY = {
                 "Evaluación y explotación automática de inyecciones SQL (SQLi). USAR EN FASE DE VALIDACIÓN "
                 "CUANDO existan endpoints con parámetros o campos vulnerables a base de datos (ej: formulación "
                 "de login, búsquedas, IDs). NO usar como escáner general sobre la raíz del sitio. "
-                "Input esperado: URL con parámetros o endpoint específico. "
+                "Input esperado: PREFERIBLEMENTE 'req_file_path' (archivo .req con la petición HTTP completa "
+                "generada por el crawler). Alternativa: 'target_url' para una URL simple. "
                 "Devuelve: Confirmación del vector SQLi, tipo de BD y payloads funcionales."
             ),
             "inputSchema": {
@@ -67,14 +65,18 @@ MCP_SKILLS_REGISTRY = {
                 "properties": {
                     "target_url": {
                         "type": "string",
-                        "description": "Endpoint o URL a evaluar",
-                    }
+                        "description": "Endpoint o URL a evaluar (alternativa si no hay req_file_path)",
+                    },
+                    "req_file_path": {
+                        "type": "string",
+                        "description": "Ruta al archivo .req con la petición HTTP completa (recomendado)",
+                    },
                 },
-                "required": ["target_url"],
+                "required": [],
             },
         },
         "image": "parrotsec/sqlmap:latest",
-        "command_template": '-u "{target_url}" --batch --risk=1 --level=1',
+        "command_template": '-r "{req_file_path}" --batch --level=5 --risk=3 --ignore-stdin --ignore-code=401 --no-escape',
         "timeout": 3600,
         "success_exit_codes": [0],
     },
@@ -104,7 +106,7 @@ MCP_SKILLS_REGISTRY = {
         "image": "hahwul/dalfox:latest",
         "command_template": './dalfox url --url "{target_url}" --silence',
         "timeout": 1800,
-        "success_exit_codes": [0,2],
+        "success_exit_codes": [0, 2],
     },
     # =========================================================================
     # 7. Commix - Inyección de Comandos del SO (Command Injection)
