@@ -66,6 +66,7 @@ cypress/videos/
 cypress/screenshots/
 playwright-report/
 test-results/
+requests
 
 # ==========================================
 # Archivos Temporales e Historias de SO
@@ -95,6 +96,7 @@ Desktop.ini
 *.egg-info/
 build/
 dist/
+__pycache__
 
 # ==========================================
 # Archivos de respaldo

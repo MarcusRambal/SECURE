@@ -8,7 +8,7 @@ from fastapi import FastAPI, HTTPException, Response
 from llm_factory import get_int_env, get_llm
 
 from langchain_core.messages import HumanMessage, SystemMessage
-from langgraph.prebuilt import create_react_agent
+from langchain.agents import create_agent
 
 from tools import TASK_STATE, create_orchestrator_tools
 
@@ -100,7 +100,7 @@ async def execute_orchestration_flow(payload: dict, channel: aio_pika.Channel):
             )
         )
 
-        agent_executor = create_react_agent(model=llm, tools=tools, prompt=system_prompt)
+        agent_executor = create_agent(model=llm, tools=tools, system_prompt=system_prompt)
 
         initial_input = {
             "messages": [

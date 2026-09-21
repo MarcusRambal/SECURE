@@ -69,7 +69,14 @@ def create_orchestrator_tools(channel: aio_pika.Channel) -> list[StructuredTool]
         target_url = state["target_url"]
         logger.info(f"📤 [ORQUESTADOR -> RECON] Escaneando {target_url}...")
 
-        rpc_response = await _send_rpc_request(channel, RECON_QUEUE, {"target_url": target_url})
+        rpc_response = await _send_rpc_request(
+            channel,
+            RECON_QUEUE,
+            {
+                "target_url": target_url,
+                "attack_type": state.get("attack_type", "full"),
+            },
+        )
 
         # Si el RPC falla o devuelve ERROR, marcar la tarea como fallida
         if not rpc_response or rpc_response.get("status") == "ERROR":
@@ -112,7 +119,10 @@ def create_orchestrator_tools(channel: aio_pika.Channel) -> list[StructuredTool]
         if status == "PARTIAL":
             state["status"] = "PARTIAL"
 
-        endpoints_count = len(recon_data.get("endpoints", []))
+        endpoints_count = len(
+            recon_data.get("endpoints", [])
+            or recon_data.get("high_priority_targets", [])
+        )
         return (
             f"Reconocimiento completado para '{task_id}'. "
             f"Endpoints: {endpoints_count}. "
@@ -143,7 +153,10 @@ def create_orchestrator_tools(channel: aio_pika.Channel) -> list[StructuredTool]
             "passive_findings": [],
         }
 
-        if not recon_data.get("endpoints"):
+        if not (
+            recon_data.get("endpoints")
+            or recon_data.get("high_priority_targets")
+        ):
             logger.warning(f"Recon sin endpoints para {task_id}. Omisión directa de validación.")
             state["recon_data"] = recon_data
             state["validation_data"] = {

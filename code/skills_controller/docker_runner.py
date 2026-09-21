@@ -6,6 +6,7 @@ import os
 logger = logging.getLogger(__name__)
 
 DEFAULT_NETWORK = os.getenv("DOCKER_NETWORK", "sec-net")
+REQUESTS_VOLUME = os.getenv("REQUESTS_VOLUME", "secure-requests-data")
 
 
 class EphemeralDockerRunner:
@@ -48,6 +49,12 @@ class EphemeralDockerRunner:
                     image=image,
                     command=command,
                     network=target_network,
+                    volumes={
+                        REQUESTS_VOLUME: {
+                            "bind": "/app/captured_requests",
+                            "mode": "rw",
+                        }
+                    },
                     detach=False,
                     remove=True,
                     stdout=True,

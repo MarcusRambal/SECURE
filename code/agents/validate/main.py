@@ -549,6 +549,17 @@ async def process_validate_task(
     clean_attack_type = sanitize_attack_type(attack_type)
 
     raw_endpoints = recon_data.get("endpoints", [])
+    if not raw_endpoints:
+        raw_endpoints = [
+            {
+                "url": target.get("endpoint", ""),
+                "method": target.get("method", "GET"),
+                "parameters": target.get("injectable_parameters", []),
+                "req_file_path": target.get("req_file_path", ""),
+            }
+            for target in recon_data.get("high_priority_targets", [])
+            if isinstance(target, dict) and target.get("endpoint")
+        ]
 
     if not raw_endpoints:
         logger.warning("Recon no devolvió endpoints. Omisión de la fase de validación.")
