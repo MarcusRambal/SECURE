@@ -8,8 +8,10 @@ logger = logging.getLogger("llm-factory")
 # Fallback en código si no se encuentra ninguna variable de entorno
 DEFAULT_MODEL = "qwen2.5:7b-instruct"
 
-# Contexto fijo para ejecuciones secuenciales (16k tokens)
-FIXED_NUM_CTX = 16384 
+# Contexto compartido por agente. 16k es el valor conservador; 32k se puede
+# activar desde el entorno después de comprobar el consumo real de VRAM.
+DEFAULT_NUM_CTX = 16384
+MAX_NUM_CTX = 32768
 
 DEFAULT_MAX_TOKENS = {
     "orchestrator": 500,
@@ -26,6 +28,21 @@ def get_int_env(name: str, default: int) -> int:
     except ValueError:
         logger.warning("Valor no válido para %s; usando %s", name, default)
         return default
+
+
+def get_num_ctx() -> int:
+    """Devuelve un contexto soportado y evita configuraciones accidentales."""
+    requested = get_int_env("LLM_NUM_CTX", DEFAULT_NUM_CTX)
+    if requested not in (DEFAULT_NUM_CTX, MAX_NUM_CTX):
+        logger.warning(
+            "LLM_NUM_CTX=%s no está soportado; usando %s (válidos: %s, %s)",
+            requested,
+            DEFAULT_NUM_CTX,
+            DEFAULT_NUM_CTX,
+            MAX_NUM_CTX,
+        )
+        return DEFAULT_NUM_CTX
+    return requested
 
 
 def get_llm(agent_name: str) -> BaseChatModel:
@@ -50,22 +67,32 @@ def get_llm(agent_name: str) -> BaseChatModel:
     default_tokens = DEFAULT_MAX_TOKENS.get(agent_name, 1500)
     max_tokens = get_int_env(f"MAX_TOKENS_{agent_upper}", default_tokens)
 
+    num_ctx = get_num_ctx()
+    keep_alive = get_int_env("OLLAMA_KEEP_ALIVE", 0)
+
     # 4. Opciones del motor Ollama
     ollama_options = {
         "num_predict": -1 if max_tokens <= 0 else max_tokens,
-        "num_ctx": FIXED_NUM_CTX,  # Mantiene el contexto amplio e independiente
-        "num_keep": 0,             # Fuerza la desasignación de tokens en caché al cambiar de agente
+        "num_ctx": num_ctx,
+        "num_keep": 0,
     }
 
     logger.info(
-        f"🏠 [LOCAL OLLAMA] Agente '{agent_name}' → Modelo '{model_name}' "
-        f"en '{ollama_url}' (max_tokens_salida: {max_tokens}, num_ctx_entrada: {FIXED_NUM_CTX})"
+        "[LOCAL OLLAMA] Agente '%s' -> Modelo '%s' en '%s' "
+        "(max_tokens_salida: %s, num_ctx: %s, keep_alive: %ss)",
+        agent_name,
+        model_name,
+        ollama_url,
+        max_tokens,
+        num_ctx,
+        keep_alive,
     )
 
     return ChatOllama(
         base_url=ollama_url,
         model=model_name,
         temperature=0.1,
-        num_ctx=FIXED_NUM_CTX,
+        num_ctx=num_ctx,
+        keep_alive=keep_alive,
         options=ollama_options,
     )

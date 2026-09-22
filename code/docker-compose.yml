@@ -8,10 +8,6 @@ networks:
     name: sec-net
     driver: bridge
 
-volumes:
-  requests-data:
-    name: secure-requests-data
-
 services:
 
 
@@ -78,7 +74,6 @@ services:
     container_name: ctnr-skills-controller
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock # Acceso al Engine de Docker
-      - requests-data:/app/requests
     env_file:
       - .env
     networks:
@@ -111,8 +106,6 @@ services:
       dockerfile: recon/Dockerfile.recon
     env_file:
       - .env
-    volumes:
-      - requests-data:/app/requests
     networks:
       - sec-net
       - internal-net
@@ -148,6 +141,13 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
+
+  build-spa-crawler:
+    build:
+      context: ./skills_controller
+      dockerfile: docker_images/Dockerfile.spa_crawler
+    image: local-spa-crawler:latest
+    command: ["echo", "local-spa-crawler listo"]
 
   # 8. Entorno Vulnerable: WebGoat
   webgoat:

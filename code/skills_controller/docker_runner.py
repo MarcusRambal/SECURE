@@ -1,12 +1,13 @@
-import docker
 import asyncio
+import io
 import logging
 import os
+import tarfile
+import docker
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_NETWORK = os.getenv("DOCKER_NETWORK", "sec-net")
-REQUESTS_VOLUME = os.getenv("REQUESTS_VOLUME", "secure-requests-data")
 
 
 class EphemeralDockerRunner:
@@ -20,6 +21,7 @@ class EphemeralDockerRunner:
         timeout: int = 300,
         network_name: str = None,
         success_exit_codes: list = None,
+        input_files: dict[str, str] | None = None,
     ) -> dict:
         target_network = network_name or DEFAULT_NETWORK
         valid_exit_codes = success_exit_codes if success_exit_codes is not None else [0]
@@ -31,34 +33,25 @@ class EphemeralDockerRunner:
                 return value.decode("utf-8", errors="replace")
             return str(value)
 
-        def combine_output(stdout, stderr) -> str:
-            stdout_text = decode(stdout)
-            stderr_text = decode(stderr)
-            if stdout_text and stderr_text:
-                return f"{stdout_text}\n\n[stderr]\n{stderr_text}"
-            return stdout_text or stderr_text
-
-        logger.info(f"🐳 [DOCKER] Spawneando contenedor efímero: {image} (Red: {target_network})")
-        logger.info(f"👉 Comando: {command}")
+        logger.info("🐳 [DOCKER Runner] Iniciando tarea en contenedor efímero.")
+        logger.info(f"  ├─ Imagen: {image}")
+        logger.info(f"  ├─ Red: {target_network}")
+        logger.info(f"  ├─ Timeout: {timeout}s")
+        logger.info(f"  ├─ Códigos de salida válidos: {valid_exit_codes}")
+        logger.info(f"  └─ Comando: {command}")
 
         loop = asyncio.get_running_loop()
 
         def _run_docker_sync():
+            container = None
+            logs_output = []
             try:
-                logs = self.client.containers.run(
+                # 1. Creación del contenedor
+                logger.debug(f"🛠️ [DOCKER Sync] Creando contenedor con la imagen '{image}'...")
+                container = self.client.containers.create(
                     image=image,
                     command=command,
                     network=target_network,
-                    volumes={
-                        REQUESTS_VOLUME: {
-                            "bind": "/app/requests",
-                            "mode": "rw",
-                        }
-                    },
-                    detach=False,
-                    remove=True,
-                    stdout=True,
-                    stderr=True,
                     mem_limit="1024m",
                     shm_size="1g",
                     environment={
@@ -70,45 +63,77 @@ class EphemeralDockerRunner:
                         "all_proxy": "",
                         "NO_PROXY": "localhost,127.0.0.1",
                         "no_proxy": "localhost,127.0.0.1",
+                        "PYTHONUNBUFFERED": "1", # Forza salida de logs sin buffer para Python
                     },
                 )
-                return {"status": "SUCCESS", "output": decode(logs)}
-            except docker.errors.ContainerError as ce:
-                # Verificar si el código de salida está en la lista permitida para esta herramienta
-                if ce.exit_status in valid_exit_codes:
-                    logger.info(
-                        f"⚠️ {image} finalizó con estado {ce.exit_status} (permitido como éxito)."
-                    )
-                    output_text = combine_output(
-                        getattr(ce, "stdout", None), getattr(ce, "stderr", None)
-                    )
-                    return {
-                        "status": "SUCCESS",
-                        "output": output_text
-                        or f"Escaneo completado con código de estado {ce.exit_status}.",
-                    }
+                logger.debug(f"📦 [DOCKER Sync] Contenedor creado. ID: {container.short_id}")
 
-                logger.error(
-                    f"❌ {image} falló con código de salida no permitido: {ce.exit_status}"
-                )
-                return {
-                    "status": "ERROR",
-                    "output": combine_output(
-                        getattr(ce, "stdout", None), getattr(ce, "stderr", None)
-                    )
-                    or str(ce),
-                }
+                # 2. Inyección de archivos temporales
+                if input_files:
+                    logger.debug(f"📂 [DOCKER Sync] Copiando {len(input_files)} archivo(s)...")
+                    for filename, content in input_files.items():
+                        target_dir = os.path.dirname(filename) or "/"
+                        file_name_only = os.path.basename(filename)
+
+                        archive = io.BytesIO()
+                        with tarfile.open(fileobj=archive, mode="w") as tar:
+                            data = content.encode("utf-8")
+                            info = tarfile.TarInfo(name=file_name_only)
+                            info.size = len(data)
+                            tar.addfile(info, io.BytesIO(data))
+                        archive.seek(0)
+
+                        container.put_archive(target_dir, archive.read())
+                        logger.debug(f"  └─ Archivo '{file_name_only}' copiado en '{target_dir}'")
+
+                # 3. Arrancar contenedor
+                logger.info(f"🚀 [DOCKER Sync] Arrancando contenedor {container.short_id}...")
+                container.start()
+
+                # 4. Lectura de Logs en TIEMPO REAL (Streaming)
+                logger.info(f"📺 [DOCKER Stream] === INICIO DE LOGS ({container.short_id}) ===")
+                
+                # Obtener el generador de logs en tiempo real
+                log_stream = container.logs(stream=True, follow=True, stdout=True, stderr=True)
+                
+                for chunk in log_stream:
+                    line = decode(chunk).rstrip()
+                    if line:
+                        logger.info(f"  [{container.short_id}] {line}")
+                        logs_output.append(line)
+
+                logger.info(f"📺 [DOCKER Stream] === FIN DE LOGS ({container.short_id}) ===")
+
+                # 5. Esperar el código de salida final
+                result = container.wait()
+                exit_code = result.get("StatusCode", 1)
+                full_output = "\n".join(logs_output)
+
+                logger.info(f"🏁 [DOCKER Sync] Contenedor {container.short_id} finalizó con Exit Code: {exit_code}")
+
+                if exit_code in valid_exit_codes:
+                    return {"status": "SUCCESS", "output": full_output}
+
+                return {"status": "ERROR", "output": full_output or f"Código de salida: {exit_code}"}
+
             except Exception as e:
-                logger.error(f"Fallo invocando el Engine de Docker: {e}")
-                return {"status": "FAILED", "output": str(e)}
+                logger.error(f"💥 [DOCKER Sync] Error en ejecución Docker: {e}", exc_info=True)
+                return {"status": "FAILED", "output": "\n".join(logs_output) or str(e)}
+
+            finally:
+                if container is not None:
+                    try:
+                        logger.debug(f"🧹 [DOCKER Sync] Eliminando contenedor efímero {container.short_id}...")
+                        container.remove(force=True)
+                    except Exception as clean_err:
+                        logger.debug(f"⚠️ [DOCKER Sync] No se pudo eliminar contenedor: {clean_err}")
 
         try:
-            result = await asyncio.wait_for(
+            return await asyncio.wait_for(
                 loop.run_in_executor(None, _run_docker_sync), timeout=timeout
             )
-            return result
         except asyncio.TimeoutError:
-            logger.error(f"⏰ Timeout de ejecución excedido ({timeout}s) para la imagen {image}")
+            logger.error(f"⏰ [DOCKER Runner] Timeout excedido ({timeout}s) para {image}")
             return {
                 "status": "TIMEOUT",
                 "output": f"La herramienta superó el tiempo máximo permitido ({timeout}s).",

@@ -497,7 +497,12 @@ def build_validation_tools(mcp_catalog: list, channel: aio_pika.Channel, attack_
 
         fields = {}
         for prop_name, prop_info in properties.items():
-            prop_type = int if prop_info.get("type") == "integer" else str
+            prop_type = {
+                "integer": int,
+                "object": dict,
+                "array": list,
+                "boolean": bool,
+            }.get(prop_info.get("type"), str)
             prop_desc = prop_info.get("description", "")
             if prop_name in required_fields:
                 fields[prop_name] = (prop_type, Field(..., description=prop_desc))
@@ -555,7 +560,7 @@ async def process_validate_task(
                 "url": target.get("endpoint", ""),
                 "method": target.get("method", "GET"),
                 "parameters": target.get("injectable_parameters", []),
-                "req_file_path": target.get("req_file_path", ""),
+                "request": target.get("request"),
             }
             for target in recon_data.get("high_priority_targets", [])
             if isinstance(target, dict) and target.get("endpoint")
@@ -613,14 +618,12 @@ async def process_validate_task(
         content=(
             "Eres el Agente Especialista en Validación de Vulnerabilidades de Ciberseguridad.\n"
             f"Tu objetivo es comprobar fallos en la URL objetivo auditando endpoints prioritarios (Modalidad: '{clean_attack_type}').\n\n"
-            "REGLAS SOBRE RUTAS DE PETICIÓN:\n"
-            "1. Cada target en 'high_priority_targets' puede tener un campo 'req_file_path' "
-            "con la ruta a un archivo .req que contiene la petición HTTP completa (método, headers, body).\n"
-            "2. PREFIERE SIEMPRE usar 'req_file_path' sobre 'target_url' cuando exista. "
-            "Las herramientas lo necesitan para atacar endpoints con POST, headers o body específicos.\n"
-            "3. Solo si 'req_file_path' no existe o está vacío, usa 'target_url'.\n\n"
+            "REGLAS SOBRE PETICIONES:\n"
+            "1. Cada target puede tener un campo 'request' con method, url, headers y body.\n"
+            "2. Para SQLMap usa 'request' cuando exista; el servidor creará un archivo temporal dentro del contenedor.\n"
+            "3. Solo si no existe 'request', usa 'target_url'. No inventes req_file_path ni rutas de archivos.\n\n"
             "GUÍA DE HERRAMIENTAS SEGÚN VECTOR:\n"
-            "- Endpoints con parámetros de búsqueda o BD (SQLi) → 'sqlmap' (prefiere 'req_file_path')\n"
+            "- Endpoints con parámetros de búsqueda o BD (SQLi) → 'sqlmap' (prefiere 'request')\n"
             "- Endpoints con parámetros reflejados o inputs de texto (XSS) → 'dalfox'\n"
             "- Endpoints con ejecuciones del sistema, pings o subida de archivos (Command Injection) → 'commix'\n"
             "- Cobertura multivectorial basada en plantillas → 'nuclei'\n"
@@ -629,7 +632,7 @@ async def process_validate_task(
             f"1. Ejecuta {tool_limit_text} veces la herramienta '{VALIDATE_ONLY_TOOL or 'permitida'}'.\n"
             "2. Los parámetros de las herramientas se llaman EXACTAMENTE como aparecen en su schema. "
             "Por ejemplo, 'dalfox' espera 'target_url' (no 'url' ni 'target'), y 'sqlmap' acepta tanto "
-            "'target_url' como 'req_file_path'.\n\n"
+            "'target_url' como alternativa a 'request'.\n\n"
             "REGLA CRÍTICA DE FINALIZACIÓN:\n"
             "Cuando termines, NO devuelvas el JSON como texto plano. "
             "ESTÁS OBLIGADO a llamar a la herramienta 'submit_validate_output' pasando tus hallazgos "

@@ -1,0 +1,23 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# 1. Instalar herramientas base del sistema
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    wget \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# 2. Instalar Playwright en Python
+RUN pip install --no-cache-dir playwright
+
+# 3. Instalar ÚNICAMENTE Chromium y sus librerías de SO requeridas
+RUN playwright install chromium --with-deps
+
+# 4. Crear el directorio de herramientas y copiar el script
+RUN mkdir -p /app/tools
+# Si el contexto de construcción es la raíz de skills_controller:
+COPY tools/spa_crawler.py /app/tools/spa_crawler.py
+
+# 5. Punto de entrada apuntando a la ruta exacta usada por MCP
+ENTRYPOINT ["python", "/app/tools/spa_crawler.py"]

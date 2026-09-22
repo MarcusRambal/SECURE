@@ -22,9 +22,7 @@ class TaskReferenceInput(BaseModel):
     task_id: str = Field(description="UUID único de la tarea de auditoría en curso.")
 
 
-async def _send_rpc_request(
-    channel: aio_pika.Channel, queue_name: str, payload: dict, timeout: float = 3600.0
-) -> dict:
+async def _send_rpc_request(channel: aio_pika.Channel, queue_name: str, payload: dict, timeout: float = 3600.0) -> dict:
     """Envía peticiones RPC reutilizando el canal RabbitMQ activo del worker."""
     reply_queue = await channel.declare_queue(exclusive=True)
     correlation_id = str(uuid.uuid4())

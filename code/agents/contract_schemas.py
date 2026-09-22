@@ -10,14 +10,15 @@ class ReconSummary(BaseModel):
     target_url: str
     attack_type_filter: str
     total_targets_identified: int
-    har_session_file: str
+    total_requests_captured: int = 0
+    har_session_file: Optional[str] = None
 
 class HighPriorityTarget(BaseModel):
     target_id: str
     vulnerability_target: str
     endpoint: str
     method: str
-    req_file_path: str
+    request: Optional[Dict[str, Any]] = None
     recommended_tool: str
 
 class ReconPlannerOutput(BaseModel):
