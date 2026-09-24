@@ -4,4 +4,4 @@ __pycache__/
 *.pyd
 .git
 .gitignore
-.env 
+.env

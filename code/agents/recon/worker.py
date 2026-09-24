@@ -8,9 +8,9 @@ import aio_pika
 
 from main import process_recon_task
 
+from config import RABBITMQ_URL, RECON_QUEUE
+
 logger = logging.getLogger("recon-agent-worker")
-RABBITMQ_URL = os.getenv("RABBITMQ_URL")
-RECON_QUEUE = "recon_queue"
 
 
 # ============================================================================

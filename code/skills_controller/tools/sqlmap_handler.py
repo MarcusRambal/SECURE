@@ -25,14 +25,14 @@ def build_raw_request(request: dict) -> str:
 
 
 def handle_sqlmap_args(arguments: dict) -> tuple[dict, dict]:
-    """Prepara argumentos y genera el archivo .req para SQLMap."""
+    """Prepara el archivo HTTP temporal que SQLMap consume con ``-r``."""
     args = dict(arguments)
     input_files = {}
 
     request_data = args.get("request")
     if request_data:
-        req_file = args.get("req_file_path", "/tmp/secure-request.req")
-        args["req_file_path"] = req_file
-        input_files[req_file] = build_raw_request(request_data)
+        file_path = args.get("file_path", "/tmp/secure-request.txt")
+        args["file_path"] = file_path
+        input_files[file_path] = build_raw_request(request_data)
 
     return args, input_files

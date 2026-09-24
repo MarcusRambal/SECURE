@@ -12,6 +12,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Contrato compartido y lógica del validate
 COPY contract_schemas.py .
 COPY llm_factory.py .
+COPY validate/config.py .
+COPY validate/helpers.py .
+COPY validate/mcp_skills.py .
 COPY validate/main.py .
+COPY validate/worker.py .
 
-CMD ["python", "main.py"]
+CMD ["python", "worker.py"]

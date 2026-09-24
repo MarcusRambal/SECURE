@@ -79,9 +79,9 @@ MCP_SKILLS_REGISTRY = {
             },
         },
         "image": "parrotsec/sqlmap:latest",
-        "command_template": '-r "{req_file_path}" --batch --level=5 --risk=3 --ignore-stdin --ignore-code=401 --no-escape',
+        "command_template": '-r "{file_path}" --batch --level=5 --risk=3 --ignore-stdin --ignore-code=401 --no-escape',
         "timeout": 3600,
-        "handler": handle_sqlmap_args,
+        "prepare_args": handle_sqlmap_args,
         "success_exit_codes": [0],
     },
     # =========================================================================

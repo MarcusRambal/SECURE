@@ -57,7 +57,7 @@ def extract_urls_from_crawler(crawler_data: dict) -> list[str]:
     return deduplicate_urls(request_urls, route_urls)
 
 
-def build_planner_output_from_dict(data: dict, target_url: str, attack_type_filter: str) -> ReconPlannerOutput:
+def build_planner_output_from_dict( data: dict,target_url: str,attack_type_filter: str) -> ReconPlannerOutput:
     """Valida y normaliza la respuesta JSON producida por el LLM de Recon."""
     summary_data = data.get("recon_summary", {})
     targets_data = data.get("high_priority_targets", [])
@@ -68,7 +68,6 @@ def build_planner_output_from_dict(data: dict, target_url: str, attack_type_filt
             "total_targets_identified", len(targets_data)
         ),
         total_requests_captured=summary_data.get("total_requests_captured", 0),
-        har_session_file=summary_data.get("har_session_file"),
     )
     targets: List[HighPriorityTarget] = []
     for index, target in enumerate(targets_data, start=1):

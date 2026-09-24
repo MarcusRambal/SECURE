@@ -37,18 +37,18 @@ class SkillsMCPServer:
             if prop_name not in merged_args and "default" in prop_spec:
                 merged_args[prop_name] = prop_spec["default"]
 
-        # 3. Fallback de plantilla (-r vs -u)
+        # 3. Si no hay petición raw, SQLMap analiza directamente la URL recibida.
         template = tool_config["command_template"]
-        if "{req_file_path}" in template and not merged_args.get("req_file_path"):
+        if "{file_path}" in template and not merged_args.get("file_path"):
             if not merged_args.get("target_url"):
                 return {
                     "jsonrpc": "2.0",
                     "error": {
                         "code": -32602,
-                        "message": "Se requiere 'req_file_path' o 'target_url'.",
+                        "message": "Se requiere 'request' o 'target_url'.",
                     },
                 }
-            template = template.replace('-r "{req_file_path}"', '-u "{target_url}"')
+            template = template.replace('-r "{file_path}"', '-u "{target_url}"')
 
         # 4. Formatear comando y ejecutar
         try:

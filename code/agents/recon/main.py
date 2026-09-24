@@ -1,9 +1,8 @@
-import os
 import json
 import logging
 import aio_pika
 from datetime import datetime, timezone
-from llm_factory import get_int_env, get_llm
+from llm_factory import get_llm
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain.agents import create_agent
@@ -22,10 +21,7 @@ from mcp_skills import call_mcp_skill, get_mcp_catalog
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("recon-agent-worker")
 
-RABBITMQ_URL = os.getenv("RABBITMQ_URL")
-SKILLS_QUEUE = "skills_queue"
-RECON_QUEUE = "recon_queue"
-MCP_OUTPUT_MAX_CHARS = get_int_env("MCP_OUTPUT_MAX_CHARS", 1500)
+
 
 
 # ============================================================================
@@ -40,7 +36,7 @@ async def process_recon_task(channel: aio_pika.Channel,target_url: str,attack_ty
         Retorna el plan validado y el modo de recuperación usado.
     """
     started_at = datetime.now(timezone.utc).isoformat()
-    logger.info("[RECON] Inicio target=%s attack_type=%s started_at=%s output_limit=%s",target_url,attack_type_filter,started_at,MCP_OUTPUT_MAX_CHARS,)
+    logger.info("[RECON] Inicio target=%s attack_type=%s started_at=%s",target_url,attack_type_filter,started_at)
 
     catalog = await get_mcp_catalog(channel)
     catalog_names = {tool.get("name") for tool in catalog}
@@ -105,8 +101,8 @@ async def process_recon_task(channel: aio_pika.Channel,target_url: str,attack_ty
             "Eres un Agente Especialista en Reconocimiento y Planificación de Vectores de Ataque Web.\n"
             f"Tu objetivo principal es analizar el objetivo '{target_url}' y planificar un flujo de ataque enfocado en: {attack_type_filter}, .\n\n"
             "INSTRUCCIONES DE EJECUCIÓN:\n"
-            "1. Las fases obligatorias spa_crawler y katana_full ya fueron ejecutadas. Analiza ambas salidas y las peticiones estructuradas de captured_requests.\n"
-            "2. Usa el contenido real de captured_requests para identificar método, ruta, query, headers y body. No inventes rutas de archivos ni archivos HAR.\n"
+            "1. Las fases obligatorias spa_crawler y katana_full ya fueron ejecutadas. Analiza ambas salidas y las peticiones estructuradas .\n"
+            "2. Usa el contenido real para identificar método, ruta, query, headers y body. No inventes rutas de archivos ni archivos HAR.\n"
             f"3. Limpia los duplicados usando la lista consolidada y filtra las rutas y parámetros sospechosos de ser vulnerables a '{attack_type_filter}'.\n"
             "4. Decide después el plan de acción: objetivos prioritarios, método, petición estructurada y herramienta recomendada.\n"
             "5. Este agente es exclusivamente analítico. No ejecutes sqlmap, nuclei, dalfox, commix, ffuf ni ninguna otra herramienta.\n\n"
@@ -185,8 +181,13 @@ async def process_recon_task(channel: aio_pika.Channel,target_url: str,attack_ty
     full_llm_output = "\n\n--- LLM event ---\n\n".join(llm_outputs)
     logger.info("[RECON] Parseando bloque JSON final chars=%d", len(raw_final_output))
     parsed_dict = json.loads(clean_json_response(raw_final_output))
-    recon_output = build_planner_output_from_dict(parsed_dict, target_url, attack_type_filter)
-    logger.info("[RECON] Plan JSON validado targets=%d", len(recon_output.high_priority_targets))
+    recon_output = build_planner_output_from_dict(
+        parsed_dict,
+        target_url,
+        attack_type_filter,
+    )
+    logger.info(
+        "[RECON] Plan JSON validado targets=%d ", len(recon_output.high_priority_targets),)
     return recon_output, "clean"
 
 
