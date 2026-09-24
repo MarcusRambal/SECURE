@@ -1,22 +1,21 @@
 FROM python:3.11-slim
 
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
 WORKDIR /app
 
-# Instalar dependencias del sistema requeridas por Playwright
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    wget gnupg curl && rm -rf /var/lib/apt/lists/*
-
-# Copiar requirements (asumiendo 'context: .' en docker-compose.yml)
+# Dependencias del agente
 COPY validate/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Instalar navegadores de Playwright
-RUN playwright install chromium
-RUN playwright install-deps chromium
-
-# Copiar el contrato compartido desde la raíz y el código del agente
+# Contrato compartido y lógica del validate
 COPY contract_schemas.py .
+COPY llm_factory.py .
+COPY validate/config.py .
+COPY validate/helpers.py .
+COPY validate/mcp_skills.py .
 COPY validate/main.py .
+COPY validate/worker.py .
 
-EXPOSE 8002
-CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8002"]
+CMD ["python", "worker.py"]

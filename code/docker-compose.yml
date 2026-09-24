@@ -2,11 +2,31 @@ networks:
   public-net:
     driver: bridge
   internal-net:
+    name: internal-net
     driver: bridge
   sec-net:
+    name: sec-net
     driver: bridge
 
 services:
+
+
+  frontend: 
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.frontend
+    container_name: frontend
+    ports:
+     - "3000:3000"  
+    networks:
+      - "public-net" 
+    volumes: 
+      - ./frontend:/app             
+      - /app/node_modules        
+      - /app/.next
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000  
+      - INTERNAL_API_URL=http://api:8000
 
   # 1. API Gateway (FastAPI)
   api:
@@ -21,7 +41,8 @@ services:
       - public-net
       - internal-net
     depends_on:
-      - rabbitmq
+      rabbitmq:
+        condition: service_healthy
 
   # 2. Message Broker (RabbitMQ)
   rabbitmq:
@@ -29,82 +50,106 @@ services:
     container_name: rabbitmq-broker
     restart: unless-stopped
     ports:
-      - "5672:5672"   # AMQP para los microservicios
+      - "5672:5672" # AMQP para los microservicios
       - "15672:15672" # UI Management
     environment:
-      - RABBITMQ_USER=${RABBITMQ_USER}
-      - RABBITMQ_PASS=${RABBITMQ_PASS}
+      - RABBITMQ_DEFAULT_USER=${RABBITMQ_USER}
+      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASS}
     volumes:
       - ./enable_plugins:/etc/rabbitmq/enabled_plugins:ro
     networks:
       - internal-net
+    healthcheck:
+      test: [ "CMD", "rabbitmq-diagnostics", "-q", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
   # 3. Controlador de Skills (Servidor MCP + Docker Socket)
   skills-controller:
     build:
       context: ./skills_controller
       dockerfile: Dockerfile.skills_controller
-    ports:
-      - "8001:8001"
+    container_name: ctnr-skills-controller
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock # Acceso al socket de Docker
-    networks:
-      - internal-net
-      - sec-net
-
-  orchestrator:
-    build:
-      context: ./agents
-      dockerfile: orchestrator/Dockerfile.orchestrator
+      - /var/run/docker.sock:/var/run/docker.sock # Acceso al Engine de Docker
     env_file:
       - .env
     networks:
       - internal-net
-    environment:
-      - RABBITMQ_URL=amqp://${RABBITMQ_USER}:${RABBITMQ_PASS}@rabbitmq-broker:5672/
     depends_on:
-      - rabbitmq
+      rabbitmq:
+        condition: service_healthy
 
-# 4. Agente de Reconocimiento
+  # 4. Orquestador Principal (LLM Router)
+  orchestrator:
+    build:
+      context: ./agents
+      dockerfile: orchestrator/Dockerfile.orchestrator
+    ports:
+      - "8001:8001"
+    restart: unless-stopped
+    env_file:
+      - .env
+    networks:
+      - public-net
+      - internal-net
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  # 5. Agente de Reconocimiento
   recon-agent:
     build:
       context: ./agents
       dockerfile: recon/Dockerfile.recon
-    ports:
-      - "8003:8003"
+    env_file:
+      - .env
     networks:
-      sec-net:
-        aliases:
-          - recon-agent
-      internal-net:
-    environment:
-      - TESTER_AGENT_URL=http://validate-agent:8002/validate
-      - GROQ_API_KEY=${GROQ_API_KEY}
-      - TARGET_URL=http://juice-shop:3000/#/login
+      - sec-net
+      - internal-net
     depends_on:
-      - juice-shop
-      - validate-agent
-  
-  # Agente de Validación
+      rabbitmq:
+        condition: service_healthy
+
+  # 6. Agente de Validación
   validate-agent:
     build:
       context: ./agents
       dockerfile: validate/Dockerfile.validate
-    ports:
-      - "8002:8002"
+    env_file:
+      - .env
     networks:
-      sec-net:
-        aliases:
-          - validate-agent
-      internal-net:
-    environment:
-      - GROQ_API_KEY=${GROQ_API_KEY}
+      - sec-net
+      - internal-net
     depends_on:
-      - juice-shop
+      rabbitmq:
+        condition: service_healthy
 
-    
+  # 7. Agente Reportador (Generación de Informes Markdown)
+  reporter-agent:
+    build:
+      context: ./agents
+      dockerfile: reporter/Dockerfile.reporter
+    restart: unless-stopped
+    env_file:
+      - .env
+    networks:
+      - sec-net
+      - internal-net
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
 
-  # 5. Entorno Vulnerable: WebGoat
+  build-spa-crawler:
+    build:
+      context: ./skills_controller
+      dockerfile: docker_images/Dockerfile.spa_crawler
+    image: local-spa-crawler:latest
+    command: ["echo", "local-spa-crawler listo"]
+
+  # 8. Entorno Vulnerable: WebGoat
   webgoat:
     image: webgoat/webgoat:latest
     container_name: webgoat-target
@@ -113,11 +158,11 @@ services:
     security_opt:
       - no-new-privileges:true
     ports:
-      - "8080:8080" 
+      - "8080:8080"
     networks:
       - sec-net
 
-  # 6. Entorno Vulnerable: OWASP Juice Shop
+  # 9. Entorno Vulnerable: OWASP Juice Shop
   juice-shop:
     image: bkimminich/juice-shop:latest
     container_name: juice-shop-target
@@ -126,6 +171,6 @@ services:
     security_opt:
       - no-new-privileges:true
     ports:
-      - "3000:3000"
+      - "3001:3000"
     networks:
       - sec-net

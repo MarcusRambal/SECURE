@@ -1,0 +1,20 @@
+FROM node:24-slim
+
+WORKDIR /app
+
+# Habilitar pnpm mediante Corepack
+RUN corepack enable
+
+# Copiar archivos de definición de dependencias
+COPY package.json pnpm-lock.yaml* ./
+
+# Instalar dependencias con pnpm
+RUN pnpm install
+
+# Copiar el resto del proyecto
+COPY . .
+
+EXPOSE 3000
+
+# Iniciar Next.js en modo desarrollo con Hot-Reloading
+CMD ["pnpm", "run", "dev"]

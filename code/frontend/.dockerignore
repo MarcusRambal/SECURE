@@ -1,0 +1,15 @@
+.next
+node_modules
+out
+build
+.git
+.gitignore
+.env.local
+.env.development
+.env.production
+.env
+README.md
+__pycache__/
+*.pyc
+*.pyo
+*.pyd

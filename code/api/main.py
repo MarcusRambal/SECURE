@@ -1,11 +1,12 @@
 import uuid
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.schemas.task import TaskRequest, TaskResponse
 from app.core.rabbitmq import rabbitmq_client
+from app.websockets.manager import websocket_manager
 
 logging.basicConfig(level=logging.INFO)
 
@@ -28,7 +29,7 @@ app = FastAPI(
 #Configuración de CORS para permitir solicitudes desde cualquier origen, sin embargo esto debe cambiar en producción para restringir a dominios específicos.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"], # Reemplazar por el dominio exacto del frontend
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -37,6 +38,19 @@ app.add_middleware(
 @app.get("/")
 async def root():
     return {"status": "online", "service": "API Gateway"}
+
+
+@app.websocket("/ws/scans/{task_id}")
+async def scan_events(websocket: WebSocket, task_id: str):
+    await websocket_manager.connect(task_id, websocket)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        await websocket_manager.disconnect(task_id, websocket)
+    except Exception:
+        await websocket_manager.disconnect(task_id, websocket)
+
 
 @app.post("/api/task", response_model=TaskResponse)
 async def start_scan(request: TaskRequest):
@@ -47,12 +61,15 @@ async def start_scan(request: TaskRequest):
     payload = {
         "task_id": task_id,
         "target_url": request.target_url,
+        "category": request.category,
         "attack_type": request.attack_type,
+        "agent_models": request.agent_models.model_dump() if request.agent_models else None,
         "status": "INITIATED"
     }
 
     try:
         # 3. Enviamos el trabajo a RabbitMQ
+        print("Payload enviado a rabbitmq: ", payload)
         await rabbitmq_client.publish_task_request(payload)
     except Exception as e:
         raise HTTPException(

@@ -1,0 +1,5 @@
+pydantic
+langchain
+langchain-core
+aio-pika==10.0.1
+langchain-ollama
