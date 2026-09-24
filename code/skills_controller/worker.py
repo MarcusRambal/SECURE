@@ -5,9 +5,7 @@ import logging
 import os
 from mcp_server import mcp_server
 
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - [%(levelname)s] - %(name)s - %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - [%(levelname)s] - %(name)s - %(message)s")
 logger = logging.getLogger("skills-controller")
 
 RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://guest:guest@rabbitmq-broker:5672/")
@@ -43,9 +41,8 @@ async def main():
                         correlation_id = message.correlation_id or payload.get("id")
                         reply_to = message.reply_to or "orchestrator_results_queue"
 
-                        logger.info(
-                            f"📩 Petición MCP recibida: Método '{method}' | ID: {correlation_id}"
-                        )
+                        logger.info(f"📩 Petición MCP recibida: Método '{method}' | ID: {correlation_id}")
+                        
 
                         if method == "tools/list":
                             mcp_response = mcp_server.list_tools()

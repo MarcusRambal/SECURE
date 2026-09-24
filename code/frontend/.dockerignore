@@ -7,4 +7,9 @@ build
 .env.local
 .env.development
 .env.production
+.env
 README.md
+__pycache__/
+*.pyc
+*.pyo
+*.pyd

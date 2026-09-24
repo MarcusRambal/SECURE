@@ -12,6 +12,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Contrato compartido y lógica del reporter
 COPY contract_schemas.py .
 COPY llm_factory.py .
+COPY reporter/config.py .
+COPY reporter/helpers.py .
 COPY reporter/main.py .
+COPY reporter/worker.py .
 
-CMD ["python", "main.py"]
+CMD ["python", "worker.py"]

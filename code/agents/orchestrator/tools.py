@@ -13,6 +13,12 @@ RABBITMQ_URL = os.getenv("RABBITMQ_URL")
 RECON_QUEUE = "recon_queue"
 VALIDATE_QUEUE = "validate_queue"
 REPORTER_QUEUE = "reporter_queue"
+LOG_RPC_PAYLOADS = os.getenv("LOG_RPC_PAYLOADS", "false").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 
 # Estado compartido temporal en memoria durante el pipeline: task_id -> dict
 TASK_STATE: dict[str, dict] = {}
@@ -22,9 +28,7 @@ class TaskReferenceInput(BaseModel):
     task_id: str = Field(description="UUID único de la tarea de auditoría en curso.")
 
 
-async def _send_rpc_request(
-    channel: aio_pika.Channel, queue_name: str, payload: dict, timeout: float = 3600.0
-) -> dict:
+async def _send_rpc_request(channel: aio_pika.Channel, queue_name: str, payload: dict, timeout: float = 3600.0) -> dict:
     """Envía peticiones RPC reutilizando el canal RabbitMQ activo del worker."""
     reply_queue = await channel.declare_queue(exclusive=True)
     correlation_id = str(uuid.uuid4())
@@ -156,6 +160,7 @@ def create_orchestrator_tools(channel: aio_pika.Channel) -> list[StructuredTool]
         if not (
             recon_data.get("endpoints")
             or recon_data.get("high_priority_targets")
+            or recon_data.get("captured_requests")
         ):
             logger.warning(f"Recon sin endpoints para {task_id}. Omisión directa de validación.")
             state["recon_data"] = recon_data
@@ -174,10 +179,22 @@ def create_orchestrator_tools(channel: aio_pika.Channel) -> list[StructuredTool]
             "recon_data": recon_data,
         }
 
+        if LOG_RPC_PAYLOADS:
+            logger.info(
+                "[ORQUESTADOR -> VALIDATE] Payload completo: %s",
+                json.dumps(payload, ensure_ascii=False, indent=2, default=str),
+            )
+
         logger.info(
             f"📤 [ORQUESTADOR -> VALIDATE] Auditando {state['target_url']} ({state['attack_type']})..."
         )
         rpc_response = await _send_rpc_request(channel, VALIDATE_QUEUE, payload)
+
+        if LOG_RPC_PAYLOADS:
+            logger.info(
+                "[ORQUESTADOR <- VALIDATE] Respuesta RPC completa: %s",
+                json.dumps(rpc_response, ensure_ascii=False, indent=2, default=str),
+            )
 
         if not rpc_response or rpc_response.get("status") == "ERROR":
             error_msg = (rpc_response or {}).get("error", "Sin respuesta del Validate Agent")

@@ -10,14 +10,14 @@ class ReconSummary(BaseModel):
     target_url: str
     attack_type_filter: str
     total_targets_identified: int
-    har_session_file: str
+    total_requests_captured: int = 0
 
 class HighPriorityTarget(BaseModel):
     target_id: str
     vulnerability_target: str
     endpoint: str
     method: str
-    req_file_path: str
+    request: Optional[Dict[str, Any]] = None
     recommended_tool: str
 
 class ReconPlannerOutput(BaseModel):
@@ -71,6 +71,31 @@ class ValidateOutput(BaseModel):
     )
     scan_finished_at: Optional[str] = Field(
         None, description="Timestamp de finalización de validación (ISO 8601)"
+    )
+
+
+class ValidateFindingSubmission(BaseModel):
+    type: str = Field(..., description="Tipo de vulnerabilidad confirmada")
+    severity: Literal["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"] = Field(
+        ..., description="Severidad estimada del hallazgo"
+    )
+    endpoint: str = Field(..., description="Endpoint o URL afectada")
+    parameter: Optional[str] = Field(
+        None, description="Parámetro o campo vulnerable en la petición"
+    )
+    evidence: str = Field(..., description="Evidencia concreta de la confirmación")
+    confidence: Literal["HIGH", "MEDIUM", "LOW"] = Field(
+        ..., description="Nivel de certeza de la validación"
+    )
+    tools_used: List[str] = Field(
+        default_factory=list, description="Herramientas MCP utilizadas"
+    )
+
+
+class ValidateSubmission(BaseModel):
+    target_url: str = Field(..., description="URL raíz del objetivo")
+    vulnerabilities: List[ValidateFindingSubmission] = Field(
+        default_factory=list, description="Hallazgos confirmados por el agente"
     )
 
 

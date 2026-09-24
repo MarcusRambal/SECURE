@@ -12,6 +12,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Contrato compartido y lógica del recon
 COPY contract_schemas.py .
 COPY llm_factory.py .
+COPY recon/config.py .
 COPY recon/main.py .
+COPY recon/helpers.py .
+COPY recon/mcp_skills.py .
+COPY recon/worker.py .
 
-CMD ["python", "main.py"]
+CMD ["python", "worker.py"]
