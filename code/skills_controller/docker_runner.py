@@ -46,6 +46,15 @@ class EphemeralDockerRunner:
             container = None
             logs_output = []
             try:
+                try:
+                    self.client.images.get(image)
+                except docker.errors.ImageNotFound:
+                    logger.info(
+                        "📥 [DOCKER Sync] Imagen '%s' no disponible localmente; descargando...",
+                        image,
+                    )
+                    self.client.images.pull(image)
+
                 # 1. Creación del contenedor
                 logger.debug(f"🛠️ [DOCKER Sync] Creando contenedor con la imagen '{image}'...")
                 container = self.client.containers.create(

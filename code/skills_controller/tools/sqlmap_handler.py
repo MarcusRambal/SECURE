@@ -1,4 +1,15 @@
+import json
 import urllib.parse
+
+
+def _serialize_body(body: object, content_type: str) -> str:
+    if body is None:
+        return ""
+    if isinstance(body, (dict, list)):
+        if "application/x-www-form-urlencoded" in content_type.lower():
+            return urllib.parse.urlencode(body, doseq=True)
+        return json.dumps(body, ensure_ascii=False, separators=(",", ":"))
+    return str(body)
 
 def build_raw_request(request: dict) -> str:
     """Serializa una petición estructurada al formato HTTP raw."""
@@ -9,19 +20,30 @@ def build_raw_request(request: dict) -> str:
     if parsed_url.query:
         request_target += f"?{parsed_url.query}"
     
-    headers = request.get("headers", {})
+    headers = dict(request.get("headers", {}))
+    content_type = next(
+        (value for name, value in headers.items() if name.lower() == "content-type"), ""
+    )
+    body = _serialize_body(request.get("body"), content_type)
     lines = [f"{method} {request_target} HTTP/1.1"]
-    
-    if parsed_url.netloc and not any(name.lower() == "host" for name in headers):
-        lines.append(f"Host: {parsed_url.netloc}")
-        
+
+    host_header = next(
+        (value for name, value in headers.items() if name.lower() == "host"),
+        parsed_url.netloc,
+    )
+    if host_header:
+        lines.append(f"Host: {host_header}")
+
     for name, value in headers.items():
         if name.lower() != "host":
             lines.append(f"{name}: {value}")
-            
+
+    if body and not any(name.lower() == "content-length" for name in headers):
+        lines.append(f"Content-Length: {len(body.encode('utf-8'))}")
+
     lines.append("")
-    lines.append(str(request.get("body", "") or ""))
-    return "\n".join(lines)
+    lines.append(body)
+    return "\r\n".join(lines)
 
 
 def handle_sqlmap_args(arguments: dict) -> tuple[dict, dict]:

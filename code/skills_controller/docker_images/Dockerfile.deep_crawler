@@ -1,0 +1,10 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN pip install --no-cache-dir playwright && playwright install chromium --with-deps
+
+COPY tools/crawler.py /app/tools/crawler.py
+COPY tools/deep_crawler.py /app/tools/deep_crawler.py
+
+ENTRYPOINT ["python", "/app/tools/deep_crawler.py"]

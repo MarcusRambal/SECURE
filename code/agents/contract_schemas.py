@@ -14,6 +14,7 @@ class ReconSummary(BaseModel):
 
 class HighPriorityTarget(BaseModel):
     target_id: str
+    request_id: Optional[str] = None
     vulnerability_target: str
     endpoint: str
     method: str

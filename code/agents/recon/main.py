@@ -10,11 +10,15 @@ from langchain.agents import create_agent
 from contract_schemas import ReconPlannerOutput
 from helpers import (
     build_planner_output_from_dict,
+    build_recon_context,
+    build_sqli_fallback_output,
     clean_json_response,
     deduplicate_urls,
     extract_urls_from_crawler,
-    extract_urls_from_katana,
+    extract_urls_from_deep_crawler,
+    hydrate_selected_requests,
     log_preview,
+    write_recon_context_snapshot,
 )
 from mcp_skills import call_mcp_skill, get_mcp_catalog
 
@@ -40,53 +44,72 @@ async def process_recon_task(channel: aio_pika.Channel,target_url: str,attack_ty
 
     catalog = await get_mcp_catalog(channel)
     catalog_names = {tool.get("name") for tool in catalog}
-    mandatory_tools = {"spa_crawler", "katana_full"}
+    mandatory_tools = {"crawler"}
+    if attack_type_filter.lower() == "sqli":
+        mandatory_tools.add("deep_crawler")
     missing_tools = mandatory_tools - catalog_names
     if missing_tools:
         raise RuntimeError(
             f"Faltan herramientas obligatorias de Recon en MCP: {sorted(missing_tools)}"
         )
 
-    logger.info("[RECON] Fase obligatoria 1/2: ejecutando spa_crawler target=%s", target_url)
+    logger.info("[RECON] Fase obligatoria: ejecutando crawler target=%s", target_url)
 
-     #Llamamos a las skills de Crawler y Katana
-    crawler_output = await call_mcp_skill(channel,"spa_crawler", {"target_url": target_url},)
+    crawler_output = await call_mcp_skill(channel,"crawler", {"target_url": target_url},)
 
     try:
         crawler_data = json.loads(crawler_output)
     except json.JSONDecodeError as error:
-        raise RuntimeError(f"spa_crawler no devolvió JSON válido: {error}") from error
+        raise RuntimeError(f"crawler no devolvió JSON válido: {error}") from error
 
-    logger.info( "[RECON] spa_crawler completado captured=%s routes=%d",crawler_data.get("total_requests_captured", 0), len(crawler_data.get("discovered_forms_structure", [])),)
+    crawler_urls = extract_urls_from_crawler(crawler_data)
+    logger.info("[RECON] crawler completado urls=%d", len(crawler_urls))
 
-    logger.info("[RECON] Fase obligatoria 2/2: ejecutando katana_full target=%s", target_url)
-
-   
-    katana_output = await call_mcp_skill(channel,"katana_full",{"target_url": target_url},)
+    deep_crawler_data = None
+    deep_crawler_urls: list[str] = []
+    if attack_type_filter.lower() == "sqli":
+        logger.info("[RECON] SQLi: ejecutando deep_crawler con la salida efimera de crawler")
+        deep_crawler_output = await call_mcp_skill(
+            channel, "deep_crawler", {"crawler_report": crawler_data}
+        )
+        try:
+            deep_crawler_data = json.loads(deep_crawler_output)
+        except json.JSONDecodeError as error:
+            raise RuntimeError(f"deep_crawler no devolvió JSON válido: {error}") from error
+        deep_crawler_urls = extract_urls_from_deep_crawler(deep_crawler_data)
+        logger.info(
+            "[RECON] deep_crawler completado entry_points=%d urls=%d",
+            len(deep_crawler_data.get("entry_points", [])), len(deep_crawler_urls),
+        )
 
     #Fase de limpieza del contexto para que el agente pueda consumirlo
-    katana_urls = extract_urls_from_katana(katana_output)
-    crawler_urls = extract_urls_from_crawler(crawler_data)
-    discovered_urls = deduplicate_urls(crawler_urls, katana_urls)
+    discovered_urls = deduplicate_urls(crawler_urls, deep_crawler_urls)
     available_tools = [
         {
             "name": tool.get("name"),
             "description": tool.get("description", ""),
         }
         for tool in catalog
-        if tool.get("name") not in {"spa_crawler", "katana_full"}
+        if tool.get("name") not in {"crawler", "deep_crawler"}
     ]
-    recon_sources = {
-        "spa_crawler": crawler_data,
-        "katana_full_raw_output": katana_output,
-        "katana_full_urls": katana_urls,
-        "deduplicated_urls": discovered_urls,
-        "available_validation_tools": available_tools,
-    }
+    recon_sources = build_recon_context(
+        crawler_data,
+        deep_crawler_data,
+        discovered_urls,
+        available_tools,
+        attack_type_filter,
+    )
+    try:
+        context_path = write_recon_context_snapshot(
+            target_url, attack_type_filter, recon_sources
+        )
+        logger.info("[RECON] Contexto LLM guardado en %s", context_path)
+    except OSError:
+        logger.exception("[RECON] No se pudo guardar el contexto LLM")
     logger.info(
-        "[RECON] Fuentes consolidadas crawler=%d katana=%d deduplicadas=%d",
+        "[RECON] Fuentes consolidadas crawler=%d deep_crawler=%d deduplicadas=%d",
         len(crawler_urls),
-        len(katana_urls),
+        len(deep_crawler_urls),
         len(discovered_urls),
     )
 
@@ -95,41 +118,63 @@ async def process_recon_task(channel: aio_pika.Channel,target_url: str,attack_ty
     logger.info("[RECON] Cargando LLM de reconocimiento")
     llm = get_llm("recon")
 
-     # Prompt del Sistema enfocado en Planificación de Ataque
     system_prompt = SystemMessage(
-        content=(
-            "Eres un Agente Especialista en Reconocimiento y Planificación de Vectores de Ataque Web.\n"
-            f"Tu objetivo principal es analizar el objetivo '{target_url}' y planificar un flujo de ataque enfocado en: {attack_type_filter}, .\n\n"
-            "INSTRUCCIONES DE EJECUCIÓN:\n"
-            "1. Las fases obligatorias spa_crawler y katana_full ya fueron ejecutadas. Analiza ambas salidas y las peticiones estructuradas .\n"
-            "2. Usa el contenido real para identificar método, ruta, query, headers y body. No inventes rutas de archivos ni archivos HAR.\n"
-            f"3. Limpia los duplicados usando la lista consolidada y filtra las rutas y parámetros sospechosos de ser vulnerables a '{attack_type_filter}'.\n"
-            "4. Decide después el plan de acción: objetivos prioritarios, método, petición estructurada y herramienta recomendada.\n"
-            "5. Este agente es exclusivamente analítico. No ejecutes sqlmap, nuclei, dalfox, commix, ffuf ni ninguna otra herramienta.\n\n"
-            "6. Para recommended_tool usa únicamente un nombre presente en available_validation_tools.\n\n"
-            "REGLA CRÍTICA DE FINALIZACIÓN:\n"
-            "Analiza primero toda la salida de spa_crawler. Al final responde con una breve explicación y, como último contenido, un único bloque Markdown ```json ... ``` válido.\n"
-            "El JSON debe tener esta estructura:\n"
-            "{\n"
-            '  "recon_summary": {\n'
-            f'    "target_url": "{target_url}",\n'
-            f'    "attack_type_filter": "{attack_type_filter}",\n'
-            '    "total_targets_identified": <numero_int>,\n'
-            '    "total_requests_captured": 12\n'
-            "  },\n"
-            '  "high_priority_targets": [\n'
-            "    {\n"
-            '      "target_id": "target_001",\n'
-            f'      "vulnerability_target": "{attack_type_filter} (POST-based Auth Bypass)",\n'
-            '      "endpoint": "http://...",\n'
-            '      "method": "POST",\n'
-            '      "request": {"request_id": "req_008", "method": "POST", "url": "http://...", "headers": {}, "body": ""},\n'
-            '      "recommended_tool": "sqlmap"\n'
-            "    }\n"
-            "  ]\n"
-            "}\n"
-            "No pongas texto después del bloque JSON."
-        )
+                content=f"""Eres un Agente Especialista en Reconocimiento y Planificación de Vectores de Ataque Web.
+
+OBJETIVO
+Analiza exclusivamente la información de reconocimiento previamente obtenida.
+
+TARGET: {target_url}
+TIPO DE ATAQUE SOLICITADO: {attack_type_filter}
+
+La fase de crawling/reconocimiento YA fue ejecutada. Determina qué endpoints o solicitudes son relevantes para el tipo de ataque solicitado. No ejecutes ataques ni herramientas de explotación; tu función termina en la fase de análisis y planificación.
+
+REGLAS DE ANÁLISIS
+1. Analiza todas las fuentes proporcionadas antes de decidir.
+2. Busca todos los endpoints, requests o entry points relevantes para {attack_type_filter}.
+3. No te limites al primer endpoint. Devuelve todos los objetivos con evidencia suficiente.
+4. Cada objetivo representa un endpoint o request concreto. No combines endpoints distintos en un mismo target.
+5. Prioriza por evidencia observable: coincidencia con el ataque, método HTTP, query, body, headers, formularios, autenticación/autorización, APIs y datos controlables por cliente.
+6. La prioridad expresa relevancia para el análisis; nunca confirma una vulnerabilidad.
+7. Diferencia entre endpoint interesante, evidencia observada y vulnerabilidad confirmada. El crawler solo aporta evidencia de reconocimiento.
+8. Usa únicamente información presente en las fuentes. No inventes URLs, endpoints, rutas, parámetros, headers, bodies, request IDs, métodos ni valores.
+9. Cuando exista una request capturada, selecciona su request_id real. El sistema reconstruirá method, url, headers y body desde la captura original. No presentes requests hipotéticas como capturadas.
+10. Requests del mismo endpoint con método, parámetros o body significativamente diferentes son targets independientes; duplicados exactos son un solo target.
+11. Si un dato no existe, usa null o una estructura vacía.
+12. Para SQLi usa exclusivamente sqli_input_entry_points: contienen requests observadas con body no nulo.
+
+SELECCIÓN Y PRIORIZACIÓN
+Identifica entre 0 y N targets, según la evidencia real. No fuerces targets. Ordena high_priority_targets de mayor a menor relevancia sin usar el orden del crawler como criterio.
+
+RECOMMENDED TOOL
+recommended_tool debe ser únicamente una herramienta presente en available_validation_tools. Selecciona la más apropiada para una futura validación, sin ejecutarla ni proporcionar comandos.
+
+RESTRICCIONES
+Eres exclusivamente analítico. No ejecutes sqlmap, nuclei, dalfox, commix, ffuf, nikto, nmap ni ninguna herramienta de explotación, fuzzing o scanning.
+
+FORMATO DE SALIDA
+Responde exclusivamente con un único bloque Markdown ```json válido, sin texto antes ni después, con esta estructura:
+```json
+{{
+    "recon_summary": {{
+        "target_url": "{target_url}",
+        "attack_type_filter": "{attack_type_filter}",
+        "total_targets_identified": 1,
+        "total_requests_captured": 3
+    }},
+    "high_priority_targets": [
+        {{
+            "target_id": "target_001",
+            "request_id": "entry_0008",
+            "vulnerability_target": "SQLi candidate",
+            "endpoint": "http://juice-shop-target:3000/rest/user/login",
+            "method": "POST",
+            "recommended_tool": "sqlmap"
+        }}
+    ]
+}}
+```
+"""
     )
 
     agent_executor = create_agent(model=llm, tools=[], system_prompt=system_prompt)
@@ -146,6 +191,10 @@ async def process_recon_task(channel: aio_pika.Channel,target_url: str,attack_ty
             )
         ]
     }
+    logger.info(
+        "[RECON] Contexto compacto para LLM chars=%d",
+        len(json.dumps(recon_sources, ensure_ascii=False)),
+    )
 
     raw_final_output = ""
     llm_outputs: list[str] = []
@@ -179,13 +228,19 @@ async def process_recon_task(channel: aio_pika.Channel,target_url: str,attack_ty
                     logger.info("[RECON] Respuesta textual final capturada")
 
     full_llm_output = "\n\n--- LLM event ---\n\n".join(llm_outputs)
-    logger.info("[RECON] Parseando bloque JSON final chars=%d", len(raw_final_output))
-    parsed_dict = json.loads(clean_json_response(raw_final_output))
-    recon_output = build_planner_output_from_dict(
-        parsed_dict,
-        target_url,
-        attack_type_filter,
-    )
+    logger.info("[RECON] Parseando bloque JSON final chars=%d", len(full_llm_output))
+    try:
+        parsed_dict = json.loads(clean_json_response(raw_final_output))
+    except (ValueError, json.JSONDecodeError) as error:
+        if attack_type_filter.lower() != "sqli":
+            raise
+        logger.warning(
+            "[RECON] El LLM no devolvio JSON valido (%s); usando peticiones observadas de deep_crawler.",
+            error,
+        )
+        parsed_dict = build_sqli_fallback_output(target_url, deep_crawler_data)
+    parsed_dict = hydrate_selected_requests(parsed_dict, deep_crawler_data)
+    recon_output = build_planner_output_from_dict(parsed_dict,target_url,attack_type_filter,)
     logger.info(
         "[RECON] Plan JSON validado targets=%d ", len(recon_output.high_priority_targets),)
     return recon_output, "clean"

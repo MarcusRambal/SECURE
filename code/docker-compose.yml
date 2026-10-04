@@ -106,6 +106,10 @@ services:
       dockerfile: recon/Dockerfile.recon
     env_file:
       - .env
+    environment:
+      - RECON_CONTEXT_OUTPUT_DIR=/app/recon_context
+    volumes:
+      - ./agents/recon/recon_context:/app/recon_context
     networks:
       - sec-net
       - internal-net
@@ -149,6 +153,20 @@ services:
     image: local-spa-crawler:latest
     command: ["echo", "local-spa-crawler listo"]
 
+  build-crawler:
+    build:
+      context: ./skills_controller
+      dockerfile: docker_images/Dockerfile.crawler
+    image: local-crawler:latest
+    command: ["--help"]
+
+  build-deep-crawler:
+    build:
+      context: ./skills_controller
+      dockerfile: docker_images/Dockerfile.deep_crawler
+    image: local-deep-crawler:latest
+    command: ["--help"]
+
   # 8. Entorno Vulnerable: WebGoat
   webgoat:
     image: webgoat/webgoat:latest
@@ -172,5 +190,30 @@ services:
       - no-new-privileges:true
     ports:
       - "3001:3000"
+    networks:
+      - sec-net
+
+  pygoat:
+    image: pygoat/pygoat:latest
+    container_name: pygoat-target
+    init: true
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "3002:8000"
+    networks:
+      - sec-net
+  
+
+  wackopicko:
+    image: adamdoupe/wackopicko:latest
+    container_name: wackopicko-target
+    init: true
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "127.0.0.1:3003:80"
     networks:
       - sec-net
