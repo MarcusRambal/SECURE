@@ -17,14 +17,6 @@ def log_preview(value: object, limit: int = 500) -> str:
     return text if len(text) <= limit else f"{text[:limit]}... [{len(text)} chars]"
 
 
-def clean_json_response(raw_response: str) -> str:
-    """Extrae exclusivamente el JSON del bloque Markdown final del LLM."""
-    match = re.search(r"```json\s*(.*?)\s*```", raw_response, flags=re.IGNORECASE | re.DOTALL)
-    if not match:
-        raise ValueError("La respuesta del LLM no contiene un bloque ```json```")
-    return match.group(1).strip()
-
-
 def deduplicate_urls(*url_groups: list[str]) -> list[str]:
     """Combina descubrimientos manteniendo el primer origen de cada URL."""
     unique_urls: list[str] = []
@@ -85,10 +77,10 @@ def extract_urls_from_deep_crawler(deep_crawler_data: dict) -> list[str]:
     ]
     return deduplicate_urls(endpoint_urls, request_urls)
 
-
-def build_recon_context(crawler_data: dict,deep_crawler_data: dict | None,discovered_urls: list[str],available_tools: list[dict],attack_type_filter: str,) -> dict:
+# Construye el contexto de reconocimiento específico para ataques SQLi.
+def build_sqli_recon_context(crawler_data: dict, deep_crawler_data: dict | None ,discovered_urls: list[str],available_tools: list[dict]) -> dict:
     """Reduce resultados de crawlers a los datos que sirven para planificar ataques."""
-    if attack_type_filter.lower() == "sqli":
+    if deep_crawler_data is not None:
         requests = (deep_crawler_data or {}).get("entry_points", [])
         sql_inputs = []
         for request in requests:
@@ -125,7 +117,7 @@ def build_recon_context(crawler_data: dict,deep_crawler_data: dict | None,discov
         for endpoint in crawler_data.get("navigation", {}).get("endpoints", [])[:50]
         if isinstance(endpoint, dict)
     ]
-    context = {
+    sqli_context = {
         "crawler": {
             "target": crawler_data.get("target", {}),
             "endpoints": crawler_endpoints,
@@ -134,7 +126,7 @@ def build_recon_context(crawler_data: dict,deep_crawler_data: dict | None,discov
         "available_validation_tools": available_tools,
     }
     if not deep_crawler_data:
-        return context
+        return sqli_context
 
     entry_points = []
     for request in deep_crawler_data.get("entry_points", [])[:40]:
@@ -155,19 +147,15 @@ def build_recon_context(crawler_data: dict,deep_crawler_data: dict | None,discov
             "body": request.get("body"),
             "response_status": (request.get("response") or {}).get("status"),
         })
-    context["deep_crawler"] = {
+    sqli_context["deep_crawler"] = {
         "summary": deep_crawler_data.get("summary", {}),
         "entry_points": entry_points,
         "forms": deep_crawler_data.get("forms", [])[:20],
     }
-    return context
+    return sqli_context
 
-
-def write_recon_context_snapshot(
-    target_url: str,
-    attack_type_filter: str,
-    context: dict,
-) -> Path:
+# Funcion de ayuda para ver el contexto que obtiene el agente
+def write_recon_context_snapshot(target_url: str,attack_type_filter: str,context: dict,) -> Path:
     """Guarda el contexto compacto enviado al LLM para su inspeccion posterior."""
     output_dir = Path(
         os.getenv("RECON_CONTEXT_OUTPUT_DIR", Path(__file__).with_name("recon_context"))

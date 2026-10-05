@@ -16,6 +16,8 @@ COPY recon/config.py .
 COPY recon/main.py .
 COPY recon/helpers.py .
 COPY recon/mcp_skills.py .
+COPY recon/recon_prompts/ recon_prompts/
 COPY recon/worker.py .
+COPY recon/attack_types.py .
 
 CMD ["python", "worker.py"]
