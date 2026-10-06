@@ -11,7 +11,7 @@ from langchain_core.exceptions import OutputParserException
 from attack_types import is_sqli_attack
 from contract_schemas import ReconPlannerOutput
 from helpers import (
-    build_planner_output_from_dict,
+    build_recon_output_from_dict,
     build_sqli_recon_context,
     build_sqli_fallback_output,
     deduplicate_urls,
@@ -34,7 +34,7 @@ logger = logging.getLogger("recon-agent-worker")
 
 async def process_recon_task(channel: aio_pika.Channel,target_url: str,attack_type_filter: str = "full",) -> tuple[ReconPlannerOutput, str]:
 
-    
+
     started_at = datetime.now(timezone.utc).isoformat()
     is_sqli = is_sqli_attack(attack_type_filter)
 
@@ -95,7 +95,7 @@ async def process_recon_task(channel: aio_pika.Channel,target_url: str,attack_ty
     llm = get_llm("MODEL_RECON")
     structured_llm = llm.with_structured_output(ReconPlannerOutput, method="json_schema",)
 
-    system_prompt = SystemMessage(content=get_system_prompt(target_url, attack_type_filter))
+    system_prompt = SystemMessage(content=get_system_prompt(attack_type_filter))
 
     user_message = HumanMessage(
         content=(
@@ -125,7 +125,12 @@ async def process_recon_task(channel: aio_pika.Channel,target_url: str,attack_ty
         
         parsed_dict = structured_output.model_dump()
 
-    recon_output = build_planner_output_from_dict(parsed_dict,target_url,attack_type_filter,)
+    recon_output = build_recon_output_from_dict(
+        parsed_dict,
+        target_url,
+        attack_type_filter,
+        deep_crawler_data if is_sqli else None,
+    )
     logger.info("[RECON] Plan JSON validado targets=%d ", len(recon_output.high_priority_targets),)
 
     return recon_output, "clean"

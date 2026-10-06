@@ -34,17 +34,10 @@ def get_num_ctx() -> int:
     requested = get_int_env("LLM_NUM_CTX", DEFAULT_NUM_CTX)
 
     if requested > MAX_NUM_CTX:
-        logger.warning(
-            "LLM_NUM_CTX=%s excede el máximo soportado (%s); limitando.",
-            requested,
-            MAX_NUM_CTX,
-        )
+        logger.warning("LLM_NUM_CTX=%s excede el máximo soportado (%s); limitando.",requested,MAX_NUM_CTX,)
         return MAX_NUM_CTX
     if requested < 2048:
-        logger.warning(
-            "LLM_NUM_CTX=%s es demasiado bajo; usando mínimo seguro de 2048.",
-            requested,
-        )
+        logger.warning("LLM_NUM_CTX=%s es demasiado bajo; usando mínimo seguro de 2048.",requested,)
         return 2048
 
     return requested
@@ -55,8 +48,7 @@ def get_llm(agent_name: str) -> BaseChatModel:
     agent_upper = agent_name.upper()
 
     # Búsqueda jerárquica del modelo
-    model_name = (
-        os.getenv(f"MODEL_{agent_upper}")
+    model_name = (os.getenv(f"MODEL_{agent_upper}")
         or os.getenv("OLLAMA_DEFAULT_MODEL")
         or DEFAULT_MODEL
     )

@@ -18,8 +18,8 @@ class ReconSummary(BaseModel):
 
 class HighPriorityTarget(BaseModel):
     target_id: str = Field(..., description="Identificador único del objetivo")
-    request_id: Optional[str] = Field(
-        default=None, description="ID real de la solicitud capturada, si existe"
+    request_id: str = Field(
+        default="", description="ID real de la solicitud capturada, o vacío si no existe"
     )
     vulnerability_target: str = Field(
         ..., description="Motivo basado en evidencia para priorizar este objetivo"
@@ -80,12 +80,6 @@ class ValidateOutput(BaseModel):
     )
     unconfirmed_findings: List[Dict[str, Any]] = Field(
         default_factory=list, description="Pruebas ejecutadas sin evidencia suficiente"
-    )
-    scan_started_at: Optional[str] = Field(
-        None, description="Timestamp de inicio de validación (ISO 8601)"
-    )
-    scan_finished_at: Optional[str] = Field(
-        None, description="Timestamp de finalización de validación (ISO 8601)"
     )
 
 

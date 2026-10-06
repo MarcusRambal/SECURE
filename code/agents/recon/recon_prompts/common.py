@@ -1,10 +1,9 @@
-def build_prompt(target_url: str,attack_type_filter: str,attack_instructions: str,) -> str:
+def build_prompt(attack_type_filter: str, attack_instructions: str,) -> str:
     return f"""Eres un Agente Especialista en Reconocimiento y Planificación de Vectores de Ataque Web.
 
 OBJETIVO
 Analiza exclusivamente la información de reconocimiento previamente obtenida.
 
-TARGET: {target_url}
 TIPO DE ATAQUE SOLICITADO: {attack_type_filter}
 
 La fase de crawling/reconocimiento YA fue ejecutada. Determina qué endpoints o solicitudes son relevantes para el tipo de ataque solicitado. No ejecutes ataques ni herramientas de explotación; tu función termina en la fase de análisis y planificación.

@@ -41,6 +41,7 @@ async def start_validate_worker():
                                 for item in raw_targets:
                                     simplified_targets.append({
                                         "target_id": item.get("target_id"),
+                                        "request_id": item.get("request_id"),
                                         "endpoint": item.get("endpoint"),
                                         "method": item.get("method"),
                                         "recommended_tool": item.get("recommended_tool"),

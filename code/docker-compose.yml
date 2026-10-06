@@ -124,6 +124,10 @@ services:
       dockerfile: validate/Dockerfile.validate
     env_file:
       - .env
+    environment:
+      - VALIDATE_CONTEXT_OUTPUT_DIR=/app/validate_context
+    volumes:
+      - ./agents/validate/validate_context:/app/validate_context
     networks:
       - sec-net
       - internal-net

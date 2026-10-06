@@ -5,6 +5,7 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List
+from urllib.parse import urlsplit
 
 from contract_schemas import HighPriorityTarget, ReconPlannerOutput, ReconSummary
 
@@ -179,10 +180,7 @@ def write_recon_context_snapshot(target_url: str,attack_type_filter: str,context
     return output_path
 
 
-def build_sqli_fallback_output(
-    target_url: str,
-    deep_crawler_data: dict | None,
-) -> dict:
+def build_sqli_fallback_output(target_url: str,deep_crawler_data: dict | None,) -> dict:
     """Construye un plan SQLi minimo con peticiones observadas si el LLM no devuelve JSON."""
     requests = (deep_crawler_data or {}).get("entry_points", [])
     targets = []
@@ -191,6 +189,7 @@ def build_sqli_fallback_output(
             continue
         targets.append({
             "target_id": f"target_{len(targets) + 1:03d}",
+            "request_id": request.get("id") or "",
             "vulnerability_target": "sqli (observed request)",
             "endpoint": request["url"],
             "method": request.get("method", "GET"),
@@ -211,38 +210,63 @@ def build_sqli_fallback_output(
     }
 
 
-def hydrate_selected_requests(data: dict, deep_crawler_data: dict | None) -> dict:
-    """Asocia los request_id elegidos por Recon con las requests capturadas."""
-    captured_requests = {
-        request.get("id"): request
+
+def _normalize_request_path(value: str) -> str:
+    value = value.strip()
+    parts = value.split(maxsplit=1)
+    if len(parts) == 2 and parts[0].upper() in {
+        "GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"
+    }:
+        value = parts[1]
+    parsed_url = urlsplit(value)
+    path = parsed_url.path if parsed_url.scheme or parsed_url.netloc else value
+    return path.split("?", maxsplit=1)[0].rstrip("/") or "/"
+
+
+def _find_matching_sqli_request(target: dict,deep_crawler_data: dict | None,) -> dict | None:
+    requests = [
+        request
         for request in (deep_crawler_data or {}).get("entry_points", [])
-        if isinstance(request, dict) and request.get("id")
+        if isinstance(request, dict) and request.get("url")
+    ]
+    target_request = target.get("request")
+    request_ids = {
+        value
+        for value in (
+            target.get("request_id"),
+            target.get("target_id"),
+            target_request.get("id") if isinstance(target_request, dict) else None,
+        )
+        if value is not None
     }
-    hydrated_targets = []
-    for target in data.get("high_priority_targets", []):
-        if not isinstance(target, dict):
-            continue
-        request_id = target.get("request_id")
-        if not request_id:
-            hydrated_targets.append(target)
-            continue
-        request = captured_requests.get(request_id)
-        if not request:
-            continue
-        target["endpoint"] = request["url"]
-        target["method"] = request["method"]
-        target["request"] = {
-            key: request.get(key)
-            for key in ("id", "request_line", "method", "url", "headers", "body")
-        }
-        hydrated_targets.append(target)
-    data["high_priority_targets"] = hydrated_targets
-    summary = data.setdefault("recon_summary", {})
-    summary["total_targets_identified"] = len(hydrated_targets)
-    return data
+
+    for request in requests:
+        if request.get("id") in request_ids:
+            return request
+
+    target_method = str(target.get("method") or "").upper()
+    target_endpoint = target.get("endpoint")
+    if not isinstance(target_endpoint, str) or not target_endpoint:
+        return None
+
+    target_path = _normalize_request_path(target_endpoint)
+    matches = [
+        request
+        for request in requests
+        if str(request.get("method") or "").upper() == target_method
+        and _normalize_request_path(str(request["url"])) == target_path
+    ]
+    return matches[0] if len(matches) == 1 else None
 
 
-def build_planner_output_from_dict( data: dict,target_url: str,attack_type_filter: str) -> ReconPlannerOutput:
+def _build_request_from_capture(captured_request: dict) -> dict:
+    return {
+        key: captured_request.get(key)
+        for key in ("method", "url", "headers", "body")
+    }
+
+
+def build_recon_output_from_dict(data: dict,target_url: str,attack_type_filter: str,deep_crawler_data: dict | None = None,) -> ReconPlannerOutput:
     """Valida y normaliza la respuesta JSON producida por el LLM de Recon."""
     summary_data = data.get("recon_summary", {})
     targets_data = data.get("high_priority_targets", [])
@@ -258,16 +282,29 @@ def build_planner_output_from_dict( data: dict,target_url: str,attack_type_filte
     for index, target in enumerate(targets_data, start=1):
         if not isinstance(target, dict):
             continue
+        captured_request = (
+            _find_matching_sqli_request(target, deep_crawler_data)
+            if attack_type_filter.lower() == "sqli"
+            else None
+        )
+        request_id = target.get("request_id") or ""
+        request = target.get("request") or {}
+        method = target.get("method", "GET")
+        if captured_request:
+            request_id = captured_request.get("id") or request_id
+            request = _build_request_from_capture(captured_request)
+            method = captured_request.get("method") or method
+
         targets.append(
             HighPriorityTarget(
                 target_id=target.get("target_id", f"target_{index:03d}"),
-                request_id=target.get("request_id"),
+                request_id=request_id,
                 vulnerability_target=target.get(
                     "vulnerability_target", f"{attack_type_filter} Vulnerability"
                 ),
                 endpoint=target.get("endpoint", target_url),
-                method=target.get("method", "GET").upper(),
-                request=target.get("request"),
+                method=str(method or "GET").upper(),
+                request=request,
                 recommended_tool=target.get("recommended_tool", "sqlmap"),
             )
         )
