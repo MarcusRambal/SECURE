@@ -1,4 +1,6 @@
 from tools.sqlmap_handler import handle_sqlmap_args
+from tools.commix_handler import handle_commix_args
+from tools.dalfox_handler import handle_dalfox_args
 
 MCP_SKILLS_REGISTRY = {
     "katana_full": {
@@ -108,9 +110,10 @@ MCP_SKILLS_REGISTRY = {
             },
         },
         "image": "hahwul/dalfox:latest",
-        "command_template": './dalfox url --url "{target_url}" --silence',
+        "command_template": '/app/dalfox scan "{target_url}" {extra_flags}',
         "timeout": 1800,
-        "success_exit_codes": [0, 2],
+        "prepare_args": handle_dalfox_args,
+        "success_exit_codes": [0, 1, 2],
     },
     # =========================================================================
     # 7. Commix - Inyección de Comandos del SO (Command Injection)
@@ -137,8 +140,9 @@ MCP_SKILLS_REGISTRY = {
             },
         },
         "image": "local-commix:latest",
-        "command_template": '--url="{target_url}" --batch',
+        "command_template": '--url="{target_url}" {extra_flags} --batch',
         "timeout": 3600,
+        "prepare_args": handle_commix_args,
         "success_exit_codes": [0],
     },
     # =========================================================================
