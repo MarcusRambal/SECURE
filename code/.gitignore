@@ -67,7 +67,13 @@ cypress/screenshots/
 playwright-report/
 test-results/
 requests
-
+.crawler_auth_state.json
+.crawler_auth_state.*.json
+crawler_report.json
+deep_crawler_report.json
+crawler_report.json
+recon_context
+validate_context/
 # ==========================================
 # Archivos Temporales e Historias de SO
 # ==========================================

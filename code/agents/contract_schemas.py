@@ -7,22 +7,37 @@ from typing import List, Dict, Any, Literal, Optional
 
 
 class ReconSummary(BaseModel):
-    target_url: str
-    attack_type_filter: str
-    total_targets_identified: int
-    total_requests_captured: int = 0
+    target_url: str = Field(..., description="URL raíz del objetivo analizado")
+    attack_type_filter: str = Field(..., description="Tipo de ataque solicitado")
+    total_targets_identified: int = Field(
+        ..., description="Cantidad de objetivos de validación identificados"
+    )
+    total_requests_captured: int = Field(
+        default=0, description="Cantidad de solicitudes observadas por reconocimiento"
+    )
 
 class HighPriorityTarget(BaseModel):
-    target_id: str
-    vulnerability_target: str
-    endpoint: str
-    method: str
-    request: Optional[Dict[str, Any]] = None
-    recommended_tool: str
+    target_id: str = Field(..., description="Identificador único del objetivo")
+    request_id: str = Field(
+        default="", description="ID real de la solicitud capturada, o vacío si no existe"
+    )
+    vulnerability_target: str = Field(
+        ..., description="Motivo basado en evidencia para priorizar este objetivo"
+    )
+    endpoint: str = Field(..., description="URL observada del endpoint")
+    method: str = Field(..., description="Método HTTP observado")
+    request: Optional[Dict[str, Any]] = Field(
+        default=None, description="Detalles de la solicitud capturada, si existen"
+    )
+    recommended_tool: str = Field(
+        ..., description="Herramienta disponible recomendada para futura validación"
+    )
 
 class ReconPlannerOutput(BaseModel):
-    recon_summary: ReconSummary
-    high_priority_targets: List[HighPriorityTarget]
+    recon_summary: ReconSummary = Field(..., description="Resumen de reconocimiento")
+    high_priority_targets: List[HighPriorityTarget] = Field(
+        ..., description="Objetivos priorizados con evidencia de reconocimiento"
+    )
 
 
 
@@ -65,12 +80,6 @@ class ValidateOutput(BaseModel):
     )
     unconfirmed_findings: List[Dict[str, Any]] = Field(
         default_factory=list, description="Pruebas ejecutadas sin evidencia suficiente"
-    )
-    scan_started_at: Optional[str] = Field(
-        None, description="Timestamp de inicio de validación (ISO 8601)"
-    )
-    scan_finished_at: Optional[str] = Field(
-        None, description="Timestamp de finalización de validación (ISO 8601)"
     )
 
 
