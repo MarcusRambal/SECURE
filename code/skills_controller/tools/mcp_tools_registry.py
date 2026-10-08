@@ -1,6 +1,5 @@
 from tools.sqlmap_handler import handle_sqlmap_args
-from tools.commix_handler import handle_commix_args
-from tools.dalfox_handler import handle_dalfox_args
+from tools.deep_crawler_handler import handle_deep_crawler_args
 
 MCP_SKILLS_REGISTRY = {
     "katana_full": {
@@ -50,6 +49,44 @@ MCP_SKILLS_REGISTRY = {
         "timeout": 1800,
         "success_exit_codes": [0],
     },
+    "crawler": {
+        "mcp_schema": {
+            "name": "crawler",
+            "description": "Descubre enlaces, rutas y metadatos del objetivo con un navegador.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "target_url": {"type": "string", "description": "URL raiz a rastrear"},
+                },
+                "required": ["target_url"],
+            },
+        },
+        "image": "local-crawler:latest",
+        "command_template": "--target-url {target_url}",
+        "timeout": 1800,
+        "success_exit_codes": [0],
+    },
+    "deep_crawler": {
+        "mcp_schema": {
+            "name": "deep_crawler",
+            "description": "Descubre endpoints y realiza interacciones seguras con formularios para capturar peticiones HTTP.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "crawler_report": {
+                        "type": "object",
+                        "description": "Resultado JSON devuelto por la herramienta crawler en esta ejecucion",
+                    },
+                },
+                "required": ["crawler_report"],
+            },
+        },
+        "image": "local-deep-crawler:latest",
+        "command_template": "--crawler-report {crawler_report_path}",
+        "timeout": 3600,
+        "prepare_args": handle_deep_crawler_args,
+        "success_exit_codes": [0],
+    },
     # =========================================================================
     # 5. SQLMap - Validación de Inyección SQL
     # =========================================================================
@@ -81,7 +118,7 @@ MCP_SKILLS_REGISTRY = {
             },
         },
         "image": "parrotsec/sqlmap:latest",
-        "command_template": '-r "{file_path}" --batch --level=5 --risk=3 --ignore-stdin --ignore-code=401 --no-escape',
+        "command_template": '-r "{file_path}" --batch --level=3 --risk=2 -o --threads=10 --ignore-stdin --ignore-code=401 --no-escape',
         "timeout": 3600,
         "prepare_args": handle_sqlmap_args,
         "success_exit_codes": [0],

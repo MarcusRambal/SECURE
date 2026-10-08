@@ -54,7 +54,7 @@ async def call_mcp_skill(channel: aio_pika.Channel, tool_name: str,arguments: di
         content = response.get("result", {}).get("content", [])
         raw_output = content[0].get("text", "") if content else json.dumps(response)
 
-        logger.info("[MCP RECON] RAW INFO: %s", raw_output)
+        logger.info("[MCP RECON] Salida tool=%s: %s", tool_name, log_preview(raw_output))
 
         if is_error:
             raise RuntimeError(f"MCP tool '{tool_name}' failed: {raw_output}")
