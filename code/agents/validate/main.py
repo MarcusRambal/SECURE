@@ -25,6 +25,11 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("validate-agent-worker")
 
 
+logger.info("🟢 [VALIDATE] Cargando LLM de validación")
+    
+llm = get_llm("MODEL_VALIDATE")
+structured_llm = llm.with_structured_output(ValidateOutput, method="json_schema",)
+
 # ============================================================================
 # FLUJO PRINCIPAL DE VALIDACIÓN
 # ============================================================================
@@ -132,10 +137,7 @@ async def process_validate_task(channel: aio_pika.Channel,target_url: str,attack
     tools = build_validation_tools(catalog, channel, attack_type, excluded_tools)
     logger.info("Herramientas Validate activas: %s", [tool.name for tool in tools])
 
-    logger.info("🟢 [VALIDATE] Cargando LLM de validación")
     
-    llm = get_llm("MODEL_VALIDATE")
-    structured_llm = llm.with_structured_output(ValidateOutput, method="json_schema",)
 
     system_prompt = SystemMessage(content=get_system_prompt(attack_type))
 

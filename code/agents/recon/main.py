@@ -26,7 +26,10 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("recon-agent-worker")
 
 
-
+llm = get_llm("recon")
+structured_llm = llm.with_structured_output(ReconPlannerOutput, method="json_schema",)
+# Recon solo analiza; Validate ejecutará las herramientas de seguridad después.
+logger.info("🟢 [RECON] Cargando LLM de reconocimiento")
 
 # ============================================================================
 # FLUJO PRINCIPAL DE RECONOCIMIENTO
@@ -88,12 +91,6 @@ async def process_recon_task(channel: aio_pika.Channel,target_url: str,attack_ty
     except OSError:
         logger.exception("[RECON] No se pudo guardar el contexto LLM")
     logger.info("[RECON] Fuentes consolidadas crawler=%d deep_crawler=%d deduplicadas=%d",len(crawler_urls),len(deep_crawler_urls),len(discovered_urls),)
-
-    # Recon solo analiza; Validate ejecutará las herramientas de seguridad después.
-    logger.info("🟢 [RECON] Cargando LLM de reconocimiento")
-
-    llm = get_llm("MODEL_RECON")
-    structured_llm = llm.with_structured_output(ReconPlannerOutput, method="json_schema",)
 
     system_prompt = SystemMessage(content=get_system_prompt(attack_type_filter))
 
