@@ -12,6 +12,7 @@ from langchain_core.exceptions import OutputParserException
 
 from contract_schemas import ValidateOutput
 from helpers import (
+    build_validate_sqli_context,
     build_validate_output_from_dict,
     build_fallback_validate_output,
     build_real_command,
@@ -72,7 +73,7 @@ async def process_validate_task(channel: aio_pika.Channel,target_url: str,attack
     catalog = await get_mcp_catalog(channel)
     raw_tool_outputs: list[str] = []
     executed_commands: list[dict] = []
-    pre_executed_context: list[str] = []
+    pre_executed_context: list[dict] = []
 
     if is_sqli:
         logger.info( "[VALIDATE] Ejecutando SQLMap de forma obligatoria sobre %d endpoint(s)",len(selected_targets))
@@ -98,6 +99,7 @@ async def process_validate_task(channel: aio_pika.Channel,target_url: str,attack
             
             try:
                 output = await call_mcp_skill(channel, "sqlmap", tool_args)
+                #logger.info( "[VALIDATE] Salida original de SQLMap para %s:\n%s",tool_args.get("request", {}).get("url") or tool_args.get("target_url"),output,)
                 raw_tool_outputs.append(output)
                 
                 # Construir registro de comandos ejecutados
@@ -141,10 +143,14 @@ async def process_validate_task(channel: aio_pika.Channel,target_url: str,attack
 
     system_prompt = SystemMessage(content=get_system_prompt(attack_type))
 
+    validation_context = pre_executed_context
+    if is_sqli:
+        validation_context = build_validate_sqli_context(pre_executed_context)
+
     user_message = HumanMessage(content=(
                 f"Analiza los resultados de SQLMap y determina si existe vulnerabilidad.\n\n"
                 "Fuentes obligatorias de validacion ya ejecutadas:\n"
-                f"{json.dumps(pre_executed_context, ensure_ascii=False, indent=2)}\n\n"
+                f"{json.dumps(validation_context, ensure_ascii=False, indent=2)}\n\n"
                 "Copia target_id, request_id y endpoint exclusivamente de la ejecucion que "
                 "aporta la evidencia. No inventes IDs, endpoints, URLs ni comandos."
             ))
@@ -188,4 +194,3 @@ async def process_validate_task(channel: aio_pika.Channel,target_url: str,attack
     logger.info("[VALIDATE] Salida normalizada vulnerabilidades=%d no_confirmados=%d", len(validate_output.vulnerabilities), len(validate_output.unconfirmed_findings))
 
     return validate_output, "clean"
-

@@ -24,16 +24,19 @@ export interface AgentWebSocketEvent {
     taskId: string;
     timestamp: string;
     eventType: EventType;
-    agentName: 'orquestador' | 'scanner' | 'attacker' | 'reporter';
+    agentName: 'orquestador' | 'scanner' | 'attacker' | 'reporter' | 'recon' | 'validate';
     payload: {
         message: string;
         details?: Record<string, unknown>;
       finalReport?: string;
       error?: string;
         vulnerability?: {
-            title:string;
-            cvssScore:number;
-            severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+            title: string;
+            severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' | 'INFO';
+            endpoint?: string;
+            evidence?: string;
+            confidence?: 'HIGH' | 'MEDIUM' | 'LOW';
+            toolsUsed?: string[];
             pocScript?: string;
         }
     }

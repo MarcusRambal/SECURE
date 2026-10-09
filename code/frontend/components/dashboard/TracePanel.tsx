@@ -15,6 +15,9 @@ export const TracePanel = ({ events }: TracePanelProps) => {
                         <li key={`${event.timestamp}-${index}`}>
                             <strong>{event.agentName}</strong>
                             <span>{event.payload.message}</span>
+                            {event.payload.details && (
+                                <pre>{JSON.stringify(event.payload.details, null, 2)}</pre>
+                            )}
                         </li>
                     ))}
                 </ol>

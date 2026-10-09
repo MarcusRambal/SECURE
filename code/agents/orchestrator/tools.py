@@ -3,6 +3,7 @@ import json
 import uuid
 import asyncio
 import logging
+from datetime import datetime, timezone
 import aio_pika
 from pydantic import BaseModel, Field
 from langchain_core.tools import StructuredTool
@@ -22,10 +23,46 @@ LOG_RPC_PAYLOADS = os.getenv("LOG_RPC_PAYLOADS", "false").strip().lower() in {
 
 # Estado compartido temporal en memoria durante el pipeline: task_id -> dict
 TASK_STATE: dict[str, dict] = {}
+SCAN_EVENTS_QUEUE = "scan_events_queue"
 
 
 class TaskReferenceInput(BaseModel):
     task_id: str = Field(description="UUID único de la tarea de auditoría en curso.")
+
+
+async def publish_scan_event(
+    channel: aio_pika.Channel,
+    task_id: str,
+    event_type: str,
+    agent_name: str,
+    message: str,
+    **payload_fields: object,
+) -> None:
+    event = {
+        "taskId": task_id,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "eventType": event_type,
+        "agentName": agent_name,
+        "payload": {
+            "message": message,
+            **{
+                key: value
+                for key, value in payload_fields.items()
+                if value is not None
+            },
+        },
+    }
+    try:
+        await channel.default_exchange.publish(
+            aio_pika.Message(
+                body=json.dumps(event, ensure_ascii=False).encode("utf-8"),
+                delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
+                content_type="application/json",
+            ),
+            routing_key=SCAN_EVENTS_QUEUE,
+        )
+    except Exception:
+        logger.exception("No se pudo publicar el evento de tarea %s.", task_id)
 
 
 async def _send_rpc_request(channel: aio_pika.Channel, queue_name: str, payload: dict, timeout: float = 3600.0) -> dict:
@@ -72,6 +109,13 @@ def create_orchestrator_tools(channel: aio_pika.Channel) -> list[StructuredTool]
 
         target_url = state["target_url"]
         logger.info(f"📤 [ORQUESTADOR -> RECON] Escaneando {target_url}...")
+        await publish_scan_event(
+            channel,
+            task_id,
+            "AGENT_THOUGHT",
+            "recon",
+            f"Iniciando reconocimiento de {target_url}.",
+        )
 
         rpc_response = await _send_rpc_request(
             channel,
@@ -97,6 +141,14 @@ def create_orchestrator_tools(channel: aio_pika.Channel) -> list[StructuredTool]
             }
             state["recon_used_fallback"] = False
             state["recon_recovery_mode"] = "error"
+            await publish_scan_event(
+                channel,
+                task_id,
+                "TOOL_EXECUTION",
+                "recon",
+                f"El agente de reconocimiento falló: {error_msg}",
+                details={"status": "ERROR"},
+            )
             return f"Fallo en Recon Agent: {error_msg}"
 
         recon_data = rpc_response.get("recon_data") or {
@@ -127,6 +179,14 @@ def create_orchestrator_tools(channel: aio_pika.Channel) -> list[StructuredTool]
             recon_data.get("endpoints", [])
             or recon_data.get("high_priority_targets", [])
         )
+        await publish_scan_event(
+            channel,
+            task_id,
+            "TOOL_EXECUTION",
+            "recon",
+            f"Reconocimiento completado. Endpoints identificados: {endpoints_count}.",
+            details={"status": status, "endpointsCount": endpoints_count},
+        )
         return (
             f"Reconocimiento completado para '{task_id}'. "
             f"Endpoints: {endpoints_count}. "
@@ -138,6 +198,14 @@ def create_orchestrator_tools(channel: aio_pika.Channel) -> list[StructuredTool]
         if not state:
             return f"Error: No existe estado activo para task_id '{task_id}'."
 
+        await publish_scan_event(
+            channel,
+            task_id,
+            "AGENT_THOUGHT",
+            "validate",
+            "Iniciando la validación de los objetivos encontrados.",
+        )
+
         if state.get("status") == "FAILED":
             # Validate se salta porque Recon falló, pero el Reporter espera
             # validation_data con forma válida. Inicializamos vacío.
@@ -148,6 +216,14 @@ def create_orchestrator_tools(channel: aio_pika.Channel) -> list[StructuredTool]
             }
             state["validate_used_fallback"] = False
             state["validate_recovery_mode"] = "skipped"
+            await publish_scan_event(
+                channel,
+                task_id,
+                "TOOL_EXECUTION",
+                "validate",
+                "Validación omitida porque falló el reconocimiento.",
+                details={"status": "SKIPPED"},
+            )
             return "Validación omitida debido a un fallo en la fase de Reconocimiento."
 
         recon_data = state.get("recon_data") or {
@@ -171,6 +247,14 @@ def create_orchestrator_tools(channel: aio_pika.Channel) -> list[StructuredTool]
             }
             state["validate_used_fallback"] = False
             state["validate_recovery_mode"] = "skipped"
+            await publish_scan_event(
+                channel,
+                task_id,
+                "TOOL_EXECUTION",
+                "validate",
+                "Validación omitida: reconocimiento sin objetivos para analizar.",
+                details={"status": "SKIPPED"},
+            )
             return "Validación omitida: La fase de reconocimiento no descubrió endpoints."
 
         payload = {
@@ -209,6 +293,14 @@ def create_orchestrator_tools(channel: aio_pika.Channel) -> list[StructuredTool]
             }
             state["validate_used_fallback"] = False
             state["validate_recovery_mode"] = "error"
+            await publish_scan_event(
+                channel,
+                task_id,
+                "TOOL_EXECUTION",
+                "validate",
+                f"El agente de validación falló: {error_msg}",
+                details={"status": "ERROR"},
+            )
             return f"Fallo en Validate Agent: {error_msg}"
 
         validation_data = rpc_response.get("validation_data") or {
@@ -234,6 +326,30 @@ def create_orchestrator_tools(channel: aio_pika.Channel) -> list[StructuredTool]
             state["status"] = "PARTIAL"
 
         vulns_count = len(validation_data.get("vulnerabilities", []))
+        for finding in validation_data.get("vulnerabilities", []):
+            await publish_scan_event(
+                channel,
+                task_id,
+                "VULN_DETECTED",
+                "validate",
+                f"Vulnerabilidad confirmada: {finding.get('type', 'Sin título')}.",
+                vulnerability={
+                    "title": finding.get("type", "Sin título"),
+                    "severity": finding.get("severity", "INFO"),
+                    "endpoint": finding.get("endpoint"),
+                    "evidence": finding.get("evidence"),
+                    "confidence": finding.get("confidence"),
+                    "toolsUsed": finding.get("tools_used", []),
+                },
+            )
+        await publish_scan_event(
+            channel,
+            task_id,
+            "TOOL_EXECUTION",
+            "validate",
+            f"Validación completada. Vulnerabilidades confirmadas: {vulns_count}.",
+            details={"status": status, "vulnerabilitiesCount": vulns_count},
+        )
         return (
             f"Validación completada para '{task_id}'. "
             f"Vulnerabilidades confirmadas: {vulns_count}. "
@@ -270,6 +386,13 @@ def create_orchestrator_tools(channel: aio_pika.Channel) -> list[StructuredTool]
         }
 
         logger.info(f"📤 [ORQUESTADOR -> REPORTER] Solicitando informe Markdown para {task_id}...")
+        await publish_scan_event(
+            channel,
+            task_id,
+            "AGENT_THOUGHT",
+            "reporter",
+            "Generando el informe final.",
+        )
         rpc_response = await _send_rpc_request(channel, REPORTER_QUEUE, payload)
 
         if not rpc_response or rpc_response.get("status") == "ERROR":
@@ -277,6 +400,14 @@ def create_orchestrator_tools(channel: aio_pika.Channel) -> list[StructuredTool]
             state["status"] = "FAILED"
             state["error_stage"] = "reporter"
             state["error_message"] = error_msg
+            await publish_scan_event(
+                channel,
+                task_id,
+                "TOOL_EXECUTION",
+                "reporter",
+                f"El agente reportador falló: {error_msg}",
+                details={"status": "ERROR"},
+            )
             return f"Fallo en Reporter Agent: {error_msg}"
 
         markdown_report = rpc_response.get("report_markdown") or ""
@@ -306,6 +437,14 @@ def create_orchestrator_tools(channel: aio_pika.Channel) -> list[StructuredTool]
             f"recon_recovery={state.get('recon_recovery_mode', 'n/a')} | "
             f"validate_recovery={state.get('validate_recovery_mode', 'n/a')} | "
             f"reporter_fallback={state.get('reporter_used_fallback', False)}"
+        )
+        await publish_scan_event(
+            channel,
+            task_id,
+            "TOOL_EXECUTION",
+            "reporter",
+            "Informe final generado.",
+            details={"status": state["status"], "reportLength": len(markdown_report)},
         )
 
         return (
