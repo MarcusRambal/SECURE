@@ -10,13 +10,14 @@ from llm_factory import get_int_env, get_llm
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain.agents import create_agent
 
-from tools import TASK_STATE, create_orchestrator_tools
+from tools import TASK_STATE, create_orchestrator_tools, publish_scan_event
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("orchestrator-main")
 
 RABBITMQ_URL = os.getenv("RABBITMQ_URL")
 ORCHESTRATOR_QUEUE = "orchestrator_queue"
+SCAN_EVENTS_QUEUE = "scan_events_queue"
 
 # Resultados finales por task_id (en memoria, no persistente).
 TASKS_RESULTS_DB: dict[str, dict] = {}
@@ -77,6 +78,14 @@ async def execute_orchestration_flow(payload: dict, channel: aio_pika.Channel):
         "recon_recovery_mode": None,
         "validate_recovery_mode": None,
     }
+
+    await publish_scan_event(
+        channel,
+        task_id,
+        "AGENT_THOUGHT",
+        "orquestador",
+        f"Tarea iniciada para {target_url}.",
+    )
 
     try:
         llm = get_llm("orchestrator")
@@ -139,6 +148,27 @@ async def execute_orchestration_flow(payload: dict, channel: aio_pika.Channel):
         logger.info(
             f"✅ Auditoría {task_id} finalizada ({final_status}) y persistida en TASKS_RESULTS_DB."
         )
+        terminal_event = "SCAN_ERROR" if final_status == "FAILED" else "SCAN_COMPLETE"
+        terminal_payload = {
+            "finalReport": completed_state.get("report_markdown"),
+            "details": {"status": final_status},
+        }
+        if final_status == "FAILED":
+            terminal_payload["error"] = completed_state.get(
+                "error_message", "La tarea no pudo completarse."
+            )
+        await publish_scan_event(
+            channel,
+            task_id,
+            terminal_event,
+            "orquestador",
+            (
+                completed_state.get("error_message", "La tarea falló.")
+                if final_status == "FAILED"
+                else "Tarea completada."
+            ),
+            **terminal_payload,
+        )
 
     except Exception as e:
         logger.error(f"❌ Error durante la ejecución del orquestador: {e}", exc_info=True)
@@ -149,6 +179,14 @@ async def execute_orchestration_flow(payload: dict, channel: aio_pika.Channel):
             "status": "FAILED",
             "error": str(e),
         }
+        await publish_scan_event(
+            channel,
+            task_id,
+            "SCAN_ERROR",
+            "orquestador",
+            f"Error durante la ejecución: {e}",
+            error=str(e),
+        )
     finally:
         # Liberación limpia de memoria del estado intermedio de la tarea
         TASK_STATE.pop(task_id, None)
@@ -163,6 +201,7 @@ async def start_orchestrator_worker():
             async with connection:
                 channel = await connection.channel()
                 queue = await channel.declare_queue(ORCHESTRATOR_QUEUE, durable=True)
+                await channel.declare_queue(SCAN_EVENTS_QUEUE, durable=True)
                 logger.info(f"🎧 Orquestador escuchando en '{ORCHESTRATOR_QUEUE}'...")
 
                 async with queue.iterator() as queue_iter:

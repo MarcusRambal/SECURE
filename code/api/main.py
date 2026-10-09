@@ -15,6 +15,7 @@ logging.basicConfig(level=logging.INFO)
 async def lifespan(app: FastAPI):
     # Código al arrancar el contenedor: Conectar a RabbitMQ
     await rabbitmq_client.connect()
+    await rabbitmq_client.consume_scan_events(websocket_manager.broadcast)
     yield
     # Código al detener el contenedor: Cerrar conexión
     await rabbitmq_client.close()

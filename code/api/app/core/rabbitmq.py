@@ -3,9 +3,13 @@ import aio_pika
 import json
 import logging
 import asyncio
+from collections.abc import Awaitable, Callable
+
+from aio_pika.abc import AbstractIncomingMessage
 from .config import settings
 
 logger = logging.getLogger(__name__)
+SCAN_EVENTS_QUEUE = "scan_events_queue"
 
 class RabbitClient:
     def __init__(self):
@@ -26,6 +30,9 @@ class RabbitClient:
 
                 await self.channel.declare_queue("skills_queue", durable=True)
                 logger.info("Cola 'skills_queue' lista para recibir tareas.")
+
+                await self.channel.declare_queue(SCAN_EVENTS_QUEUE, durable=True)
+                logger.info("Cola '%s' lista para recibir eventos.", SCAN_EVENTS_QUEUE)
 
                 return
             except Exception as e:
@@ -50,6 +57,32 @@ class RabbitClient:
             routing_key="orchestrator_queue"
         )
         logger.info(f"[RABBITMQ] Tarea publicada en orchestrator_queue para task_id: {task_payload.get('task_id')}")
+
+    async def consume_scan_events(
+        self, handler: Callable[[str, dict], Awaitable[None]]
+    ) -> None:
+        if not self.channel or self.channel.is_closed:
+            raise RuntimeError("La conexión con RabbitMQ no está activa.")
+
+        queue = await self.channel.declare_queue(SCAN_EVENTS_QUEUE, durable=True)
+
+        async def on_message(message: AbstractIncomingMessage) -> None:
+            async with message.process(requeue=False):
+                try:
+                    event = json.loads(message.body.decode("utf-8"))
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    logger.exception("Evento inválido recibido en '%s'.", SCAN_EVENTS_QUEUE)
+                    return
+
+                task_id = event.get("taskId") if isinstance(event, dict) else None
+                if not isinstance(task_id, str) or not task_id:
+                    logger.error("Evento sin taskId recibido en '%s'.", SCAN_EVENTS_QUEUE)
+                    return
+
+                await handler(task_id, event)
+
+        await queue.consume(on_message)
+        logger.info("Consumiendo eventos de agentes desde '%s'.", SCAN_EVENTS_QUEUE)
 
     async def close(self):
         if self.connection and not self.connection.is_closed:
