@@ -92,12 +92,19 @@ def prepare_sqlmap_request(request: dict,target_url: str,endpoint: str,method: s
     return prepared_request
 
 
-def write_validate_context_snapshot(
-    target_url: str,
-    attack_type: str,
-    agent_context: dict,
-    sqlmap_executions: list[dict],
-) -> Path:
+def build_validate_sqli_context(sqlmap_executions: list[dict]) -> dict:
+    """Construye el contexto SQLi a partir de ejecuciones reales de SQLMap."""
+    return {
+        "attack_type_filter": "sqli",
+        "sqlmap_executions": [
+            execution
+            for execution in sqlmap_executions
+            if isinstance(execution, dict) and execution.get("tool") == "sqlmap"
+        ],
+    }
+
+
+def write_validate_context_snapshot(target_url: str,attack_type: str,agent_context: dict,sqlmap_executions: list[dict],) -> Path:
     """Guarda el contexto enviado al LLM y las requests entregadas a SQLMap."""
     output_dir = Path(
         os.getenv(
@@ -319,5 +326,3 @@ def build_fallback_validate_output(target_url: str,raw_tool_outputs: list[str],e
         scan_started_at=started_at,
         scan_finished_at=datetime.now(timezone.utc).isoformat(),
     )
-
-

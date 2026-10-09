@@ -210,6 +210,70 @@ def build_sqli_fallback_output(target_url: str,deep_crawler_data: dict | None,) 
     }
 
 
+def ensure_sqli_entry_point_coverage(data: dict, deep_crawler_data: dict | None) -> dict:
+    """Incluye cada request observada con body aunque el LLM haya omitido alguna."""
+    output = dict(data)
+    targets = [
+        target for target in output.get("high_priority_targets", [])
+        if isinstance(target, dict)
+    ]
+    requests = [
+        request
+        for request in (deep_crawler_data or {}).get("entry_points", [])
+        if isinstance(request, dict) and request.get("url") and request.get("body") is not None
+    ]
+    covered_request_ids = {
+        request_id
+        for target in targets
+        for request_id in (
+            target.get("request_id"),
+            (target.get("request") or {}).get("id")
+            if isinstance(target.get("request"), dict)
+            else None,
+        )
+        if request_id
+    }
+    covered_request_objects = set()
+    for target in targets:
+        captured_request = _find_matching_sqli_request(target, deep_crawler_data)
+        if captured_request:
+            if captured_request.get("id"):
+                covered_request_ids.add(captured_request["id"])
+            else:
+                covered_request_objects.add(id(captured_request))
+
+    for request in requests:
+        request_id = request.get("id")
+        if (
+            (request_id and request_id in covered_request_ids)
+            or id(request) in covered_request_objects
+        ):
+            continue
+
+        targets.append({
+            "target_id": f"target_{len(targets) + 1:03d}",
+            "request_id": request_id or "",
+            "vulnerability_target": (
+                "Solicitud observada con datos de entrada; validar posible SQLi"
+            ),
+            "endpoint": request["url"],
+            "method": request.get("method", "GET"),
+            "request": {
+                key: request.get(key)
+                for key in ("id", "method", "url", "headers", "body")
+            },
+            "recommended_tool": "sqlmap",
+        })
+        if request_id:
+            covered_request_ids.add(request_id)
+
+    output["high_priority_targets"] = targets
+    summary = dict(output.get("recon_summary", {}))
+    summary["total_targets_identified"] = len(targets)
+    output["recon_summary"] = summary
+    return output
+
+
 
 def _normalize_request_path(value: str) -> str:
     value = value.strip()
@@ -317,5 +381,3 @@ def build_recon_output_from_dict(data: dict,target_url: str,attack_type_filter: 
         len(output.high_priority_targets),
     )
     return output
-
-

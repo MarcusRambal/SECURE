@@ -15,6 +15,7 @@ from helpers import (
     build_sqli_recon_context,
     build_sqli_fallback_output,
     deduplicate_urls,
+    ensure_sqli_entry_point_coverage,
     extract_urls_from_crawler,
     extract_urls_from_deep_crawler,
     write_recon_context_snapshot,
@@ -121,6 +122,9 @@ async def process_recon_task(channel: aio_pika.Channel,target_url: str,attack_ty
         logger.info("[RECON] Salida original del agente antes del procesamiento:\n%s",structured_output.model_dump_json(indent=2),)
         
         parsed_dict = structured_output.model_dump()
+
+    if is_sqli:
+        parsed_dict = ensure_sqli_entry_point_coverage(parsed_dict, deep_crawler_data)
 
     recon_output = build_recon_output_from_dict(
         parsed_dict,
