@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import aio_pika
@@ -11,6 +12,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.exceptions import OutputParserException
 
 from contract_schemas import ValidateOutput
+from analysis_skills import analyze_validation_targets
 from helpers import (
     build_validate_sqli_context,
     build_validate_output_from_dict,
@@ -24,6 +26,7 @@ from attack_types import is_sqli_attack
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("validate-agent-worker")
+SQLMAP_MAX_CONCURRENCY = 3
 
 
 logger.info("🟢 [VALIDATE] Cargando LLM de validación")
@@ -35,12 +38,20 @@ structured_llm = llm.with_structured_output(ValidateOutput, method="json_schema"
 # FLUJO PRINCIPAL DE VALIDACIÓN
 # ============================================================================
 
-async def process_validate_task(channel: aio_pika.Channel,target_url: str,attack_type: str,targets: list[dict],) -> tuple[ValidateOutput, str]:
+async def process_validate_task(channel: aio_pika.Channel,target_url: str,attack_type: str,targets: list[dict],task_id: str | None = None,) -> tuple[ValidateOutput, str]:
    
     started_at = datetime.now(timezone.utc).isoformat()
+    trace_id = task_id or "unknown"
 
     is_sqli = is_sqli_attack(attack_type)
-    logger.info("[VALIDATE] Es ataque SQLi: %s", is_sqli)
+    logger.info(
+        "[VALIDATE] task_id=%s phase=start target_url=%s attack_type=%s is_sqli=%s targets_received=%d",
+        trace_id,
+        target_url,
+        attack_type,
+        is_sqli,
+        len(targets),
+    )
 
     selected_targets = [
         {
@@ -57,6 +68,10 @@ async def process_validate_task(channel: aio_pika.Channel,target_url: str,attack
 
     # Manejo de caso borde: Vino vacio
     if not selected_targets:
+        logger.warning(
+            "[VALIDATE_SKILLS] task_id=%s phase=skipped reason=no_valid_targets",
+            trace_id,
+        )
         logger.warning("Recon no devolvió objetivos prioritarios válidos. Omisión de la fase de validación.")
         return (
             ValidateOutput(
@@ -69,6 +84,26 @@ async def process_validate_task(channel: aio_pika.Channel,target_url: str,attack
             "clean",  # Omisión controlada
         )
 
+    logger.info(
+        "[VALIDATE_SKILLS] task_id=%s phase=start "
+        "skills=observed_request_type_analysis mode=passive endpoint_count=%d",
+        trace_id,
+        len(selected_targets),
+    )
+    analysis_skills = analyze_validation_targets(selected_targets)
+    logger.info(
+        "[VALIDATE_SKILLS] task_id=%s phase=complete endpoint_count=%d",
+        trace_id,
+        len(analysis_skills),
+    )
+
+    for endpoint_analysis in analysis_skills:
+        logger.info(
+            "[VALIDATE_SKILLS] task_id=%s phase=endpoint_analysis result=%s",
+            trace_id,
+            json.dumps(endpoint_analysis, ensure_ascii=False, default=str),
+        )
+
     # Construcción del catálogo de herramientas MCP y preparación de la ejecución
     catalog = await get_mcp_catalog(channel)
     raw_tool_outputs: list[str] = []
@@ -76,63 +111,82 @@ async def process_validate_task(channel: aio_pika.Channel,target_url: str,attack
     pre_executed_context: list[dict] = []
 
     if is_sqli:
-        logger.info( "[VALIDATE] Ejecutando SQLMap de forma obligatoria sobre %d endpoint(s)",len(selected_targets))
-        
-        for target in selected_targets:
-            request_data = target.get("request", {})
-            if isinstance(request_data, dict) and request_data:
-                tool_args = {
-                    "request": prepare_sqlmap_request(
-                        request_data,
-                        target_url,
-                        target["url"],
-                        target["method"],
-                    )
-                }
-            else:
-                tool_args = {
-                    "target_url": urljoin(
-                        f"{target_url.rstrip('/')}/",
-                        target["url"],
-                    )
-                }
-            
+        logger.info(
+            "[VALIDATE] Ejecutando SQLMap de forma obligatoria sobre %d endpoint(s) "
+            "con un máximo de %d ejecuciones simultáneas",
+            len(selected_targets),
+            SQLMAP_MAX_CONCURRENCY,
+        )
+        semaphore = asyncio.Semaphore(SQLMAP_MAX_CONCURRENCY)
+
+        async def execute_sqlmap(target: dict) -> tuple[dict, dict, str] | None:
             try:
-                output = await call_mcp_skill(channel, "sqlmap", tool_args)
-                #logger.info( "[VALIDATE] Salida original de SQLMap para %s:\n%s",tool_args.get("request", {}).get("url") or tool_args.get("target_url"),output,)
-                raw_tool_outputs.append(output)
-                
-                # Construir registro de comandos ejecutados
-                executed_command = {
-                    "tool": "sqlmap",
-                    "args": tool_args,
-                    "command": build_real_command("sqlmap", tool_args),
+                request_data = target.get("request", {})
+                if isinstance(request_data, dict) and request_data:
+                    tool_args = {
+                        "request": prepare_sqlmap_request(
+                            request_data,
+                            target_url,
+                            target["url"],
+                            target["method"],
+                        )
+                    }
+                else:
+                    tool_args = {
+                        "target_url": urljoin(
+                            f"{target_url.rstrip('/')}/",
+                            target["url"],
+                        )
+                    }
+
+                async with semaphore:
+                    output = await call_mcp_skill(channel, "sqlmap", tool_args)
+                return target, tool_args, output
+            except Exception as err:
+                logger.exception(
+                    "Fallo en ejecución obligatoria de SQLMap en %s: %s",
+                    target["url"],
+                    err,
+                )
+                return None
+
+        sqlmap_results = await asyncio.gather(
+            *(execute_sqlmap(target) for target in selected_targets)
+        )
+        for result in sqlmap_results:
+            if result is None:
+                continue
+
+            target, tool_args, output = result
+            raw_tool_outputs.append(output)
+
+            executed_command = {
+                "tool": "sqlmap",
+                "args": tool_args,
+                "command": build_real_command("sqlmap", tool_args),
+                "target_id": target.get("target_id"),
+                "request_id": target.get("request_id"),
+                "endpoint": (
+                    tool_args.get("request", {}).get("url")
+                    or tool_args.get("target_url")
+                ),
+                "output": output,
+            }
+            executed_commands.append(executed_command)
+
+            pre_executed_context.append(
+                {
                     "target_id": target.get("target_id"),
                     "request_id": target.get("request_id"),
-                    "endpoint": (
-                        tool_args.get("request", {}).get("url")
-                        or tool_args.get("target_url")
-                    ),
+                    "endpoint": executed_command["endpoint"],
+                    "method": target["method"],
+                    "request": tool_args.get("request"),
+                    "tool_args": tool_args,
+                    "headers": tool_args.get("request", {}).get("headers", {}),
+                    "tool": "sqlmap",
                     "output": output,
                 }
-                executed_commands.append(executed_command)
-                
-                # Contexto formateado para que el LLM lo analice
-                pre_executed_context.append(
-                    {
-                        "target_id": target.get("target_id"),
-                        "request_id": target.get("request_id"),
-                        "endpoint": executed_command["endpoint"],
-                        "method": target["method"],
-                        "request": tool_args.get("request"),
-                        "tool_args": tool_args,
-                        "headers": tool_args.get("request", {}).get("headers", {}),
-                        "tool": "sqlmap",
-                        "output": output,
-                    }
-                )
-            except Exception as err:
-                logger.error(f"Fallo en ejecución obligatoria de SQLMap en {target['url']}: {err}")
+            )
 
 
     excluded_tools = {"sqlmap"} if is_sqli else set()
@@ -148,7 +202,12 @@ async def process_validate_task(channel: aio_pika.Channel,target_url: str,attack
         validation_context = build_validate_sqli_context(pre_executed_context)
 
     user_message = HumanMessage(content=(
-                f"Analiza los resultados de SQLMap y determina si existe vulnerabilidad.\n\n"
+                "Analiza la evidencia disponible de las herramientas y determina si "
+                "confirma la vulnerabilidad solicitada.\n\n"
+                "Estructura y tipos observados directamente en las requests capturadas. "
+                "Estos datos describen únicamente las entradas observadas; no demuestran "
+                "qué otros tipos acepta el servidor:\n"
+                f"{json.dumps(analysis_skills, ensure_ascii=False, indent=2)}\n\n"
                 "Fuentes obligatorias de validacion ya ejecutadas:\n"
                 f"{json.dumps(validation_context, ensure_ascii=False, indent=2)}\n\n"
                 "Copia target_id, request_id y endpoint exclusivamente de la ejecucion que "
@@ -164,8 +223,14 @@ async def process_validate_task(channel: aio_pika.Channel,target_url: str,attack
                 "user_message": user_message.content,
             },
             pre_executed_context,
+            analysis_skills=analysis_skills,
+            task_id=trace_id,
         )
-        logger.info("[VALIDATE] Contexto guardado en %s", snapshot_path)
+        logger.info(
+            "[VALIDATE] task_id=%s phase=context_snapshot path=%s",
+            trace_id,
+            snapshot_path,
+        )
     except OSError:
         logger.exception("[VALIDATE] No se pudo guardar el contexto")
 
@@ -191,6 +256,12 @@ async def process_validate_task(channel: aio_pika.Channel,target_url: str,attack
         parsed_dict = structured_output.model_dump()
 
     validate_output = build_validate_output_from_dict(parsed_dict,target_url,started_at,executed_commands)
-    logger.info("[VALIDATE] Salida normalizada vulnerabilidades=%d no_confirmados=%d", len(validate_output.vulnerabilities), len(validate_output.unconfirmed_findings))
+    logger.info(
+        "[VALIDATE] task_id=%s phase=complete vulnerabilities=%d unconfirmed=%d output=%s",
+        trace_id,
+        len(validate_output.vulnerabilities),
+        len(validate_output.unconfirmed_findings),
+        validate_output.model_dump_json(),
+    )
 
     return validate_output, "clean"

@@ -258,6 +258,7 @@ def create_orchestrator_tools(channel: aio_pika.Channel) -> list[StructuredTool]
             return "Validación omitida: La fase de reconocimiento no descubrió endpoints."
 
         payload = {
+            "task_id": task_id,
             "target_url": state["target_url"],
             "attack_type": state["attack_type"],
             "recon_data": recon_data,

@@ -15,9 +15,11 @@ COPY llm_factory.py .
 COPY validate/config.py .
 COPY validate/helpers.py .
 COPY validate/mcp_skills.py .
+COPY validate/analysis_skills.py .
 COPY validate/validate_prompts/ validate_prompts/
 COPY validate/main.py .
 COPY validate/worker.py .
 COPY attack_types.py .
+
 
 CMD ["python", "worker.py"]

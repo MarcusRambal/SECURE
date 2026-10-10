@@ -104,8 +104,15 @@ def build_validate_sqli_context(sqlmap_executions: list[dict]) -> dict:
     }
 
 
-def write_validate_context_snapshot(target_url: str,attack_type: str,agent_context: dict,sqlmap_executions: list[dict],) -> Path:
-    """Guarda el contexto enviado al LLM y las requests entregadas a SQLMap."""
+def write_validate_context_snapshot(
+    target_url: str,
+    attack_type: str,
+    agent_context: dict,
+    sqlmap_executions: list[dict],
+    analysis_skills: list[dict] | None = None,
+    task_id: str | None = None,
+) -> Path:
+    """Guarda el contexto del agente, análisis pasivo y requests de SQLMap."""
     output_dir = Path(
         os.getenv(
             "VALIDATE_CONTEXT_OUTPUT_DIR",
@@ -126,7 +133,9 @@ def write_validate_context_snapshot(target_url: str,attack_type: str,agent_conte
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "target_url": target_url,
         "attack_type": attack_type,
+        "task_id": task_id,
         "agent_context": agent_context,
+        "analysis_skills": analysis_skills or [],
         "sqlmap_executions": sqlmap_executions,
     }
     output_dir.mkdir(parents=True, exist_ok=True)

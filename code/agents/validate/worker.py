@@ -32,6 +32,7 @@ async def start_validate_worker():
 
                                 target_url = payload.get("target_url")
                                 attack_type = payload.get("attack_type")
+                                task_id = payload.get("task_id") or correlation_id
 
                                 recon_data = payload.get("recon_data", {})
                                 
@@ -65,9 +66,19 @@ async def start_validate_worker():
                                         ),
                                     )
 
-                                logger.info( f"📥 [VALIDATE-AGENT] Tarea de validación recibida para {target_url}")
+                                logger.info(
+                                    "[VALIDATE-AGENT] task_id=%s target_url=%s",
+                                    task_id,
+                                    target_url,
+                                )
 
-                                validate_data, recovery_mode = await process_validate_task(channel, target_url, attack_type, simplified_targets)
+                                validate_data, recovery_mode = await process_validate_task(
+                                    channel,
+                                    target_url,
+                                    attack_type,
+                                    simplified_targets,
+                                    task_id=task_id,
+                                )
 
                                 if recovery_mode == "fallback":
                                     status = "PARTIAL"
