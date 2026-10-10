@@ -128,32 +128,37 @@ MCP_SKILLS_REGISTRY = {
     # =========================================================================
     # 6. DalFox - Escáner de Cross-Site Scripting (XSS)
     # =========================================================================
-    "dalfox": {
-        "mcp_schema": {
-            "name": "dalfox",
-            "description": (
-                "Análisis especializado en Cross-Site Scripting (XSS reflejado y DOM). REQUIERE OBLIGATORIAMENTE "
-                "una URL que contenga parámetros en la query (ej: ?q=test o ?search=query). NO FUNCIONA en URLs "
-                "raíz o sin parámetros. USAR EN FASE DE VALIDACIÓN sobre endpoints de búsqueda o filtros. "
-                "Input esperado: URL con parámetros query. Devuelve: Confirmación de XSS y PoC con payload ejecutable."
-            ),
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "target_url": {
-                        "type": "string",
-                        "description": "URL completa con parámetros (ej: http://juice-shop-target:3000/#/search?q=test)",
-                    }
+"dalfox": {
+    "mcp_schema": {
+        "name": "dalfox",
+        "description": (
+            "Análisis especializado en Cross-Site Scripting (XSS reflejado y DOM). "
+            "Para GET: requiere URL con parámetros en la query string (?q=test). "
+            "Para POST: acepta 'request' estructurada con body y headers. "
+            "USAR EN FASE DE VALIDACIÓN sobre endpoints de búsqueda, filtros o formularios. "
+            "Devuelve: confirmación de XSS y PoC con payload ejecutable."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "target_url": {
+                    "type": "string",
+                    "description": "URL con parámetros GET (ej: http://target/search?q=test)",
                 },
-                "required": ["target_url"],
+                "request": {
+                    "type": "object",
+                    "description": "Petición estructurada con method, url, headers y body",
+                },
             },
+            "required": [],
         },
-        "image": "hahwul/dalfox:latest",
-        "command_template": '/app/dalfox scan "{target_url}" {extra_flags}',
-        "timeout": 1800,
-        "prepare_args": handle_dalfox_args,
-        "success_exit_codes": [0, 1, 2],
     },
+    "image": "hahwul/dalfox:latest",
+    "command_template": '/app/dalfox {target_arg} {extra_flags}',
+    "timeout": 1800,
+    "prepare_args": handle_dalfox_args,
+    "success_exit_codes": [0, 1, 2],
+},
     # =========================================================================
     # 7. Commix - Inyección de Comandos del SO (Command Injection)
     # =========================================================================
