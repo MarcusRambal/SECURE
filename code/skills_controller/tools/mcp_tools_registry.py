@@ -1,5 +1,7 @@
 from tools.sqlmap_handler import handle_sqlmap_args
 from tools.deep_crawler_handler import handle_deep_crawler_args
+from tools.commix_handler import handle_commix_args
+from tools.dalfox_handler import handle_dalfox_args
 
 MCP_SKILLS_REGISTRY = {
     "katana_full": {
@@ -160,24 +162,29 @@ MCP_SKILLS_REGISTRY = {
             "name": "commix",
             "description": (
                 "Detección y explotación de inyección de comandos en el sistema operativo (OS Command Injection). "
-                "USAR EN FASE DE VALIDACIÓN sobre parámetros sospechosos de interactuar con el sistema (ej: campos "
-                "de IP, pings, subida de archivos, utilidades del sistema). Input esperado: URL con parámetro "
-                "evaluable (ej: http://webgoat-target:8080/WebGoat/ping?ip=127.0.0.1). Devuelve: Confirmación de RCE "
-                "y comandos ejecutados."
+                "USAR EN FASE DE VALIDACIÓN sobre endpoints con parámetros sospechosos de interactuar con el sistema "
+                "(ej: campos de IP, ping, subida de archivos, utilidades del sistema). "
+                "Soporta POST JSON, form-urlencoded y GET con query params. "
+                "Input esperado: 'request' con la petición HTTP estructurada (method, url, headers, body) "
+                "o 'target_url' para una URL simple. Devuelve: confirmación de RCE con payload y técnica detectada."
             ),
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "target_url": {
                         "type": "string",
-                        "description": "URL u endpoint a analizar (ej: http://webgoat-target:8080/WebGoat/cmd)",
-                    }
+                        "description": "URL u endpoint a analizar cuando no hay request estructurada",
+                    },
+                    "request": {
+                        "type": "object",
+                        "description": "Petición estructurada con method, url, headers y body",
+                    },
                 },
-                "required": ["target_url"],
+                "required": [],
             },
         },
         "image": "local-commix:latest",
-        "command_template": '--url="{target_url}" {extra_flags} --batch',
+        "command_template": "{target_arg} {extra_flags} --technique=CT --batch --level=3",
         "timeout": 3600,
         "prepare_args": handle_commix_args,
         "success_exit_codes": [0],
