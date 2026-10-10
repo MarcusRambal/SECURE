@@ -20,6 +20,7 @@ out/
 .turbo/
 .cache/
 .parcel-cache/
+test_analysis_skills.py
 
 # ==========================================
 # Logs y Monitoreo
