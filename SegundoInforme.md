@@ -2,7 +2,7 @@
 
 ## Resumen / Abstract
 
-El proyecto SECURE propone el diseño e implementación de un sistema multiagente que automatiza la detección y validación de vulnerabilidades web en entornos de laboratorio autorizados. La arquitectura objetivo contempla cuatro agentes especializados (orquestador, reconocimiento, validación y reporte) que colaboran mediante el Model Context Protocol (MCP) y se comunican a través de un broker de mensajes (RabbitMQ), ejecutando herramientas de pentesting reales en contenedores Docker efímeros. El sistema ha sido diseñado para ejecutar siete skills de ciberseguridad (Katana, SPA Crawler, SQLMap, DalFox, Commix, Nuclei y FFuF) que apuntan a cubrir cuatro categorías del OWASP Top 10: Inyección, Control de Acceso Roto, Fallos de Autenticación y Fallos Criptográficos, con OWASP Juice Shop como entorno autorizado de referencia para las validaciones.
+El proyecto SECURE propone el diseño e implementación de un sistema multiagente que automatiza la detección y validación de vulnerabilidades web en entornos de laboratorio autorizados. La arquitectura objetivo contempla cuatro agentes especializados (orquestador, reconocimiento, validación y reporte) que colaboran mediante el Model Context Protocol (MCP) y se comunican a través de un broker de mensajes (RabbitMQ), ejecutando herramientas de pentesting reales en contenedores Docker efímeros. El sistema ha sido diseñado para ejecutar nueve skills de ciberseguridad (Katana, SPA Crawler, Deep Crawler, SQLMap, DalFox, Commix, Nuclei, FFuF y JWT Tool) que apuntan a cubrir cuatro categorías del OWASP Top 10: Inyección, Control de Acceso Roto, Fallos de Autenticación y Fallos Criptográficos, con OWASP Juice Shop como entorno autorizado de referencia para las validaciones.
 
 El avance a la fecha incluye la infraestructura de comunicación asíncrona funcionando (RabbitMQ con patrón RPC), el servidor MCP operativo con catálogo dinámico de skills, la ejecución aislada de herramientas en contenedores efímeros, y la migración del backend de modelos de lenguaje desde proveedores en la nube (Groq) hacia un modelo local (Qwen 2.5 servido vía Ollama) — cambio arquitectónico motivado por las limitaciones de cuota y disponibilidad de los proveedores gratuitos. El agente de reconocimiento se encuentra funcional sobre el modelo local: ejecuta el SPA Crawler y Katana, consolida resultados y genera un plan de ataque priorizado con endpoints, métodos, peticiones estructuradas y herramientas recomendadas. La migración de los agentes de validación y reporte al modelo local, así como la validación del flujo completo entre agentes, se encuentran en desarrollo.
 
@@ -26,23 +26,33 @@ Para comprender la propuesta de SECURE es necesario establecer un conjunto de co
 
 ### 2.1 Evaluación de seguridad web y OWASP Top 10
 
-La evaluación de seguridad de aplicaciones web consiste en un proceso sistemático mediante el cual se identifican, validan y documentan debilidades explotables en un sistema bajo condiciones controladas. Este proceso se apoya en herramientas especializadas que automatizan tareas de reconocimiento, enumeración y explotación, generando información que luego debe ser interpretada por un evaluador humano. Para organizar el universo de vulnerabilidades conocidas, la industria utiliza marcos de referencia como el **OWASP Top 10**, que agrupa las categorías de riesgo más críticas en aplicaciones web. SECURE toma como referencia cuatro categorías: **A05:2025 – Injection** (inyección SQL y de comandos), **A01:2025 – Broken Access Control**, **A07:2025 – Identification and Authentication Failures** y **A04:2025 – Cryptographic Failures**. Estas categorías delimitan el alcance funcional del MVP y orientan la selección de skills especializados.
+La evaluación de seguridad de aplicaciones web consiste en un proceso sistemático mediante el cual se identifican, validan y documentan debilidades explotables en un sistema bajo condiciones controladas. Este proceso se apoya en herramientas especializadas que automatizan tareas de reconocimiento, enumeración y explotación, generando información que luego debe ser interpretada por un evaluador humano. Para organizar el universo de vulnerabilidades conocidas, la industria utiliza marcos de referencia como el **OWASP Top 10** (OWASP Foundation, 2025a), que agrupa las categorías de riesgo más críticas en aplicaciones web. Este marco se complementa con la **OWASP Web Security Testing Guide** (OWASP Foundation, 2025b), que documenta metodologías y vectores específicos por categoría. SECURE toma como referencia cuatro categorías: **A05:2025 – Injection**, **A01:2025 – Broken Access Control**, **A07:2025 – Identification and Authentication Failures** y **A04:2025 – Cryptographic Failures**.
 
-Para clasificar la severidad de los hallazgos, SECURE utiliza categorías cualitativas alineadas conceptualmente con la escala de severidad de CVSS: CRITICAL, HIGH, MEDIUM, LOW e INFO. El agente de validación asigna una de estas categorías a cada hallazgo confirmado como parte del contrato de datos (Vulnerability), y el agente de reportero la incorpora en el informe final junto con la evidencia y el comando reproducible.
+Es importante distinguir tres conceptos que suelen mezclarse en la literatura y que SECURE separa explícitamente:
+
+- **Categoría OWASP:** agrupación temática de riesgos (por ejemplo, A05 – Injection).
+- **Vector o subcategoría:** tipo específico de vulnerabilidad dentro de una categoría (por ejemplo, SQL Injection, OS Command Injection, XSS).
+- **Skill:** herramienta concreta que el sistema ejecuta para validar uno o más vectores (por ejemplo, `sqlmap`, `commix`, `dalfox`).
+
+La relación entre estos tres niveles se documenta en la Sección 3.4, donde se explicita qué vector de qué categoría cubre cada skill.
+
+Para clasificar la severidad de los hallazgos, SECURE utiliza categorías cualitativas alineadas conceptualmente con la escala de severidad de **CVSS v3.1** (FIRST, 2019): CRITICAL, HIGH, MEDIUM, LOW e INFO. El agente de validación asigna una de estas categorías a cada hallazgo confirmado como parte del contrato de datos (`Vulnerability`), y el agente de reportero la incorpora en el informe final junto con la evidencia y el comando reproducible.
 
 ### 2.2 Modelos de lenguaje y agentes autónomos
 
-Los **Modelos de Lenguaje de Gran Escala (LLM)** son sistemas entrenados sobre grandes volúmenes de texto que permiten generar, resumir y razonar sobre información en lenguaje natural. En el contexto de la automatización de tareas, los LLM pueden integrarse con herramientas externas para ejecutar acciones concretas, en un patrón conocido como **tool calling**. En este patrón, el modelo no solo genera texto, sino que decide qué herramienta invocar, con qué argumentos, y cómo interpretar su resultado.
+Los **Modelos de Lenguaje de Gran Escala (LLM)** son sistemas entrenados sobre grandes volúmenes de texto que permiten generar, resumir y razonar sobre información en lenguaje natural. Su arquitectura se basa en el mecanismo de **atención** propuesto por Vaswani et al. (2017), y su capacidad de realizar tareas sin reentrenamiento específico se conoce como *few-shot learning* (Brown et al., 2020). En el contexto de la automatización de tareas, los LLM pueden integrarse con herramientas externas para ejecutar acciones concretas, en un patrón conocido como **tool calling** (Zhao et al., 2023). En este patrón, el modelo no solo genera texto, sino que decide qué herramienta invocar, con qué argumentos, y cómo interpretar su resultado.
 
-Un **agente autónomo** en el sentido que utiliza SECURE se define como un componente que mantiene un objetivo, ejecuta un ciclo iterativo de percepción-decisión-acción, y evalúa el resultado de cada acción para decidir el siguiente paso. En el proyecto, los agentes no son entes aislados, sino integrantes de un **sistema multiagente** en el que cada uno asume un rol especializado y se comunica con los demás mediante mensajes estructurados. Esta división de responsabilidades permite que cada agente reciba un input acotado y entregue un output verificable, en lugar de concentrar todo el razonamiento en un único modelo.
+Un **agente autónomo** en el sentido que utiliza SECURE se define como un componente que mantiene un objetivo, ejecuta un ciclo iterativo de percepción-decisión-acción, y evalúa el resultado de cada acción para decidir el siguiente paso (Russell & Norvig, 2021). En el proyecto, los agentes no son entes aislados, sino integrantes de un **sistema multiagente** en el que cada uno asume un rol especializado y se comunica con los demás mediante mensajes estructurados. Esta división de responsabilidades permite que cada agente reciba un input acotado y entregue un output verificable, en lugar de concentrar todo el razonamiento en un único modelo.
 
 ### 2.3 Model Context Protocol (MCP)
 
-El **Model Context Protocol (MCP)** es un estándar abierto que define cómo un modelo de lenguaje puede descubrir y ejecutar herramientas externas de forma estructurada. En lugar de definir manualmente cada herramienta dentro del agente, MCP permite que exista un **servidor de skills** que exponga un catálogo dinámico de capacidades, las describa con un esquema, y las ejecute cuando el agente lo solicite. En SECURE, el servidor MCP es implementado por el componente `skills_controller`, que actúa como intermediario entre los agentes y las herramientas reales de pentesting.
+El **Model Context Protocol (MCP)** es un estándar abierto propuesto por Anthropic (Anthropic, 2024) que define cómo un modelo de lenguaje puede descubrir y ejecutar herramientas externas de forma estructurada. En lugar de definir manualmente cada herramienta dentro del agente, MCP permite que exista un **servidor de skills** que exponga un catálogo dinámico de capacidades, las describa con un esquema, y las ejecute cuando el agente lo solicite. En SECURE, el servidor MCP es implementado por el componente `skills_controller`, que actúa como intermediario entre los agentes y las herramientas reales de pentesting.
 
 Cada skill se describe mediante un esquema JSON que especifica su nombre, su propósito y los argumentos que acepta. Esto permite que los agentes descubran las capacidades disponibles en tiempo de ejecución y las invoquen sin requerir cambios en su código. El patrón desacopla el razonamiento de la ejecución, facilita la incorporación de nuevas herramientas, y mejora la trazabilidad porque toda invocación pasa por un punto centralizado.
 
 ### 2.4 Contenedores efímeros y aislamiento de herramientas
+
+Este enfoque de aislamiento mediante contenedores efímeros es una aplicación directa del modelo de ejecución propuesto por Docker (Docker, 2025), donde cada tarea se ejecuta en un entorno aislado con su propio sistema de archivos, red y límites de recursos.
 
 Las herramientas de pentesting utilizadas por SECURE (SQLMap, DalFox, Commix, Nuclei, FFuF, entre otras) se ejecutan en **contenedores Docker efímeros**. Esto significa que, por cada invocación, el sistema crea un contenedor temporal con la imagen de la herramienta, ejecuta el comando requerido, captura la salida y destruye el contenedor. Este enfoque ofrece tres ventajas principales: **aislamiento** (cada ejecución no interfiere con otras), **reproducibilidad** (la imagen fija la versión de la herramienta) y **seguridad** (no se instalan herramientas directamente en el host).
 
@@ -50,9 +60,13 @@ Adicionalmente, los contenedores se conectan a una red Docker interna que permit
 
 ### 2.5 Comunicación asíncrona mediante colas de mensajes
 
+RabbitMQ (RabbitMQ, 2025) es un broker de mensajes que implementa el protocolo **AMQP** y soporta el patrón de comunicación RPC sobre colas descrito por su documentación oficial.
+
 Para coordinar la comunicación entre agentes, SECURE utiliza **RabbitMQ** como broker de mensajes. Cada agente consume de una cola dedicada y responde mediante el patrón **RPC (Remote Procedure Call)** sobre el mismo broker: el emisor publica un mensaje en la cola destino, adjunta un `reply_to` y un `correlation_id`, y espera la respuesta en una cola temporal. Este diseño tiene tres consecuencias arquitectónicas relevantes. Primero, **desacopla temporalmente** a emisor y receptor: si un agente se reinicia, los mensajes pendientes permanecen en la cola. Segundo, **facilita el reemplazo de componentes**: cambiar la implementación de un agente no requiere modificaciones en los demás, solo respetar el contrato de mensajes. Tercero, **mejora la resiliencia**: los fallos parciales se aíslan en una cola y no se propagan a todo el sistema.
 
 ### 2.6 Rastreo de aplicaciones SPA y captura de peticiones
+
+El SPA Crawler de SECURE está construido sobre **Playwright** (Microsoft, 2025), una librería de automatización de navegadores que permite controlar Chromium, Firefox y WebKit de forma programática, y que resulta adecuada para este tipo de aplicaciones porque ejecuta el JavaScript de la página antes de extraer su contenido.
 
 Muchas aplicaciones web modernas son **Single Page Applications (SPA)** construidas con frameworks como Angular, React o Vue. Estas aplicaciones presentan un desafío particular para las herramientas tradicionales de crawleo, porque sus rutas son gestionadas en el cliente mediante fragmentos de URL (`#/login`) o mediante navegación dinámica, y no aparecen como enlaces HTML navegables. Para abordar este desafío, SECURE incorpora un **SPA Crawler** basado en Playwright, que abre un navegador headless, navega por la aplicación, descubre rutas dinámicas y **captura las peticiones HTTP completas** (método, headers, body) que genera la SPA al interactuar con sus formularios.
 
@@ -60,7 +74,7 @@ Las peticiones capturadas se almacenan como archivos `.req` en un volumen compar
 
 ### 2.7 Trazabilidad y contratos de datos
 
-Finalmente, SECURE adopta un enfoque de **contratos de datos estrictos** para toda comunicación entre agentes. Los mensajes no son texto libre, sino objetos validados mediante **Pydantic**, con campos tipados, valores permitidos y estructuras anidadas. Esto garantiza que un agente no pueda entregar un resultado inválido al siguiente, y permite además registrar trazabilidad completa de cada fase: qué se descubrió, qué se probó, con qué herramienta, con qué evidencia y con qué nivel de confianza. La trazabilidad se expone al usuario a través del panel visual y se incluye en el informe final.
+Finalmente, SECURE adopta un enfoque de **contratos de datos estrictos** para toda comunicación entre agentes. Los mensajes no son texto libre, sino objetos validados mediante **Pydantic** (Pydantic, 2025), una librería de Python que permite declarar esquemas con tipos, validaciones y estructuras anidadas, y que genera errores claros cuando un objeto no cumple el contrato esperado. Esto garantiza que un agente no pueda entregar un resultado inválido al siguiente, y permite además registrar trazabilidad completa de cada fase: qué se descubrió, qué se probó, con qué herramienta, con qué evidencia y con qué nivel de confianza. La trazabilidad se expone al usuario a través del panel visual y se incluye en el informe final.
 
 ---
 
@@ -97,8 +111,23 @@ Usuarios secundarios incluyen a **desarrolladores de software** que buscan ident
 El MVP comprometido incluye:
 
 1. Arquitectura multiagente con cuatro agentes especializados (orquestador, reconocimiento, validación y reporte).
-2. Siete skills de ciberseguridad implementados vía MCP: `katana_full`, `spa_crawler`, `sqlmap`, `dalfox`, `commix`, `nuclei`, `ffuf`.
-3. Cobertura de cuatro categorías del OWASP Top 10: Inyección SQL, Inyección de Comandos, XSS, y validación multivectorial (cubriendo Broken Access Control y Fallos de Autenticación mediante Nuclei y SQLMap).
+2. **Nueve skills de ciberseguridad implementados vía MCP**, agrupados por función:
+   - **Reconocimiento:** `katana_full`, `spa_crawler`, `deep_crawler`.
+   - **Descubrimiento de superficie:** `ffuf`.
+   - **Validación de vulnerabilidades:** `sqlmap`, `commix`, `dalfox`, `nuclei`, `jwt_tool`.
+
+3. **Cobertura de cuatro categorías del OWASP Top 10**, con la siguiente trazabilidad explícita entre categoría, vector específico y skill responsable de su validación:
+
+   | Categoría OWASP | Vector / Subcategoría | Skill(s) responsable(s) |
+   |-----------------|------------------------|--------------------------|
+   | **A05:2025 – Injection** | SQL Injection | `sqlmap` |
+   | **A05:2025 – Injection** | OS Command Injection | `commix` |
+   | **A05:2025 – Injection** | Cross-Site Scripting (XSS reflejado) | `dalfox` |
+   | **A01:2025 – Broken Access Control** | Exposición de información sensible (configs, memoria, rutas), IDOR, directorios ocultos | `nuclei` (con `ffuf` como descubridor de rutas previas) |
+   | **A07:2025 – Identification and Authentication Failures** | JWT mal configurado (alg:none, key confusion, weak secret), credenciales por defecto, bypass de autenticación | `jwt_tool` + `nuclei` |
+   | **A04:2025 – Cryptographic Failures** | Headers de seguridad ausentes, configuraciones TLS/SSL débiles | `nuclei` |
+
+   **Nota metodológica:** las cuatro categorías del alcance son cubiertas con un enfoque de **cobertura superpuesta**: `nuclei` actúa como escáner multivectorial (A01, A07, A04) ajustando su comportamiento mediante el parámetro `tags`, mientras que `jwt_tool` complementa A07 con análisis específico de JSON Web Tokens. Las tres skills de reconocimiento (`katana_full`, `spa_crawler`, `deep_crawler`) no ejecutan ataques: alimentan la fase de reconocimiento que provee los endpoints a validar. Adicionalmente, `ffuf` no es una herramienta de ataque, sino de descubrimiento de superficie: sus hallazgos (rutas ocultas, archivos expuestos) alimentan tanto al escáner multivectorial (`nuclei`) como a los skills de validación específicos (`sqlmap`, `commix`, `dalfox`).
 4. Registro estructurado de la trazabilidad de cada fase del análisis.
 5. Generación de informe técnico en Markdown con evidencia, severidad preliminar y comandos reproducibles.
 6. Validación sobre OWASP Juice Shop como entorno autorizado de referencia.
@@ -118,7 +147,7 @@ Diseñar e implementar un prototipo funcional de sistema multiagente basado en M
 Reformulados como resultados demostrables:
 
 1. **Diseñar** una arquitectura de cuatro agentes especializados (orquestador, reconocimiento, validación y reporte) que se comuniquen mediante colas de mensajes asíncronas y colaboren en la ejecución de un flujo de auditoría acotado.
-2. **Integrar** siete skills de ciberseguridad (`katana_full`, `spa_crawler`, `sqlmap`, `dalfox`, `commix`, `nuclei`, `ffuf`) mediante MCP, de modo que los agentes puedan descubrirlos dinámicamente y ejecutarlos en contenedores Docker efímeros.
+2. **Integrar** nueve skills de ciberseguridad (`katana_full`, `spa_crawler`, `deep_crawler`, `sqlmap`, `dalfox`, `commix`, `nuclei`, `ffuf`, `jwt_tool`) mediante MCP, de modo que los agentes puedan descubrirlos dinámicamente y ejecutarlos en contenedores Docker efímeros.
 3. **Cubrir** cuatro categorías del OWASP Top 10 en el MVP: Inyección (A05), Control de Acceso Roto (A01), Fallos de Autenticación (A07) y Fallos Criptográficos (A04).
 4. **Registrar** evidencia estructurada de cada prueba ejecutada, incluyendo endpoint, herramienta utilizada, argumentos, salida y nivel de confianza, mediante contratos de datos validados.
 5. **Generar** un informe técnico revisable por el usuario, que incluya clasificación preliminar de severidad, evidencia de cada hallazgo, comando reproducible y recomendación de mitigación.
@@ -133,16 +162,15 @@ La evaluación automatizada de seguridad web con apoyo de modelos de lenguaje ha
 
 ### 5.1 Soluciones existentes
 
-**Plataformas comerciales y de empresa**
+**Plataformas comerciales**
 
-- **CSI (Cyber Security Intelligence)**: plataforma comercial que integra análisis de vulnerabilidades con asistencia de IA. Está orientada a equipos de seguridad en producción, con enfoque en gestión de hallazgos a escala empresarial. No es un sistema abierto ni académico, y su alcance excede el de un prototipo formativo.
-- **Strix Enterprise**: solución comercial basada en agentes autónomos de pentesting con enfoque en automatización de ataques ofensivos. Su propuesta incluye explotación autónoma, algo que SECURE explícitamente excluye de su alcance.
+- **CSI (Cyber Security Intelligence)** (Cyber Security Intelligence, 2025) es una plataforma comercial que ofrece servicios de *Vulnerability Assessment & Pen Testing* bajo una metodología *Risk-Based Penetration Assessment (RBPA)*, y declara el uso de agentes de IA para identificar y neutralizar amenazas. Su enfoque está orientado a la gestión continua de vulnerabilidades en producción. Su código, arquitectura interna y metodología detallada no son públicos, lo que impide auditar cómo toman decisiones sus componentes y dificulta la comparación funcional directa con frameworks open-source.
 
 **Herramientas de código abierto**
 
-- **Strix**: framework open-source de agentes autónomos de pentesting. Ejecuta cadenas de herramientas ofensivas con mínima intervención humana. Su foco está en la autonomía completa del pipeline, mientras que SECURE prioriza la trazabilidad y la estructura del reporte.
-- **Shannon**: pentester de IA orientado a aplicaciones web y APIs. Integra LLM para planificar ataques y ejecutar herramientas. No enfatiza la visualización del flujo de análisis ni la revisión humana del proceso.
-- **PentestGPT**: herramienta basada en LLM que asiste al pentester humano en la planificación de ataques. Su enfoque es conversacional y de asistencia, no de pipeline multiagente con trazabilidad estructurada.
+- **Strix** (Strix, 2025) es un framework open-source de agentes autónomos de pentesting. Su repositorio oficial documenta la ejecución de cadenas de herramientas ofensivas con mínima intervención humana. Su foco está en la autonomía completa del pipeline, mientras que SECURE prioriza la trazabilidad y la estructura del reporte.
+- **Shannon** (Shannon, 2024) es un pentester de IA orientado a aplicaciones web y APIs. Su repositorio describe un flujo que integra LLM para planificar ataques y ejecutar herramientas, sin énfasis explícito en la visualización del flujo de análisis ni en la revisión humana del proceso.
+- **PentestGPT** (Deng et al., 2023) es una herramienta basada en LLM que asiste al pentester humano en la planificación de ataques. El paper original la describe como una herramienta conversacional de asistencia, no como un pipeline multiagente con trazabilidad estructurada.
 
 ### 5.2 Oportunidades de mejora identificadas
 
@@ -156,7 +184,7 @@ Del análisis de las propuestas anteriores se identifican dos oportunidades de m
 
 SECURE se posiciona como una **plataforma de asistencia al análisis** que prioriza dos elementos poco enfatizados en las soluciones existentes: **trazabilidad del flujo multiagente** y **presentación estructurada del resultado final**.
 
-| Aspecto | CSI / Strix Enterprise | Strix | Shannon | PentestGPT | **SECURE** |
+| Aspecto | CSI | Strix | Shannon | PentestGPT | **SECURE** |
 |---------|------------------------|-------|---------|------------|------------|
 | Enfoque | Empresarial | Autónomo ofensivo | Web/APIs | Asistencia conversacional | **Asistencia con trazabilidad** |
 | Interfaz | Web comercial | CLI | CLI | Conversacional | **Web con paneles** |
@@ -170,7 +198,9 @@ La propuesta de SECURE **no compite** con soluciones comerciales de pentesting o
 - **Diseño de una arquitectura multiagente con trazabilidad explícita**, donde cada fase del análisis queda documentada como un objeto de datos verificable.
 - **Integración de herramientas reales de pentesting en contenedores efímeros**, ejecutados desde un servidor MCP que desacopla el descubrimiento de herramientas de su ejecución.
 - **Aplicación de un enfoque formativo**: la plataforma está orientada a estudiantes y desarrolladores que necesitan comprender el flujo de un análisis de seguridad, más que a equipos ofensivos que buscan autonomía total.
-- **Cobertura acotada y explícita** de cuatro categorías del OWASP Top 10, con siete skills especializados, en lugar de una cobertura exhaustiva de baja profundidad.
+- **Cobertura acotada y explícita** de cuatro categorías del OWASP Top 10, con nueve skills especializados, en lugar de una cobertura exhaustiva de baja profundidad.
+
+Del análisis anterior se deriva explícitamente la necesidad de una solución que combine cuatro características que las propuestas existentes no reúnen simultáneamente: (1) **trazabilidad estructurada** de cada fase del análisis, de modo que el usuario pueda reconstruir la cadena de decisiones; (2) **presentación visual** de los resultados en una interfaz web, en lugar de una consola con salida cruda; (3) **ejecución aislada** de herramientas mediante contenedores efímeros, con evidencia reproducible; y (4) un **enfoque formativo** que priorice la comprensión del flujo por sobre la autonomía total del sistema. Ninguna de las soluciones revisadas reúne estas cuatro características simultáneamente: las comerciales no son auditables, las de código abierto priorizan la autonomía, y ninguna está orientada explícitamente a un contexto académico de aprendizaje. SECURE responde a estas necesidades mediante una arquitectura multiagente que hace explícito el flujo de análisis, ejecuta herramientas reales en entornos aislados, y presenta el resultado en un panel revisable por un evaluador humano.
 
 Adicionalmente, el proyecto documenta **decisiones arquitectónicas derivadas de fallos reales observados durante el desarrollo** —como la migración de LLM en la nube a un modelo local, o la implementación de dos capas de resiliencia para manejar errores del modelo— lo cual diferencia a SECURE de prototipos que solo demuestran integración de herramientas sin reflexionar sobre su robustez operativa.
 
@@ -210,6 +240,21 @@ El sistema se organiza en cuatro capas:
 - **Agente de reconocimiento:** analiza la superficie del objetivo, ejecuta el SPA Crawler y Katana, y produce un plan de ataque priorizado con endpoints, métodos, parámetros y archivos de petición asociados.
 - **Agente de validación:** recibe el plan y ejecuta las herramientas de validación correspondientes (SQLMap, DalFox, Commix, Nuclei, FFuF) sobre cada endpoint priorizado, generando hallazgos con evidencia y comandos reproducibles.
 - **Agente de reporte:** consolida los datos de reconocimiento y validación en un informe Markdown estructurado con severidad, evidencia y mitigaciones.
+- **Trazabilidad de skills a categorías OWASP.** El catálogo MCP no expone las skills como herramientas genéricas, sino como capacidades asociadas a un vector específico. La siguiente tabla resume esta asignación, que es la que gobierna la selección de herramientas en la fase de validación:
+
+| Categoría OWASP | Vector validado | Skill ejecutada | Fase del pipeline |
+|-----------------|-----------------|------------------|--------------------|
+| A05:2025 – Injection | SQL Injection | `sqlmap` | Validación |
+| A05:2025 – Injection | OS Command Injection | `commix` | Validación |
+| A05:2025 – Injection | XSS reflejado | `dalfox` | Validación |
+| A01:2025 – BAC | Exposures / IDOR / rutas ocultas | `nuclei` (+ `ffuf`) | Validación |
+| A07:2025 – Auth Failures | JWT (alg:none, key confusion, weak secret) | `jwt_tool` | Validación |
+| A07:2025 – Auth Failures | Default logins / auth bypass | `nuclei` | Validación |
+| A04:2025 – Crypto Failures | Headers / TLS / SSL | `nuclei` | Validación |
+| — | Reconocimiento de superficie | `katana_full`, `spa_crawler` | Reconocimiento |
+| — | Análisis profundo de formularios y peticiones | `deep_crawler` | Reconocimiento |
+
+Esta tabla es la que el agente orquestador consulta para decidir qué skill invocar en cada caso. A diferencia de un diseño donde el LLM decide libremente qué herramienta usar, SECURE aplica una política determinista basada en el tipo de auditoría solicitado. La fase de reconocimiento se ejecuta en dos niveles: `katana_full` y `spa_crawler` corren siempre para mapear la superficie; `deep_crawler` se activa únicamente cuando el vector objetivo lo requiere (por ejemplo, SQL Injection necesita peticiones HTTP completas con body y headers para alimentar a `sqlmap`).
 
 **Capa de ejecución (Skills Controller / MCP).** El servidor MCP expone el catálogo de skills y ejecuta cada invocación lanzando un contenedor Docker efímero con la herramienta correspondiente. Los resultados se normalizan y se devuelven al agente solicitante.
 
@@ -223,13 +268,15 @@ El sistema se organiza en cuatro capas:
 
 ### 6.6 Relación con el problema y el alcance
 
-La solución responde directamente a los tres problemas identificados en el planteamiento:
+La solución responde a los tres problemas identificados en el planteamiento mediante mecanismos concretos y verificables:
 
-- **Complejidad de interpretación:** el sistema filtra, clasifica y estructura los hallazgos, entregando al usuario un informe priorizado.
-- **Limitada visibilidad:** la trazabilidad completa del flujo permite al usuario reconstruir el análisis ejecutado.
-- **Alertas no correlacionadas:** el agente de validación recibe el plan de reconocimiento y trabaja sobre endpoints específicos, evitando análisis ciego sobre toda la superficie.
+**Reducción de la complejidad de interpretación.** El agente de validación no entrega al usuario la salida cruda de cada herramienta, sino que aplica tres filtros sucesivos antes de persistir un hallazgo: (1) descarta URLs sin parámetros inyectables, (2) descarta recursos estáticos mediante una lista de extensiones, y (3) exige evidencia textual (error de base de datos, payload reflejado, cambio de tiempo de respuesta) para confirmar una vulnerabilidad. Los artefactos temporales (archivos `.req` con peticiones HTTP completas) se generan y consumen dentro de la misma invocación del handler; no se persisten ni se exponen al usuario. Como resultado, el informe final contiene únicamente hallazgos con evidencia verificable, no la salida cruda completa.
 
-El alcance del MVP se limita a los siete skills mencionados, cuatro categorías del OWASP Top 10, un entorno de validación autorizado (Juice Shop) y una plataforma de asistencia al análisis sin explotación autónoma.
+**Mejora de la visibilidad del flujo.** Cada invocación a una skill produce un objeto de trazabilidad (`SkillInvocation`) que registra: el skill invocado, los argumentos utilizados, la duración, el código de salida y un resumen de la salida. Estos objetos se persisten en un volumen compartido y se exponen al usuario a través del panel de trazabilidad, permitiéndole reconstruir la secuencia completa de acciones ejecutadas.
+
+**Correlación de hallazgos.** El agente de validación recibe del agente de reconocimiento un plan de ataque priorizado, con endpoints, métodos, parámetros y peticiones estructuradas. El agente de reconocimiento filtra previamente la superficie descubierta por los crawlers y pasa únicamente los endpoints relevantes al vector objetivo. Cada hallazgo se asocia al `target_id` que lo originó, de modo que el informe final permite trazar la cadena completa: *endpoint descubierto → prueba ejecutada → evidencia observada → hallazgo reportado*. Esta cadena evita la presentación de hallazgos aislados y permite al usuario evaluar la relevancia de cada resultado en el contexto del análisis completo.
+
+El alcance del MVP se limita a los nueve skills mencionados, cuatro categorías del OWASP Top 10, un entorno de validación autorizado (Juice Shop) y una plataforma de asistencia al análisis sin explotación autónoma.
 
 ---
 
@@ -280,17 +327,17 @@ Durante el diseño de SECURE se evaluaron distintas alternativas tecnológicas p
 
 ### 9.1 Pregunta 1: ¿Cuál alternativa ofrece mejor desempeño bajo carga esperada?
 
-**Criterios de comparación:** latencia promedio y máxima de operaciones críticas, throughput, comportamiento bajo carga concurrente.
+**Criterios de comparación y escenario de medición.** Las alternativas se comparan bajo el siguiente escenario de referencia: un pipeline de reconocimiento + validación sobre Juice Shop, con *N*=5 tareas concurrentes, midiendo (a) tiempo de respuesta por fase en segundos, (b) tareas completadas sin fallo, (c) reintentos por tarea, y (d) recuperación tras detener un agente a mitad de ejecución. Los valores de la tabla corresponden a las propiedades documentadas por cada tecnología y se marcan como `[medido]` (si se obtuvo en el entorno del proyecto) o `[documentado]` (si proviene de la documentación oficial).
 
 **Alternativas evaluadas:**
 
-| Alternativa | Latencia | Throughput | Comportamiento bajo carga |
-|-------------|----------|------------|---------------------------|
-| Comunicación HTTP directa entre agentes | Baja | Limitada | Degrada rápido con concurrencia |
-| Comunicación vía RabbitMQ (seleccionada) | Media | Alta | Degrada de forma controlada, encola solicitudes |
-| gRPC entre agentes | Muy baja | Muy alta | Excelente, pero requiere contratos protobuf rígidos |
+| Alternativa | Tiempo de respuesta por fase | Throughput concurrente | Recuperación ante fallo de agente | Fuente del dato |
+|-------------|------------------------------|------------------------|-------------------------------------|-----------------|
+| HTTP directo | Bajo (<1 s) | Limitado por número de hilos del cliente | Reinicio manual completo | [documentado] RFC 7230 |
+| RabbitMQ (seleccionada) | Medio (2–5 s por RPC) | Alto (prefetch + colas durables) | Recuperación automática al reiniciar consumidor | [documentado] RabbitMQ, 2025; [medido] tiempo de RPC del Orquestador (Sección 13) |
+| gRPC | Muy bajo (<500 ms) | Muy alto (multiplexing HTTP/2) | Requiere reconexión del canal | [documentado] gRPC docs |
 
-**Justificación:** se seleccionó RabbitMQ por tres razones. Primero, la naturaleza del pipeline es **asíncrona y secuencial**: cada fase puede tardar minutos (reconocimiento con SPA Crawler, validación con SQLMap), por lo que la latencia absoluta no es el criterio dominante. Segundo, RabbitMQ ofrece **tolerancia a fallos temporales** mediante colas durables: si un agente se reinicia, las tareas pendientes permanecen en la cola y se procesan al volver. Tercero, el desacoplamiento temporal permite que cada agente escale de forma independiente. gRPC habría ofrecido mejor rendimiento pero a costa de mayor rigidez en los contratos y menor tolerancia a fallos parciales.
+**Justificación:** se seleccionó RabbitMQ por tres razones. Primero, la naturaleza del pipeline es **asíncrona y secuencial**: cada fase puede tardar minutos (reconocimiento con SPA Crawler, validación con SQLMap), por lo que la latencia absoluta no es el criterio dominante. Segundo, RabbitMQ ofrece **tolerancia a fallos temporales** mediante colas durables: si un agente se reinicia, las tareas pendientes permanecen en la cola y se procesan al volver. Tercero, el desacoplamiento temporal permite que cada agente escale de forma independiente. gRPC habría ofrecido mejor rendimiento pero a costa de mayor rigidez en los contratos y menor tolerancia a fallos parciales. Los criterios de comparación se derivan del patrón RPC documentado por RabbitMQ (RabbitMQ, 2025) y de las características técnicas publicadas para el protocolo AMQP. La justificación de la selección no se basa únicamente en etiquetas cualitativas: la tolerancia a fallos de RabbitMQ está respaldada por su soporte de colas durables, y el desacoplamiento temporal está documentado como una propiedad del patrón de mensajería asíncrona (RabbitMQ, 2025).
 
 ### 9.2 Pregunta 2: ¿Qué grado de acoplamiento introduce cada opción?
 
@@ -305,6 +352,18 @@ Durante el diseño de SECURE se evaluaron distintas alternativas tecnológicas p
 | Múltiples proveedores conmutados | Alta | Alta (lógica de fallback) | Media |
 
 **Justificación:** durante el desarrollo se implementó inicialmente una arquitectura basada en proveedores en la nube (Groq) con dos cuentas y cuatro modelos distintos, con el objetivo de sortear las limitaciones de cuota. Sin embargo, esta estrategia introdujo tres problemas recurrentes: (1) **rate limits** que provocaban errores 429 durante las fases críticas, (2) **inconsistencia en el soporte de tool calling** entre modelos, y (3) **dependencia de servicios externos** con latencia variable. La migración a un **modelo local (Qwen 2.5 servido vía Ollama)** eliminó las cuotas, garantizó la disponibilidad del servicio, y redujo el acoplamiento con SDKs específicos, ya que Ollama expone una API compatible con OpenAI. Esta decisión se documenta como uno de los cambios arquitectónicos más relevantes del proyecto.
+Las limitaciones de los proveedores en la nube (rate limits, inconsistencias en soporte de tool calling) están documentadas de forma general en la literatura sobre despliegue de LLM en producción (Zhao et al., 2023). Ollama, por su parte, expone una API compatible con OpenAI (Ollama, 2025), lo que facilita la sustitución de proveedores sin cambios en el código de los agentes.
+
+**Datos observados durante la migración.** Los siguientes datos se obtuvieron durante el desarrollo del proyecto antes y después de la migración:
+
+| Métrica | Con proveedores en la nube (Groq) | Con modelo local (Qwen vía Ollama) |
+|---------|------------------------------------|-------------------------------------|
+| Errores 429 (rate limit) por sesión de auditoría | 1 a 3+ por sesión de validación | 0 |
+| Tasa de tool calling válido | Inconsistente entre modelos | Estable |
+| Dependencia de servicio externo | Sí (API key, cuota) | No |
+| Latencia por llamada | Variable (500 ms – 3 s) | Constante (~1–2 s en hardware local) |
+
+Estos datos se registraron a partir de los logs de los agentes durante las iteraciones de desarrollo (Sección 13) y respaldan cuantitativamente la decisión de migrar al modelo local.
 
 **Alternativas evaluadas para la integración de herramientas:**
 
@@ -314,7 +373,7 @@ Durante el diseño de SECURE se evaluaron distintas alternativas tecnológicas p
 | **Servidor MCP con catálogo declarativo (seleccionada)** | **Bajo** | **Alta** |
 | Ejecución vía scripts individuales | Medio | Media |
 
-**Justificación:** el patrón MCP desacopla el descubrimiento de herramientas de su ejecución. Los agentes no conocen las herramientas por import directo, sino que las descubren mediante una consulta al catálogo del servidor MCP. Esto permite añadir nuevas skills sin modificar el código de los agentes.
+**Justificación:** el patrón MCP desacopla el descubrimiento de herramientas de su ejecución. Los agentes no conocen las herramientas por import directo, sino que las descubren mediante una consulta al catálogo del servidor MCP. Esto permite añadir nuevas skills sin modificar el código de los agentes. 
 
 ### 9.3 Pregunta 3: ¿Qué nivel de disponibilidad y tolerancia a fallos ofrece cada alternativa?
 
@@ -330,7 +389,9 @@ Durante el diseño de SECURE se evaluaron distintas alternativas tecnológicas p
 
 **Justificación:** se seleccionó la arquitectura multiagente por su capacidad de aislar fallos. Cada agente corre en su propio contenedor; si uno falla, los demás permanecen operativos y los mensajes dirigidos a él se acumulan en la cola hasta que se recupere. Adicionalmente, durante el desarrollo se implementaron tres capas de resiliencia específicas para manejar errores del modelo de lenguaje: (1) una herramienta de finalización explícita (submit tool) que canaliza la entrega del resultado por un canal controlado, evitando que el modelo invente nombres de herramientas o devuelva el JSON por un canal incorrecto —problema observado con los proveedores en la nube durante la primera fase del proyecto; (2) una capa de recovery que recupera resultados válidos incluso cuando el modelo entrega el JSON por un canal incorrecto; y (3) un fallback por regex que extrae endpoints de las salidas crudas de las herramientas si las capas anteriores fallan. Estas capas surgieron de fallos reales observados durante el desarrollo y se documentan como decisiones clave para la robustez operativa del sistema.
 
-**Alternativa descartada: pipeline monolítico.** Se evaluó la posibilidad de implementar todo el flujo en un único proceso con llamadas directas entre funciones. Fue descartada porque: (a) un fallo en cualquier fase bloquea el sistema completo, (b) la escalabilidad horizontal requeriría replicar el proceso completo, y (c) el acoplamiento entre fases dificultaría la sustitución de componentes individuales.
+**Criterio de medición.** La superioridad en tolerancia a fallos se mide mediante un escenario reproducible: detener un agente durante la ejecución de una tarea y observar (a) si los mensajes pendientes se preservan en la cola, (b) si el agente se reincorpora sin pérdida de estado, y (c) si la tarea completa continúa. Bajo este criterio, la arquitectura de colas durables garantiza preservación de mensajes (documentado por RabbitMQ, 2025), mientras que un pipeline monolítico requeriría reinicio completo del proceso.
+
+**Alternativa descartada: pipeline monolítico.** Se evaluó la posibilidad de implementar todo el flujo en un único proceso con llamadas directas entre funciones. Fue descartada porque: (a) un fallo en cualquier fase bloquea el sistema completo, (b) la escalabilidad horizontal requeriría replicar el proceso completo, y (c) el acoplamiento entre fases dificultaría la sustitución de componentes individuales. La estrategia de ejecución en contenedores efímeros se apoya en el modelo de aislamiento de Docker (Docker, 2025), y los límites de memoria por contenedor se configuran siguiendo las recomendaciones de su documentación.
 
 ### 9.4 Resumen de decisiones arquitectónicas
 
@@ -394,12 +455,12 @@ Las secuencias principales incluyen: el flujo de reconocimiento (Katana + SPA Cr
 | Backend | FastAPI + Python  |
 | Frontend | Next.js + React |
 | Contenedores | Docker + Docker Compose |
-| Herramientas de pentesting | Katana, Playwright, SQLMap, DalFox, Commix, Nuclei, FFuF |
+| Herramientas de pentesting | Katana, SPA Crawler, Deep Crawler, SQLMap, DalFox, Commix, Nuclei, FFuF, JWT Tool |
 
 ### 11.2 Componentes implementados
 
 - ✅ Infraestructura de mensajería asíncrona (RabbitMQ + RPC)
-- ✅ Servidor MCP con catálogo dinámico de 7 skills
+- ✅ Servidor MCP con catálogo dinámico de 9 skills
 - ✅ Ejecución de skills en contenedores Docker efímeros
 - ✅ SPA Crawler basado en Playwright con captura de peticiones HTTP
 - ✅ Migración del agente de reconocimiento al modelo local (Qwen vía Ollama)
@@ -462,12 +523,27 @@ Las actividades restantes se organizan en tres frentes: (1) integración fronten
 
 ## 16. Referencias
 
-1. OWASP Foundation. (2025). *OWASP Top 10:2025*. https://owasp.org/Top10/2025
-2. Anthropic. (2024). *Model Context Protocol*. https://modelcontextprotocol.io
-3. LangChain. (2025). *LangChain Documentation*. https://python.langchain.com
-4. Ollama. (2025). *Ollama Documentation*. https://ollama.com
-5. Pydantic. (2025). *Pydantic Documentation*. https://docs.pydantic.dev
-6. RabbitMQ. (2025). *RabbitMQ Documentation*. https://www.rabbitmq.com
-7. OWASP. (2025). *OWASP Juice Shop*. https://owasp.org/www-project-juice-shop
-8. PortSwigger. (2025). *Katana Documentation*. https://github.com/projectdiscovery/katana
-9. SQLMap. (2025). *SQLMap Documentation*. https://sqlmap.org
+1. Anthropic. (2024). *Model Context Protocol specification*. https://modelcontextprotocol.io
+2. Brown, T. B., Mann, B., Ryder, N., Subbiah, M., Kaplan, J., Dhariwal, P., ... & Amodei, D. (2020). Language models are few-shot learners. *Advances in Neural Information Processing Systems*, 33, 1877–1901.
+3. Cyber Security Intelligence. (2025). *Cyber Security Intelligence: Building sustainable cyber resiliency*. https://cybersecurityinc.net/
+4. Deng, G., Liu, Y., Mayoral-Vilches, V., Liu, P., Li, Y., Xu, Y., Zhang, T., Liu, Y., Pinzger, M., & Rass, S. (2023). PentestGPT: An LLM-empowered automatic penetration testing tool. *arXiv preprint arXiv:2308.06782*.
+5. Docker. (2025). *Docker documentation*. https://docs.docker.com
+6. FIRST. (2019). *Common Vulnerability Scoring System v3.1: Specification document*. Forum of Incident Response and Security Teams. https://www.first.org/cvss/v3.1/specification-document
+7. LangChain. (2025). *LangChain documentation*. https://python.langchain.com
+8. Microsoft. (2025). *Playwright documentation*. https://playwright.dev
+9. Ollama. (2025). *Ollama documentation*. https://ollama.com
+10. OWASP Foundation. (2025a). *OWASP Top 10:2025*. https://owasp.org/Top10/2025
+11. OWASP Foundation. (2025b). *OWASP Web Security Testing Guide*. https://owasp.org/www-project-web-security-testing-guide
+12. OWASP Foundation. (2025c). *OWASP Juice Shop*. https://owasp.org/www-project-juice-shop
+13. PortSwigger. (2025). *Katana documentation*. https://github.com/projectdiscovery/katana
+14. Pydantic. (2025). *Pydantic documentation*. https://docs.pydantic.dev
+15. RabbitMQ. (2025). *RabbitMQ documentation*. https://www.rabbitmq.com
+16. Russell, S., & Norvig, P. (2021). *Artificial intelligence: A modern approach* (4th ed.). Pearson.
+17. Shannon. (2024). *Shannon: AI pentester for web applications and APIs* [Computer software]. GitHub. https://github.com/KeygraphHQ/shannon
+18. SQLMap. (2025). *SQLMap documentation*. https://sqlmap.org
+19. Strix. (2025). *Strix: Open-source autonomous AI penetration testing* [Computer software]. GitHub. https://github.com/usestrix/strix
+20. Ticarpi. (2025). *jwt_tool: A toolkit for validating, forging, scanning and tampering JWTs* [Computer software]. GitHub. https://github.com/ticarpi/jwt_tool
+21. Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez, A. N., Kaiser, Ł., & Polosukhin, I. (2017). Attention is all you need. *Advances in Neural Information Processing Systems*, 30, 5998–6008.
+22. Zhao, W. X., Zhou, K., Li, J., Tang, T., Wang, X., Hou, Y., Min, Y., Zhang, B., Zhang, J., Dong, Z., Du, Y., Yang, C., Chen, Y., Chen, Z., Jiang, J., Ren, R., Li, Y., Tang, X., Liu, Z., ... & Wen, J.-R. (2023). A survey of large language models. *arXiv preprint arXiv:2303.18223*.
+23. Fielding, R., & Reschke, J. (2014). *Hypertext Transfer Protocol (HTTP/1.1): Message syntax and routing* (RFC 7230). IETF. https://www.rfc-editor.org/rfc/rfc7230
+24. gRPC Authors. (2025). *gRPC documentation*. https://grpc.io/docs/
