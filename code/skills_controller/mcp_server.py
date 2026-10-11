@@ -5,6 +5,7 @@ from tools.mcp_tools_registry import MCP_SKILLS_REGISTRY
 
 logger = logging.getLogger(__name__)
 
+
 class SkillsMCPServer:
 
     def list_tools(self) -> dict:
@@ -19,7 +20,10 @@ class SkillsMCPServer:
             logger.error(f"❌ [MCP call_tool] Herramienta '{tool_name}' no encontrada.")
             return {
                 "jsonrpc": "2.0",
-                "error": {"code": -32601, "message": f"Herramienta MCP '{tool_name}' no encontrada."},
+                "error": {
+                    "code": -32601,
+                    "message": f"Herramienta MCP '{tool_name}' no encontrada.",
+                },
             }
 
         tool_config = MCP_SKILLS_REGISTRY[tool_name]
@@ -30,9 +34,23 @@ class SkillsMCPServer:
         prepare_fn = tool_config.get("prepare_args")
         if prepare_fn:
             merged_args, input_files = prepare_fn(merged_args)
+            
+        # 1.b Si el handler marcó skip_execution, abortamos la ejecución limpiamente.
+        if merged_args.get("skip_execution"):
+            reason = merged_args.get("reason", "Condición previa no cumplida por el adaptador.")
+            logger.info(f"⏭️ [MCP call_tool] Omitiendo '{tool_name}': {reason}")
+            return {
+                "jsonrpc": "2.0",
+                "result": {
+                    "content": [{"type": "text", "text": f"SKIPPED: {reason}"}],
+                    "isError": False,
+                },
+            }
 
         # 2. Aplicar valores por defecto declarados en el esquema MCP
-        schema_props = tool_config.get("mcp_schema", {}).get("inputSchema", {}).get("properties", {})
+        schema_props = (
+            tool_config.get("mcp_schema", {}).get("inputSchema", {}).get("properties", {})
+        )
         for prop_name, prop_spec in schema_props.items():
             if prop_name not in merged_args and "default" in prop_spec:
                 merged_args[prop_name] = prop_spec["default"]
@@ -83,5 +101,6 @@ class SkillsMCPServer:
                 "isError": is_error,
             },
         }
+
 
 mcp_server = SkillsMCPServer()
