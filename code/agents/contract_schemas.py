@@ -81,6 +81,12 @@ class ValidateOutput(BaseModel):
     unconfirmed_findings: List[Dict[str, Any]] = Field(
         default_factory=list, description="Pruebas ejecutadas sin evidencia suficiente"
     )
+    scan_started_at: Optional[str] = Field(
+        default=None, description="Fecha y hora UTC de inicio de la validación"
+    )
+    scan_finished_at: Optional[str] = Field(
+        default=None, description="Fecha y hora UTC de finalización de la validación"
+    )
 
 
 class ValidateFindingSubmission(BaseModel):

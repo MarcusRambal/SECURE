@@ -17,6 +17,7 @@ from helpers import (
     build_validate_sqli_context,
     build_validate_output_from_dict,
     build_fallback_validate_output,
+    merge_sqlmap_findings,
     build_real_command,
     prepare_sqlmap_request,
     write_validate_context_snapshot,
@@ -38,10 +39,17 @@ structured_llm = llm.with_structured_output(ValidateOutput, method="json_schema"
 # FLUJO PRINCIPAL DE VALIDACIÓN
 # ============================================================================
 
-async def process_validate_task(channel: aio_pika.Channel,target_url: str,attack_type: str,targets: list[dict],task_id: str | None = None,) -> tuple[ValidateOutput, str]:
+async def process_validate_task(
+    channel: aio_pika.Channel,
+    target_url: str,
+    attack_type: str,
+    targets: list[dict],
+    task_id: str | None = None,
+) -> tuple[ValidateOutput, str, list[dict]]:
    
     started_at = datetime.now(timezone.utc).isoformat()
     trace_id = task_id or "unknown"
+    tool_timings: list[dict] = []
 
     is_sqli = is_sqli_attack(attack_type)
     logger.info(
@@ -82,6 +90,7 @@ async def process_validate_task(channel: aio_pika.Channel,target_url: str,attack
                 scan_finished_at=datetime.now(timezone.utc).isoformat(),
             ),
             "clean",  # Omisión controlada
+            tool_timings,
         )
 
     logger.info(
@@ -90,22 +99,23 @@ async def process_validate_task(channel: aio_pika.Channel,target_url: str,attack
         trace_id,
         len(selected_targets),
     )
-    analysis_skills = analyze_validation_targets(selected_targets)
-    logger.info(
-        "[VALIDATE_SKILLS] task_id=%s phase=complete endpoint_count=%d",
-        trace_id,
-        len(analysis_skills),
-    )
+    analysis_skills = []
+    # analysis_skills = analyze_validation_targets(selected_targets)
+    #logger.info(
+    #    "[VALIDATE_SKILLS] task_id=%s phase=complete endpoint_count=%d",
+    #    trace_id,
+    #    len(analysis_skills),
+    #)
 
-    for endpoint_analysis in analysis_skills:
-        logger.info(
-            "[VALIDATE_SKILLS] task_id=%s phase=endpoint_analysis result=%s",
-            trace_id,
-            json.dumps(endpoint_analysis, ensure_ascii=False, default=str),
-        )
+    #for endpoint_analysis in analysis_skills:
+    #    logger.info(
+    #        "[VALIDATE_SKILLS] task_id=%s phase=endpoint_analysis result=%s",
+    #        trace_id,
+    #        json.dumps(endpoint_analysis, ensure_ascii=False, default=str),
+    #    )
 
     # Construcción del catálogo de herramientas MCP y preparación de la ejecución
-    catalog = await get_mcp_catalog(channel)
+    catalog = await get_mcp_catalog(channel, tool_timings)
     raw_tool_outputs: list[str] = []
     executed_commands: list[dict] = []
     pre_executed_context: list[dict] = []
@@ -140,7 +150,9 @@ async def process_validate_task(channel: aio_pika.Channel,target_url: str,attack
                     }
 
                 async with semaphore:
-                    output = await call_mcp_skill(channel, "sqlmap", tool_args)
+                    output = await call_mcp_skill(
+                        channel, "sqlmap", tool_args, tool_timings
+                    )
                 return target, tool_args, output
             except Exception as err:
                 logger.exception(
@@ -190,7 +202,9 @@ async def process_validate_task(channel: aio_pika.Channel,target_url: str,attack
 
 
     excluded_tools = {"sqlmap"} if is_sqli else set()
-    tools = build_validation_tools(catalog, channel, attack_type, excluded_tools)
+    tools = build_validation_tools(
+        catalog, channel, attack_type, excluded_tools, tool_timings
+    )
     logger.info("Herramientas Validate activas: %s", [tool.name for tool in tools])
 
     
@@ -255,6 +269,14 @@ async def process_validate_task(channel: aio_pika.Channel,target_url: str,attack
         
         parsed_dict = structured_output.model_dump()
 
+    if is_sqli:
+        parsed_dict = merge_sqlmap_findings(parsed_dict, executed_commands)
+        logger.info(
+            "[VALIDATE] task_id=%s vulnerabilidades tras incorporar SQLMap=%d",
+            trace_id,
+            len(parsed_dict.get("vulnerabilities", [])),
+        )
+
     validate_output = build_validate_output_from_dict(parsed_dict,target_url,started_at,executed_commands)
     logger.info(
         "[VALIDATE] task_id=%s phase=complete vulnerabilities=%d unconfirmed=%d output=%s",
@@ -264,4 +286,4 @@ async def process_validate_task(channel: aio_pika.Channel,target_url: str,attack
         validate_output.model_dump_json(),
     )
 
-    return validate_output, "clean"
+    return validate_output, "clean", tool_timings

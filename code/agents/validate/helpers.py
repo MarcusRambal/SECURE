@@ -156,17 +156,114 @@ def extract_evidence_line(raw_outputs: list[str], pattern: str, max_len: int = 3
     return ""
 
 
+def extract_sqlmap_findings(executions: list[dict]) -> list[dict]:
+    """Extrae únicamente los hallazgos positivos explícitos de SQLMap."""
+    findings = []
+    positive_parameter_pattern = re.compile(
+        r"""(?im)\bparameter\s+['"]?([^'"\s]+)['"]?\s+"""
+        r"""(?:appears\s+to\s+be\b[^\r\n]*?\binjectable\b|"""
+        r"""is\s+(?:['"][^'"]+['"]\s+)?injectable\b|is\s+vulnerable\b)"""
+    )
+    parameter_line_pattern = re.compile(
+        r"(?im)^\s*Parameter:\s*(.+?)\s*$"
+    )
+    positive_marker_pattern = re.compile(
+        r"(?i)sqlmap identified the following injection point\(s\)"
+    )
+    relevant_line_pattern = re.compile(
+        r"(?im)sqlmap identified the following injection point\(s\)|"
+        r"^\s*(?:Parameter|Type|Title|Payload):|"
+        r"\bparameter\b.*\b(?:injectable|vulnerable)\b"
+    )
+
+    for execution in executions:
+        if execution.get("tool") != "sqlmap":
+            continue
+        output = execution.get("output")
+        if not isinstance(output, str):
+            continue
+
+        positive_parameter_matches = list(positive_parameter_pattern.finditer(output))
+        has_positive_marker = bool(positive_marker_pattern.search(output))
+        if not has_positive_marker and not positive_parameter_matches:
+            continue
+
+        parameters = []
+        for match in parameter_line_pattern.finditer(output):
+            parameter = re.sub(r"\s+\([^)]*\)\s*$", "", match.group(1)).strip()
+            if parameter and parameter not in parameters:
+                parameters.append(parameter)
+        for match in positive_parameter_matches:
+            parameter = match.group(1).strip()
+            if parameter and parameter not in parameters:
+                parameters.append(parameter)
+        if not parameters:
+            parameters = [None]
+
+        evidence_lines = [
+            line.strip()
+            for line in output.splitlines()
+            if relevant_line_pattern.search(line)
+        ]
+        evidence = "\n".join(evidence_lines)[:1200]
+        if not evidence:
+            evidence = "SQLMap reportó explícitamente un punto de inyección."
+
+        for parameter in parameters:
+            findings.append(
+                {
+                    "type": "SQL Injection",
+                    "severity": "HIGH",
+                    "endpoint": execution.get("endpoint"),
+                    "parameter": parameter,
+                    "evidence": evidence,
+                    "confidence": "HIGH",
+                    "tools_used": ["sqlmap"],
+                    "target_id": execution.get("target_id"),
+                    "request_id": execution.get("request_id"),
+                    "reproducible_command": execution.get("command"),
+                }
+            )
+    return findings
+
+
+def merge_sqlmap_findings(model_output: dict, executions: list[dict]) -> dict:
+    """Conserva detecciones positivas de SQLMap aunque el LLM omita clasificarlas."""
+    vulnerabilities = list(model_output.get("vulnerabilities", []) or [])
+    known_findings = {
+        (
+            str(finding.get("type", "")).casefold(),
+            str(finding.get("endpoint", "")).casefold(),
+            str(finding.get("parameter") or "").casefold(),
+        )
+        for finding in vulnerabilities
+        if isinstance(finding, dict)
+    }
+
+    for finding in extract_sqlmap_findings(executions):
+        key = (
+            finding["type"].casefold(),
+            str(finding.get("endpoint") or "").casefold(),
+            str(finding.get("parameter") or "").casefold(),
+        )
+        if key not in known_findings:
+            vulnerabilities.append(finding)
+            known_findings.add(key)
+
+    return {**model_output, "vulnerabilities": vulnerabilities}
+
+
 def _match_executed_command(finding: dict,candidates: list[dict],) -> dict | None:
     references = {
         value
         for value in (finding.get("request_id"), finding.get("target_id"))
-        if value is not None
+        if value is not None and str(value).strip()
     }
     for candidate in candidates:
         candidate_references = {
             value
             for value in (candidate.get("request_id"), candidate.get("target_id"))
-            if value is not None
+            if value is not None and str(value).strip()
         }
         if references & candidate_references:
             return candidate
@@ -211,9 +308,17 @@ def build_validate_output_from_dict(args: dict,target_url: str,started_at: str,e
         real_cmd = "Comando no verificado"
         if tools_used:
             tool_used = tools_used[0]
-            real_cmd = next(
-                (c["command"] for c in executed_commands if c["tool"] == tool_used),
-                f"Comando no verificado en ejecución real ({tool_used})",
+            tool_commands = [
+                command
+                for command in executed_commands
+                if command.get("tool") == tool_used and command.get("command")
+            ]
+            matched_command = _match_executed_command(v, tool_commands)
+            real_cmd = (
+                matched_command["command"]
+                if matched_command
+                else v.get("reproducible_command")
+                or f"Comando no verificado en ejecución real ({tool_used})"
             )
         else:
             real_cmd = (f"Comando no verificado (sin tools_used) para {v.get('endpoint', target_url)}")
@@ -288,7 +393,6 @@ def build_validate_output_from_dict(args: dict,target_url: str,started_at: str,e
 def build_fallback_validate_output(target_url: str,raw_tool_outputs: list[str],executed_commands: list[dict],started_at: str,) -> ValidateOutput:
     """Construye un resultado parcial usando evidencia de las herramientas."""
     detections = [
-        ("SQL Injection", "sqlmap", r"sqlmap identified|dbms:|syntax error", "HIGH"),
         ("Cross-Site Scripting (XSS)", "dalfox", r"\[POC\]|\[V\]|\[FOUND\]|xss payload", "MEDIUM"),
         (
             "OS Command Injection",
@@ -323,6 +427,21 @@ def build_fallback_validate_output(target_url: str,raw_tool_outputs: list[str],e
                 reproducible_command=command,
                 confidence="HIGH",
                 tools_used=[tool_name],
+            )
+        )
+
+    for finding in extract_sqlmap_findings(executed_commands):
+        vulnerabilities.append(
+            Vulnerability(
+                type=finding["type"],
+                severity=finding["severity"],
+                endpoint=finding.get("endpoint") or target_url,
+                parameter=finding.get("parameter"),
+                evidence=finding["evidence"],
+                reproducible_command=finding.get("reproducible_command")
+                or "Comando no verificado",
+                confidence=finding["confidence"],
+                tools_used=finding["tools_used"],
             )
         )
 

@@ -1,5 +1,6 @@
 import uuid
 import logging
+from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -65,7 +66,8 @@ async def start_scan(request: TaskRequest):
         "category": request.category,
         "attack_type": request.attack_type,
         "agent_models": request.agent_models.model_dump() if request.agent_models else None,
-        "status": "INITIATED"
+        "status": "INITIATED",
+        "queued_at": datetime.now(timezone.utc).isoformat(),
     }
 
     try:

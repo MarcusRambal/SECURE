@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import time
 
 import aio_pika
 
@@ -27,6 +28,8 @@ async def start_reporter_worker():
                         async with message.process():
                             correlation_id = message.correlation_id
                             reply_to = message.reply_to
+                            processing_started = time.perf_counter()
+                            published_at = (message.headers or {}).get("x-published-at")
 
                             try:
                                 payload = json.loads(message.body.decode("utf-8"))
@@ -73,6 +76,16 @@ async def start_reporter_worker():
                                     ),
                                 )
 
+                            response_payload["timing"] = {
+                                "queueWaitMs": round(
+                                    max(0, time.time() - published_at) * 1000, 2
+                                )
+                                if isinstance(published_at, (int, float))
+                                else None,
+                                "processingMs": round(
+                                    (time.perf_counter() - processing_started) * 1000, 2
+                                ),
+                            }
                             if reply_to:
                                 try:
                                     await channel.default_exchange.publish(
