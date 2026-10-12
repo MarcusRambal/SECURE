@@ -4,9 +4,9 @@
 
 El proyecto SECURE propone el diseño e implementación de un sistema multiagente que automatiza la detección y validación de vulnerabilidades web en entornos de laboratorio autorizados. La arquitectura objetivo contempla cuatro agentes especializados (orquestador, reconocimiento, validación y reporte) que colaboran mediante el Model Context Protocol (MCP) y se comunican a través de un broker de mensajes (RabbitMQ), ejecutando herramientas de pentesting reales en contenedores Docker efímeros. El sistema ha sido diseñado para ejecutar nueve skills de ciberseguridad (Katana, SPA Crawler, Deep Crawler, SQLMap, DalFox, Commix, Nuclei, FFuF y JWT Tool) que apuntan a cubrir cuatro categorías del OWASP Top 10: Inyección, Control de Acceso Roto, Fallos de Autenticación y Fallos Criptográficos, con OWASP Juice Shop como entorno autorizado de referencia para las validaciones.
 
-El avance a la fecha incluye la infraestructura de comunicación asíncrona funcionando (RabbitMQ con patrón RPC), el servidor MCP operativo con catálogo dinámico de skills, la ejecución aislada de herramientas en contenedores efímeros, y la migración del backend de modelos de lenguaje desde proveedores en la nube (Groq) hacia un modelo local (Qwen 2.5 servido vía Ollama) — cambio arquitectónico motivado por las limitaciones de cuota y disponibilidad de los proveedores gratuitos. El agente de reconocimiento se encuentra funcional sobre el modelo local: ejecuta el SPA Crawler y Katana, consolida resultados y genera un plan de ataque priorizado con endpoints, métodos, peticiones estructuradas y herramientas recomendadas. La migración de los agentes de validación y reporte al modelo local, así como la validación del flujo completo entre agentes, se encuentran en desarrollo.
+El avance a la fecha incluye la infraestructura de comunicación asíncrona funcionando (RabbitMQ con patrón RPC), el servidor MCP operativo con catálogo dinámico de skills, la ejecución aislada de herramientas en contenedores efímeros, y la migración del backend de modelos de lenguaje desde proveedores en la nube (Groq) hacia un modelo local (Qwen 2.5 servido vía Ollama) — cambio arquitectónico motivado por las limitaciones de cuota y disponibilidad de los proveedores gratuitos. El agente de reconocimiento se encuentra funcional sobre el modelo local: ejecuta el SPA Crawler y Katana, consolida resultados y genera un plan de ataque priorizado con endpoints, métodos, peticiones estructuradas y herramientas recomendadas. Los cuatro agentes operan sobre el modelo local (Qwen vía Ollama) y el pipeline completo se ha ejecutado de extremo a extremo en múltiples ocasiones sobre Juice Shop y WackoPicko, generando informes Markdown con trazabilidad completa.
 
-El frontend, desarrollado en Next.js, cuenta con la estructura de componentes necesarios para consumir el backend (paneles de configuración, trazabilidad y reporte, además del hook de conexión por WebSocket), pero su integración funcional con el pipeline multiagente aún no se ha completado. Los pendientes hacia la entrega final incluyen: finalizar la migración del agente de validación al modelo local, integrar y validar el flujo de extremo a extremo entre los cuatro agentes, consolidar la integración frontend-backend, y formalizar la evaluación de resultados sobre el entorno autorizado.
+El frontend, desarrollado en Next.js, está integrado con el backend mediante WebSockets para la trazabilidad en tiempo real y una interfaz estructurada en paneles (configuración, traza de agentes, reporte final). El sistema completo opera de extremo a extremo: el usuario configura el objetivo desde el navegador, el pipeline se ejecuta y el informe final se visualiza en la interfaz.
 
 ---
 
@@ -16,7 +16,7 @@ El proyecto SECURE aborda una necesidad concreta identificada en el ámbito de l
 
 La propuesta de SECURE se orienta a mejorar esta situación mediante una plataforma multiagente que organiza el flujo de análisis, estructura los hallazgos y los presenta a través de un panel visual trazable. En lugar de reemplazar al evaluador humano, el sistema actúa como una herramienta de asistencia que hace explícito el proceso seguido por los agentes, permitiendo al usuario comprender qué acciones se ejecutaron, con qué herramientas, sobre qué endpoints y con qué evidencia.
 
-El estado actual del proyecto corresponde a una fase de transición técnica: la infraestructura base (RabbitMQ, servidor MCP, ejecución en contenedores efímeros) se encuentra operativa, y el agente de reconocimiento ya funciona sobre el modelo local (Qwen vía Ollama), ejecutando el SPA Crawler y Katana, consolidando resultados y generando el plan de ataque. La migración de los agentes de validación y reporte al modelo local, así como la validación del flujo completo entre los cuatro agentes, se encuentran en desarrollo. El frontend cuenta con la estructura de componentes necesarios para consumir el backend, pero su integración funcional con el pipeline aún no se ha completado.
+El estado actual del proyecto corresponde a una fase de transición técnica: la infraestructura base (RabbitMQ, servidor MCP, ejecución en contenedores efímeros) se encuentra operativa, y el agente de reconocimiento ya funciona sobre el modelo local (Qwen vía Ollama), ejecutando el SPA Crawler y Katana, consolidando resultados y generando el plan de ataque. Los cuatro agentes operan sobre el modelo local y el pipeline completo ha sido validado de extremo a extremo en múltiples ejecuciones sobre Juice Shop y WackoPicko. El frontend está integrado con el backend y expone los resultados al usuario mediante paneles de trazabilidad y reporte.
 
 ---
 
@@ -302,9 +302,9 @@ El proyecto sigue una metodología de **prototipado iterativo e incremental**, c
 | RF-06 | Ejecutar validación de Command Injection (Commix) | 🔧 Skill implementado; integración en el agente pendiente de migración |
 | RF-07 | Ejecutar validación multivectorial (Nuclei) | 🔧 Skill implementado; integración en el agente pendiente de migración |
 | RF-08 | Ejecutar fuzzing de rutas y parámetros (FFuF) | 🔧 Skill implementado; integración en el agente pendiente de migración |
-| RF-09 | Generar informe técnico en Markdown con evidencia y severidad | 🔧 Reporter implementado; migración al modelo local pendiente |
+| RF-09 | Generar informe técnico en Markdown con evidencia y severidad | ✅ Implementado |
 | RF-10 | Exponer trazabilidad estructurada del flujo de análisis | ✅ Implementado (backend) |
-| RF-11 | Presentar resultados en panel visual interactivo | 🔧 Estructura frontend lista; integración pendiente |
+| RF-11 | Presentar resultados en panel visual interactivo | ✅ Implementado |
 | RF-12 | Registrar evidencia verificable de cada prueba ejecutada | ✅ Implementado (persistencia de artefactos) |
 
 ### 8.2 No funcionales
@@ -475,7 +475,7 @@ flowchart TB
 
 La interacción sigue un patrón de **RPC sobre colas**: cada agente publica mensajes con `correlation_id` y `reply_to`, y espera la respuesta en una cola temporal. Los flujos principales son: (a) API → Orquestador, (b) Orquestador → Agente de Reconocimiento, (c) Orquestador → Agente de Validación, (d) Orquestador → Agente de Reporte, (e) cualquier agente → Skills Controller para ejecución de skills.
 
-*(Diagrama de interacción entre módulos — pendiente de insertar)*
+*El diagrama de arquitectura de la Sección 10.2 ilustra esta interacción.*
 
 ### 10.4 Comportamiento
 
@@ -574,9 +574,9 @@ sequenceDiagram
 - ✅ Migración del agente de reconocimiento al modelo local (Qwen vía Ollama)
 - ✅ API Gateway con endpoint de tareas
 - ✅ Persistencia de artefactos y trazabilidad estructurada
-- 🔧 Agentes de validación y reporte: migración al modelo local en curso
-- 🔧 Validación del flujo completo entre los cuatro agentes: pendiente
-- 🔧 Frontend: estructura de componentes lista; integración funcional pendiente
+- ✅ Agentes de validación y reporte
+- ✅ Validación del flujo completo entre los cuatro agentes
+- ✅ Frontend Next.js integrado con el backend (WebSockets + panel de trazabilidad y reporte)
 
 ### 11.3 Integraciones realizadas
 
@@ -588,7 +588,6 @@ sequenceDiagram
 
 ### 11.4 Pendientes para la entrega final
 
-- Integración completa del frontend con el backend.
 - Validación formal del flujo completo sobre Juice Shop.
 - Ampliación de la cobertura de skills según resultados de validación.
 - Documentación final de la arquitectura y decisiones de diseño.
@@ -625,7 +624,7 @@ Las auditorías correspondientes a los vectores XSS, Command Injection, Broken A
 
 ### 13.2 Pruebas de integración
 
-Durante una fase previa del desarrollo, con el backend de modelos en la nube (Groq), se logró validar el flujo completo API → Orquestador → Reconocimiento → Validación → Reporte sobre Juice Shop, generando informes Markdown con hallazgos y trazabilidad. Tras la migración al modelo local, la integración extremo a extremo se encuentra pendiente: el agente de reconocimiento opera sobre el modelo local, mientras que la migración del agente de validación está en curso. La validación del flujo completo con el modelo local se planifica como actividad de cierre.
+Durante una fase previa del desarrollo, con el backend de modelos en la nube (Groq), se logró validar el flujo completo API → Orquestador → Reconocimiento → Validación → Reporte sobre Juice Shop, generando informes Markdown con hallazgos y trazabilidad. Tras la migración al modelo local, el pipeline completo se ha ejecutado de extremo a extremo en tres ocasiones independientes (dos sobre Juice Shop y una sobre WackoPicko), tal como se documenta en la Sección 13.2.1.
 
 ### 13.2.1 Mediciones de la fase de validación
 
@@ -656,19 +655,19 @@ Se ejecutó el pipeline completo en tres ocasiones independientes: dos sobre Jui
 
 ### 13.3 Pruebas de usabilidad
 
-Pendiente de validación con usuarios finales (estudiantes) una vez completada la integración frontend.
+Pendiente de validación con usuarios finales (estudiantes) para recoger retroalimentación de usabilidad.
 
 ---
 
 ## 14. Resultados parciales y discusión
 
-El proyecto ha consolidado la infraestructura base y ha avanzado en la migración del backend de modelos de lenguaje. Los principales resultados a la fecha incluyen: (a) una arquitectura multiagente con mensajería asíncrona operativa, (b) un servidor MCP con catálogo dinámico de skills ejecutadas en contenedores efímeros, (c) un mecanismo de captura de peticiones SPA (Playwright) que resuelve la limitación de las herramientas tradicionales frente a endpoints POST/JSON, y (d) el agente de reconocimiento funcional sobre el modelo local (Qwen vía Ollama), ejecutando SPA Crawler y Katana y generando un plan de ataque priorizado. La migración del resto de agentes al modelo local está en curso. La transición desde proveedores en la nube hacia un modelo local busca eliminar las cuotas y garantizar la disponibilidad del servicio, a costa de requerir mayor capacidad de cómputo en el host. La validación formal del flujo completo con el modelo local queda como actividad central de la fase de cierre.
+El proyecto ha consolidado la infraestructura base y ha avanzado en la migración del backend de modelos de lenguaje. Los principales resultados a la fecha incluyen: (a) una arquitectura multiagente con mensajería asíncrona operativa, (b) un servidor MCP con catálogo dinámico de skills ejecutadas en contenedores efímeros, (c) un mecanismo de captura de peticiones SPA (Playwright) que resuelve la limitación de las herramientas tradicionales frente a endpoints POST/JSON, y (d) el agente de reconocimiento funcional sobre el modelo local (Qwen vía Ollama), ejecutando SPA Crawler y Katana y generando un plan de ataque priorizado. La migración al modelo local está completa y el sistema opera íntegramente sobre Qwen 2.5 vía Ollama. La transición desde proveedores en la nube eliminó las cuotas y garantizó la disponibilidad del servicio, a costa de requerir mayor capacidad de cómputo en el host. La validación del flujo completo se documenta en la Sección 13.2.1.
 
 ---
 
 ## 15. Plan de cierre hacia la entrega final
 
-Las actividades restantes se organizan en tres frentes: (1) integración frontend-backend y validación visual, (2) validación del sistema completo sobre Juice Shop con documentación de resultados, y (3) consolidación de la memoria final con diagramas de arquitectura, secuencia y evidencia de validación.
+Las actividades restantes se concentran en tres frentes: (1) ampliación de la cobertura de pruebas end-to-end a las skills pendientes (dalfox, commix, nuclei, jwt_tool, ffuf), (2) validación de usabilidad con usuarios finales, y (3) consolidación de la memoria final con la documentación de resultados y evidencia recolectada.
 
 ---
 
