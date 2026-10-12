@@ -36,12 +36,7 @@ logger.info("🟢 [RECON] Cargando LLM de reconocimiento")
 # FLUJO PRINCIPAL DE RECONOCIMIENTO
 # ============================================================================
 
-async def process_recon_task(
-    channel: aio_pika.Channel,
-    target_url: str,
-    attack_type_filter: str = "full",
-) -> tuple[ReconPlannerOutput, str, list[dict]]:
-
+async def process_recon_task(channel: aio_pika.Channel,target_url: str, attack_type_filter: str = "full",) -> tuple[ReconPlannerOutput, str, list[dict]]:
 
     started_at = datetime.now(timezone.utc).isoformat()
     is_sqli = is_sqli_attack(attack_type_filter)
