@@ -426,7 +426,50 @@ SECURE sigue una arquitectura **de microservicios orientada a eventos**, con com
 | RabbitMQ | Broker de mensajes, colas durables, patrón RPC |
 | Frontend (Next.js) | Interfaz gráfica, panel de trazabilidad, visualización de resultados |
 
-*(Diagrama de arquitectura — pendiente de insertar)*
+```mermaid
+flowchart TB
+    subgraph RED1["RED 1: FRONTEND / API (public-net)"]
+        direction TB
+        FE["ctnr-frontend<br/>(Next.js)"]
+        API["ctnr-fastapi<br/>(API Gateway)"]
+        FE -- "HTTP / WS" --> API
+    end
+
+    subgraph RED2["RED 2: AGENTS & SKILLS (internal-net)"]
+        direction TB
+        ORQ["ctnr-orquestador<br/>(LLM Router)"]
+        RMQ["ctnr-rabbitmq<br/>(Broker de Mensajes)"]
+        RECON["ctnr-interpret<br/>(Reconocimiento)"]
+        VALID["ctnr-verificador<br/>(Validación)"]
+        REP["ctnr-reportes<br/>(Reportería)"]
+        SKILLS["ctnr-skills-controller<br/>(Servidor MCP)"]
+
+        ORQ -- "Mensajería<br/>RabbitMQ" --> RMQ
+        RMQ -- "RPC" --> RECON
+        RMQ -- "RPC" --> VALID
+        RMQ -- "RPC" --> REP
+        RECON -- "tools/call" --> RMQ
+        VALID -- "tools/call" --> RMQ
+        SKILLS -- "consume<br/>skills_queue" --> RMQ
+    end
+
+    API -- "publish<br/>task_request" --> RMQ
+
+    SKILLS -- "Usa Docker Socket" --> CONTAINERS
+
+    subgraph CONTAINERS["Micro-Contenedores Efímeros de Herramientas"]
+        direction LR
+        T1["Katana / SPA Crawler"]
+        T2["SQLMap"]
+        T3["DalFox"]
+        T4["Commix"]
+        T5["Nuclei / FFuF / jwt_tool"]
+    end
+
+    CONTAINERS -.-> TARGET[("Objetivo<br/>Juice Shop")]
+```
+
+**Descripción del diagrama.** La figura muestra la separación de redes: `public-net` aloja el frontend y el API Gateway; `internal-net` aloja el orquestador, los tres agentes especializados (intérprete/reconocimiento, verificador/validación, reportes), RabbitMQ como broker central, y el `skills-controller` que expone el servidor MCP. El skills-controller accede al socket de Docker del host para lanzar micro-contenedores efímeros con las herramientas de pentesting, que se ejecutan aislados en `sec-net` y se destruyen al terminar.
 
 ### 10.3 Interacción entre módulos
 
@@ -436,9 +479,74 @@ La interacción sigue un patrón de **RPC sobre colas**: cada agente publica men
 
 ### 10.4 Comportamiento
 
-Las secuencias principales incluyen: el flujo de reconocimiento (Katana + SPA Crawler → plan de ataque), el flujo de validación (selección de herramienta por vector → ejecución → evidencia), y el flujo de reporte (consolidación → Markdown → publicación). Los puntos críticos de comportamiento incluyen el manejo de timeouts en tres capas (skill, agente, orquestador) y el manejo de errores del modelo con degradación controlada.
+Las secuencias principales incluyen el flujo de reconocimiento, el flujo de validación y el flujo de reporte, descritos en los siguientes diagramas:
 
-*(Diagramas de secuencia — pendientes de insertar)*
+**Flujo de reconocimiento (Recon):**
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant ORQ as Orquestador
+    participant REC as Recon Agent
+    participant MCP as Skills Controller
+    participant CRW as Crawler
+    participant DCRW as Deep Crawler
+
+    ORQ->>REC: RPC recon (task_id, target_url)
+    REC->>MCP: tools/list
+    MCP-->>REC: catálogo de skills
+    REC->>MCP: tools/call crawler
+    MCP->>CRW: contenedor efímero
+    CRW-->>MCP: rutas y metadatos
+    MCP-->>REC: resultado crawler
+    REC->>MCP: tools/call deep_crawler
+    MCP->>DCRW: contenedor efímero
+    DCRW-->>MCP: peticiones HTTP capturadas (.req)
+    MCP-->>REC: resultado deep_crawler
+    REC->>REC: consolidar plan priorizado
+    REC-->>ORQ: ReconPlannerOutput
+```
+
+**Flujo de validación (Validate):**
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant ORQ as Orquestador
+    participant VAL as Validate Agent
+    participant MCP as Skills Controller
+    participant T as Herramienta (ej: SQLMap)
+    participant TGT as Objetivo (Juice Shop)
+
+    ORQ->>VAL: RPC validate (plan de ataque)
+    VAL->>MCP: tools/list
+    MCP-->>VAL: catálogo filtrado por attack_type
+    loop Por cada endpoint priorizado
+        VAL->>MCP: tools/call (ej: sqlmap con .req)
+        MCP->>T: contenedor efímero + archivo .req
+        T->>TGT: pruebas de inyección
+        TGT-->>T: respuestas
+        T-->>MCP: evidencia
+        MCP-->>VAL: salida de herramienta
+    end
+    VAL-->>ORQ: ValidateOutput (vulnerabilidades confirmadas)
+```
+
+**Flujo de reporte (Reporter):**
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant ORQ as Orquestador
+    participant REP as Reporter Agent
+    participant LLM as Modelo (Qwen/Ollama)
+
+    ORQ->>REP: RPC reporter (recon + validate)
+    REP->>REP: validar contrato Pydantic
+    REP->>LLM: prompt con contexto consolidado
+    LLM-->>REP: informe Markdown
+    REP-->>ORQ: report_markdown
+```
 
 ---
 
@@ -497,11 +605,54 @@ El sistema se despliega mediante **Docker Compose**, con servicios definidos par
 
 ### 13.1 Pruebas por componentes
 
-Se han validado individualmente: SQLMap (detección de SQLi en Juice Shop sobre `/rest/user/login`), SPA Crawler (descubrimiento de rutas y captura de peticiones), Katana (descubrimiento de endpoints), y la capa de comunicación RabbitMQ.
+Se han validado individualmente los siguientes componentes: SQLMap (detección de SQL Injection sobre Juice Shop y WackoPicko), SPA Crawler (descubrimiento de rutas y captura de peticiones), Katana (descubrimiento de endpoints) y la capa de comunicación RabbitMQ. Dado que el proyecto se encuentra en fase de cierre y la integración completa del agente de validación aún está en curso, hasta la fecha **solo se han ejecutado auditorías end-to-end usando SQLMap como herramienta de validación**. Las demás skills (`dalfox`, `commix`, `nuclei`, `jwt_tool`, `ffuf`) han sido validadas individualmente contra sus propios objetivos, pero su integración al pipeline está pendiente de la fase final.
+
+La siguiente tabla resume los hallazgos confirmados con SQLMap en los dos escenarios auditados hasta la fecha:
+
+| Target | Endpoints probados | Hallazgos esperados | Confirmados por SQLMap | Falsos positivos | Timeouts | Evidencia reproducible |
+|--------|-------------------|---------------------|------------------------|------------------|----------|-------------------------|
+| Juice Shop | 3 | 1 (SQLi en login, vulnerabilidad documentada) | 1 (`/rest/user/login`) | 0 | 0 | `sqlmap -r .req --level=5 --risk=3 --ignore-code=401` |
+| WackoPicko | 5 | No determinados (aplicación de auditoría, sin catálogo previo consultado) | 0 | 0 | 2 de 5 (endpoints 4 y 5) | `sqlmap -r .req --level=5 --risk=3` |
+
+**Interpretación.** La tasa de falsos positivos es **cero** en ambos escenarios: SQLMap no reportó vulnerabilidades inexistentes. Los dos timeouts observados en WackoPicko (1.000 s cada uno) no constituyen falsos positivos, sino **casos inconclusos**: el análisis superó el límite de tiempo configurado en el handler antes de poder confirmar o descartar la presencia de inyección. Este comportamiento se explica por la combinación `--level=5 --risk=3`, que instruye a SQLMap a agotar un espacio de búsqueda muy amplio por parámetro; en endpoints con muchos campos o con respuestas lentas, ese espacio puede superar el timeout de 1.000 s del handler.
+
+**Implicaciones para la fase de cierre.** La evidencia anterior sugiere dos ajustes para mejorar la robustez del pipeline sin sacrificar precisión:
+
+1. **Reducir el nivel de exhaustividad a `--level=3 --risk=2`** para auditorías generales, y reservar `--level=5 --risk=3` para endpoints priorizados por el agente de reconocimiento. Esto reduce drásticamente el número de timeouts manteniendo una cobertura alta.
+2. **Marcar los timeouts como "inconcluso"** en el informe final, en lugar de reportarlos como "sin hallazgos". Actualmente el pipeline los trata como ausencia de vulnerabilidad, lo que puede inducir a falsos negativos.
+
+Las auditorías correspondientes a los vectores XSS, Command Injection, Broken Access Control y Fallos de Autenticación (JWT) se encuentran fuera del alcance de la evidencia recogida hasta la fecha y se documentan como trabajo futuro dentro del plan de cierre (Sección 15).
 
 ### 13.2 Pruebas de integración
 
 Durante una fase previa del desarrollo, con el backend de modelos en la nube (Groq), se logró validar el flujo completo API → Orquestador → Reconocimiento → Validación → Reporte sobre Juice Shop, generando informes Markdown con hallazgos y trazabilidad. Tras la migración al modelo local, la integración extremo a extremo se encuentra pendiente: el agente de reconocimiento opera sobre el modelo local, mientras que la migración del agente de validación está en curso. La validación del flujo completo con el modelo local se planifica como actividad de cierre.
+
+### 13.2.1 Mediciones de la fase de validación
+
+Se ejecutó el pipeline completo en tres ocasiones independientes: dos sobre Juice Shop y una sobre WackoPicko. Los valores corresponden a escenarios reales de auditoría con el orquestador coordinando la secuencia de agentes vía RabbitMQ y el modelo local (Qwen 2.5 vía Ollama) en ejecución.
+
+| # | Target | Duración total | Tiempo en Validate | Vulns. confirmadas | Timeouts |
+|---|--------|----------------|---------------------|---------------------|----------|
+| 1 | Juice Shop | ~358 s | 293,55 s | 1 (SQLi) | 0 |
+| 2 | Juice Shop | 486,06 s | 380,80 s | 1 (SQLi) | 0 |
+| 3 | WackoPicko | 1.205,34 s | 1.103,30 s | 0 | 2 de 5 |
+
+**Tiempos detallados por herramienta (Ejecución 3 — WackoPicko):**
+
+*Etapa 1 — Reconocimiento:*
+- `tools/list`: 0,01 s
+- `crawler`: 9,82 s
+- `deep_crawler`: 43,79 s
+
+*Etapa 2 — Validación:*
+- `tools/list`: 0,04 s
+- `sqlmap` (ejecución 1): 33,80 s
+- `sqlmap` (ejecución 2): 50,09 s
+- `sqlmap` (ejecución 3): 496,12 s
+- `sqlmap` (ejecución 4): 1.000,10 s — ⚠️ TIMEOUT
+- `sqlmap` (ejecución 5): 1.000,03 s — ⚠️ TIMEOUT
+
+**Interpretación.** El tiempo total del pipeline está dominado por la fase de validación, cuyo comportamiento varía significativamente según la cantidad y complejidad de los endpoints descubiertos. En Juice Shop (con 3 endpoints), la fase de validación consumió entre 293 s y 380 s; en WackoPicko (con 5 endpoints), consumió 1.103 s, de los cuales 2.000 s corresponden a dos timeouts consecutivos del handler de SQLMap. Este hallazgo justifica la recomendación de la Sección 13.1 de ajustar los parámetros de SQLMap para auditorías generales (`--level=3 --risk=2`) y reservar los niveles altos para endpoints priorizados por el agente de reconocimiento.
 
 ### 13.3 Pruebas de usabilidad
 
