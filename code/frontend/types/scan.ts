@@ -19,6 +19,30 @@ export type EventType = 'AGENT_THOUGHT' | 'TOOL_EXECUTION' | 'VULN_DETECTED'
 | 'SCAN_COMPLETE'
 | 'SCAN_ERROR';
 
+export interface ToolTiming {
+    tool: string;
+    publishMs?: number;
+    queueWaitMs?: number | null;
+    processingMs?: number;
+    roundTripMs?: number;
+    status?: string;
+}
+
+export interface PipelineStageTiming {
+    durationMs?: number;
+    publishMs?: number;
+    queueWaitMs?: number | null;
+    processingMs?: number;
+    roundTripMs?: number;
+    status?: string;
+    tools?: ToolTiming[];
+}
+
+export interface PipelineTimings {
+    queueWaitMs?: number;
+    totalMs?: number;
+    stages?: Record<string, PipelineStageTiming>;
+}
 
 export interface AgentWebSocketEvent {
     taskId: string;
@@ -28,6 +52,7 @@ export interface AgentWebSocketEvent {
     payload: {
         message: string;
         details?: Record<string, unknown>;
+        timings?: PipelineTimings;
       finalReport?: string;
       error?: string;
         vulnerability?: {
@@ -40,4 +65,5 @@ export interface AgentWebSocketEvent {
             pocScript?: string;
         }
     }
+    durationMs?: number;
 }

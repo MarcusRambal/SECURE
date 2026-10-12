@@ -15,18 +15,18 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile.frontend
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
     container_name: frontend
     ports:
      - "3000:3000"  
     networks:
       - "public-net" 
-    volumes: 
-      - ./frontend:/app             
-      - /app/node_modules        
-      - /app/.next
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8000  
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
       - INTERNAL_API_URL=http://api:8000
+    depends_on:
+      - api
 
   # 1. API Gateway (FastAPI)
   api:

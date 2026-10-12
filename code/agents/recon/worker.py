@@ -3,6 +3,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 
 import aio_pika
 
@@ -33,6 +34,8 @@ async def start_recon_worker():
                         async with message.process():
                             correlation_id = message.correlation_id
                             reply_to = message.reply_to
+                            processing_started = time.perf_counter()
+                            published_at = (message.headers or {}).get("x-published-at")
 
                             try:
                                 payload = json.loads(message.body.decode("utf-8"))
@@ -40,7 +43,7 @@ async def start_recon_worker():
                                 attack_type_filter = payload.get("attack_type", "full")
                                 logger.info(f"📥 [RECON-AGENT] Tarea recibida para {target_url}")
 
-                                recon_data, recovery_mode = await process_recon_task(
+                                recon_data, recovery_mode, tool_timings = await process_recon_task(
                                     channel,
                                     target_url,
                                     attack_type_filter,
@@ -49,25 +52,34 @@ async def start_recon_worker():
                                 status = "SUCCESS"
                                 used_fallback = False
 
-                                response_body = json.dumps(
-                                    {
-                                        "status": status,
-                                        "used_fallback": used_fallback,
-                                        "recovery_mode": recovery_mode,
-                                        "recon_data": recon_data.model_dump(),
-                                    }
-                                )
+                                response_payload = {
+                                    "status": status,
+                                    "used_fallback": used_fallback,
+                                    "recovery_mode": recovery_mode,
+                                    "recon_data": recon_data.model_dump(),
+                                    "tool_timings": tool_timings,
+                                }
                             except Exception as msg_error:
                                 logger.error(
                                     f"❌ Error procesando mensaje Recon: {msg_error}",
                                     exc_info=True,
                                 )
-                                response_body = json.dumps(
-                                    {
-                                        "status": "ERROR",
-                                        "error": str(msg_error),
-                                    }
+                                response_payload = {
+                                    "status": "ERROR",
+                                    "error": str(msg_error),
+                                }
+
+                            response_payload["timing"] = {
+                                "queueWaitMs": round(
+                                    max(0, time.time() - published_at) * 1000, 2
                                 )
+                                if isinstance(published_at, (int, float))
+                                else None,
+                                "processingMs": round(
+                                    (time.perf_counter() - processing_started) * 1000, 2
+                                ),
+                            }
+                            response_body = json.dumps(response_payload)
 
                             if reply_to:
                                 try:

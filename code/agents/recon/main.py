@@ -36,19 +36,26 @@ logger.info("🟢 [RECON] Cargando LLM de reconocimiento")
 # FLUJO PRINCIPAL DE RECONOCIMIENTO
 # ============================================================================
 
-async def process_recon_task(channel: aio_pika.Channel,target_url: str,attack_type_filter: str = "full",) -> tuple[ReconPlannerOutput, str]:
+async def process_recon_task(
+    channel: aio_pika.Channel,
+    target_url: str,
+    attack_type_filter: str = "full",
+) -> tuple[ReconPlannerOutput, str, list[dict]]:
 
 
     started_at = datetime.now(timezone.utc).isoformat()
     is_sqli = is_sqli_attack(attack_type_filter)
+    tool_timings: list[dict] = []
 
     logger.info("🟡 [RECON] Inicio target=%s attack_type=%s started_at=%s",target_url,attack_type_filter,started_at)
 
     #Obtenemos el catálogo de herramientas disponibles en MCP
-    catalog = await get_mcp_catalog(channel)
+    catalog = await get_mcp_catalog(channel, tool_timings)
 
     #Herramienta mandatoria de ejecucion
-    crawler_output = await call_mcp_skill(channel,"crawler", {"target_url": target_url},)
+    crawler_output = await call_mcp_skill(
+        channel, "crawler", {"target_url": target_url}, tool_timings
+    )
 
     try:
         crawler_data = json.loads(crawler_output)
@@ -62,7 +69,12 @@ async def process_recon_task(channel: aio_pika.Channel,target_url: str,attack_ty
     if is_sqli:
         logger.info("[RECON] SQLi: ejecutando deep_crawler con la salida efimera de crawler")
 
-        deep_crawler_output = await call_mcp_skill(channel, "deep_crawler", {"crawler_report": crawler_data})
+        deep_crawler_output = await call_mcp_skill(
+            channel,
+            "deep_crawler",
+            {"crawler_report": crawler_data},
+            tool_timings,
+        )
 
         try:
             deep_crawler_data = json.loads(deep_crawler_output)
@@ -134,4 +146,4 @@ async def process_recon_task(channel: aio_pika.Channel,target_url: str,attack_ty
     )
     logger.info("[RECON] Plan JSON validado targets=%d ", len(recon_output.high_priority_targets),)
 
-    return recon_output, "clean"
+    return recon_output, "clean", tool_timings

@@ -2,8 +2,10 @@ import os
 import json
 import logging
 import asyncio
+import time
 import aio_pika
 import uvicorn
+from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException, Response
 from llm_factory import get_int_env, get_llm
 
@@ -48,6 +50,7 @@ async def get_task_result(task_id: str):
             "status": TASK_STATE[task_id].get("status", "PROCESSING"),
             "target_url": TASK_STATE[task_id].get("target_url"),
             "attack_type": TASK_STATE[task_id].get("attack_type"),
+            "timings": TASK_STATE[task_id].get("timings", {}),
         }
     raise HTTPException(status_code=404, detail=f"Tarea '{task_id}' no encontrada.")
 
@@ -57,6 +60,18 @@ async def execute_orchestration_flow(payload: dict, channel: aio_pika.Channel):
     task_id = payload.get("task_id", "N/A")
     target_url = payload.get("target_url")
     attack_type = payload.get("attack_type", "full")
+    flow_started = time.perf_counter()
+    queue_wait_ms = 0.0
+    queued_at = payload.get("queued_at")
+    if isinstance(queued_at, str):
+        try:
+            queue_wait_ms = max(
+                0.0,
+                (datetime.now(timezone.utc) - datetime.fromisoformat(queued_at)).total_seconds()
+                * 1000,
+            )
+        except ValueError:
+            logger.warning("queued_at inválido para task_id=%s: %s", task_id, queued_at)
 
     logger.info("============================================================")
     logger.info(f"🚀 [AUDITORÍA INICIADA] Task ID: {task_id}")
@@ -77,6 +92,7 @@ async def execute_orchestration_flow(payload: dict, channel: aio_pika.Channel):
         # Cómo se recuperó cada fase: "clean" | "recovered" | "fallback" | "error".
         "recon_recovery_mode": None,
         "validate_recovery_mode": None,
+        "timings": {"queueWaitMs": round(queue_wait_ms, 2), "stages": {}},
     }
 
     await publish_scan_event(
@@ -143,6 +159,7 @@ async def execute_orchestration_flow(payload: dict, channel: aio_pika.Channel):
             "reporter_used_fallback": completed_state.get("reporter_used_fallback", False),
             "recon_recovery_mode": completed_state.get("recon_recovery_mode"),
             "validate_recovery_mode": completed_state.get("validate_recovery_mode"),
+            "timings": completed_state.get("timings", {}),
         }
 
         logger.info(
@@ -151,8 +168,16 @@ async def execute_orchestration_flow(payload: dict, channel: aio_pika.Channel):
         terminal_event = "SCAN_ERROR" if final_status == "FAILED" else "SCAN_COMPLETE"
         terminal_payload = {
             "finalReport": completed_state.get("report_markdown"),
-            "details": {"status": final_status},
+            "details": {
+                "status": final_status,
+            },
+            "timings": completed_state.get("timings", {}),
         }
+        total_duration_ms = round(
+            queue_wait_ms + (time.perf_counter() - flow_started) * 1000, 2
+        )
+        completed_state["timings"]["totalMs"] = total_duration_ms
+        TASKS_RESULTS_DB[task_id]["timings"] = completed_state["timings"]
         if final_status == "FAILED":
             terminal_payload["error"] = completed_state.get(
                 "error_message", "La tarea no pudo completarse."
@@ -167,6 +192,7 @@ async def execute_orchestration_flow(payload: dict, channel: aio_pika.Channel):
                 if final_status == "FAILED"
                 else "Tarea completada."
             ),
+            duration_ms=total_duration_ms,
             **terminal_payload,
         )
 
@@ -178,14 +204,21 @@ async def execute_orchestration_flow(payload: dict, channel: aio_pika.Channel):
             "attack_type": attack_type,
             "status": "FAILED",
             "error": str(e),
+            "timings": TASK_STATE.get(task_id, {}).get("timings", {}),
         }
+        error_duration_ms = round(
+            queue_wait_ms + (time.perf_counter() - flow_started) * 1000, 2
+        )
+        TASKS_RESULTS_DB[task_id]["timings"]["totalMs"] = error_duration_ms
         await publish_scan_event(
             channel,
             task_id,
             "SCAN_ERROR",
             "orquestador",
             f"Error durante la ejecución: {e}",
+            duration_ms=error_duration_ms,
             error=str(e),
+            timings=TASKS_RESULTS_DB[task_id]["timings"],
         )
     finally:
         # Liberación limpia de memoria del estado intermedio de la tarea

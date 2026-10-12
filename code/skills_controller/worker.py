@@ -3,6 +3,7 @@ import aio_pika
 import json
 import logging
 import os
+import time
 from mcp_server import mcp_server
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - [%(levelname)s] - %(name)s - %(message)s")
@@ -35,6 +36,8 @@ async def main():
 
         async def on_message(message: aio_pika.IncomingMessage) -> None:
             async with message.process():
+                processing_started = time.perf_counter()
+                published_at = (message.headers or {}).get("x-published-at")
                 try:
                     payload = json.loads(message.body.decode("utf-8"))
                     method = payload.get("method")
@@ -86,6 +89,18 @@ async def main():
 
                 except Exception:
                     logger.exception("Error procesando mensaje en Skills Controller")
+                    return
+
+                mcp_response["timing"] = {
+                    "queueWaitMs": round(
+                        max(0, time.time() - published_at) * 1000, 2
+                    )
+                    if isinstance(published_at, (int, float))
+                    else None,
+                    "processingMs": round(
+                        (time.perf_counter() - processing_started) * 1000, 2
+                    ),
+                }
 
         await queue.consume(on_message)
         await asyncio.Future()
