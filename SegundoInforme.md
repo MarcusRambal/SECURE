@@ -653,6 +653,33 @@ Se ejecutó el pipeline completo en tres ocasiones independientes: dos sobre Jui
 
 **Interpretación.** El tiempo total del pipeline está dominado por la fase de validación, cuyo comportamiento varía significativamente según la cantidad y complejidad de los endpoints descubiertos. En Juice Shop (con 3 endpoints), la fase de validación consumió entre 293 s y 380 s; en WackoPicko (con 5 endpoints), consumió 1.103 s, de los cuales 2.000 s corresponden a dos timeouts consecutivos del handler de SQLMap. Este hallazgo justifica la recomendación de la Sección 13.1 de ajustar los parámetros de SQLMap para auditorías generales (`--level=3 --risk=2`) y reservar los niveles altos para endpoints priorizados por el agente de reconocimiento.
 
+### 13.2.1 Mediciones de la fase de validación
+
+Se ejecutó el pipeline completo en tres ocasiones independientes: dos sobre Juice Shop y una sobre WackoPicko. Los valores corresponden a escenarios reales de auditoría con el orquestador coordinando la secuencia de agentes vía RabbitMQ y el modelo local (Qwen 2.5 vía Ollama) en ejecución.
+
+| # | Target | Duración total | Tiempo en Validate | Vulns. confirmadas | Timeouts |
+|---|--------|----------------|---------------------|---------------------|----------|
+| 1 | Juice Shop | ~358 s | 293,55 s | 1 (SQLi) | 0 |
+| 2 | Juice Shop | 486,06 s | 380,80 s | 1 (SQLi) | 0 |
+| 3 | WackoPicko | 1.205,34 s | 1.103,30 s | 0 | 2 de 5 |
+
+**Tiempos detallados por herramienta (Ejecución 3 — WackoPicko):**
+
+*Etapa 1 — Reconocimiento:*
+- `tools/list`: 0,01 s
+- `crawler`: 9,82 s
+- `deep_crawler`: 43,79 s
+
+*Etapa 2 — Validación:*
+- `tools/list`: 0,04 s
+- `sqlmap` (ejecución 1): 33,80 s
+- `sqlmap` (ejecución 2): 50,09 s
+- `sqlmap` (ejecución 3): 496,12 s
+- `sqlmap` (ejecución 4): 1.000,10 s — ⚠️ TIMEOUT
+- `sqlmap` (ejecución 5): 1.000,03 s — ⚠️ TIMEOUT
+
+**Interpretación.** El tiempo total del pipeline está dominado por la fase de validación, cuyo comportamiento varía significativamente según la cantidad y complejidad de los endpoints descubiertos. En Juice Shop (con 3 endpoints), la fase de validación consumió entre 293 s y 380 s; en WackoPicko (con 5 endpoints), consumió 1.103 s, de los cuales 2.000 s corresponden a dos timeouts consecutivos del handler de SQLMap. Este hallazgo justifica la recomendación de la Sección 13.1 de ajustar los parámetros de SQLMap para auditorías generales (`--level=3 --risk=2`) y reservar los niveles altos para endpoints priorizados por el agente de reconocimiento.
+
 ### 13.3 Pruebas de usabilidad
 
 Pendiente de validación con usuarios finales (estudiantes) para recoger retroalimentación de usabilidad.
