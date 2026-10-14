@@ -3,7 +3,7 @@ import json
 import logging
 import aio_pika
 from datetime import datetime, timezone
-from urllib.parse import urljoin
+from urllib.parse import parse_qsl, urljoin, urlsplit
 from validate_prompts import get_system_prompt
 from llm_factory import get_llm
 
@@ -12,14 +12,15 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.exceptions import OutputParserException
 
 from contract_schemas import ValidateOutput
-from analysis_skills import analyze_validation_targets
 from helpers import (
     build_validate_sqli_context,
     build_validate_output_from_dict,
     build_fallback_validate_output,
+    get_sqli_test_parameters,
     merge_sqlmap_findings,
-    build_real_command,
-    prepare_sqlmap_request,
+    merge_sqli_agent_findings,
+    merge_sqli_map_findings,
+    sanitize_endpoint_for_context,
     write_validate_context_snapshot,
 )
 from mcp_skills import build_validation_tools, call_mcp_skill, get_mcp_catalog
@@ -27,7 +28,7 @@ from attack_types import is_sqli_attack
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("validate-agent-worker")
-SQLMAP_MAX_CONCURRENCY = 3
+SQLI_AGENT_MAX_CONCURRENCY = 3
 
 
 logger.info("🟢 [VALIDATE] Cargando LLM de validación")
@@ -64,7 +65,7 @@ async def process_validate_task(
     selected_targets = [
         {
             "url": target.get("endpoint", ""),
-            "method": target.get("method", "GET"),
+            "method": target.get("method") or "GET",
             "target_id": target.get("target_id"),
             "request_id": target.get("request_id"),
             "recommended_tool": target.get("recommended_tool"),
@@ -93,27 +94,6 @@ async def process_validate_task(
             tool_timings,
         )
 
-    logger.info(
-        "[VALIDATE_SKILLS] task_id=%s phase=start "
-        "skills=observed_request_type_analysis mode=passive endpoint_count=%d",
-        trace_id,
-        len(selected_targets),
-    )
-    analysis_skills = []
-    # analysis_skills = analyze_validation_targets(selected_targets)
-    #logger.info(
-    #    "[VALIDATE_SKILLS] task_id=%s phase=complete endpoint_count=%d",
-    #    trace_id,
-    #    len(analysis_skills),
-    #)
-
-    #for endpoint_analysis in analysis_skills:
-    #    logger.info(
-    #        "[VALIDATE_SKILLS] task_id=%s phase=endpoint_analysis result=%s",
-    #        trace_id,
-    #        json.dumps(endpoint_analysis, ensure_ascii=False, default=str),
-    #    )
-
     # Construcción del catálogo de herramientas MCP y preparación de la ejecución
     catalog = await get_mcp_catalog(channel, tool_timings)
     raw_tool_outputs: list[str] = []
@@ -122,86 +102,186 @@ async def process_validate_task(
 
     if is_sqli:
         logger.info(
-            "[VALIDATE] Ejecutando SQLMap de forma obligatoria sobre %d endpoint(s) "
-            "con un máximo de %d ejecuciones simultáneas",
-            len(selected_targets),
-            SQLMAP_MAX_CONCURRENCY,
+            "[VALIDATE] task_id=%s Ejecutando pruebas SQLi acotadas sobre campos observados",
+            trace_id,
         )
-        semaphore = asyncio.Semaphore(SQLMAP_MAX_CONCURRENCY)
-
-        async def execute_sqlmap(target: dict) -> tuple[dict, dict, str] | None:
-            try:
-                request_data = target.get("request", {})
-                if isinstance(request_data, dict) and request_data:
-                    tool_args = {
-                        "request": prepare_sqlmap_request(
-                            request_data,
-                            target_url,
-                            target["url"],
-                            target["method"],
-                        )
+        jobs = []
+        for target in selected_targets:
+            request = target.get("request")
+            request = request if isinstance(request, dict) else {}
+            headers = request.get("headers")
+            headers = headers if isinstance(headers, dict) else {}
+            body = request.get("body")
+            endpoint = str(request.get("url") or target["url"])
+            endpoint_url = urljoin(f"{target_url.rstrip('/')}/", endpoint)
+            safe_endpoint = sanitize_endpoint_for_context(endpoint_url)
+            root_parts = urlsplit(target_url)
+            endpoint_parts = urlsplit(endpoint_url)
+            if (
+                not root_parts.hostname
+                or not endpoint_parts.hostname
+                or root_parts.hostname.casefold() != endpoint_parts.hostname.casefold()
+                or root_parts.port != endpoint_parts.port
+            ):
+                pre_executed_context.append(
+                    {
+                        "target_id": target.get("target_id"),
+                        "request_id": target.get("request_id"),
+                        "endpoint": safe_endpoint,
+                        "tool": "sqli_agent",
+                        "status": "SKIPPED",
+                        "reason": "endpoint_outside_target_origin",
                     }
-                else:
-                    tool_args = {
-                        "target_url": urljoin(
-                            f"{target_url.rstrip('/')}/",
-                            target["url"],
-                        )
-                    }
-
-                async with semaphore:
-                    output = await call_mcp_skill(
-                        channel, "sqlmap", tool_args, tool_timings
-                    )
-                return target, tool_args, output
-            except Exception as err:
-                logger.exception(
-                    "Fallo en ejecución obligatoria de SQLMap en %s: %s",
-                    target["url"],
-                    err,
                 )
-                return None
-
-        sqlmap_results = await asyncio.gather(
-            *(execute_sqlmap(target) for target in selected_targets)
-        )
-        for result in sqlmap_results:
-            if result is None:
                 continue
 
-            target, tool_args, output = result
-            raw_tool_outputs.append(output)
+            for parameter, location in get_sqli_test_parameters(endpoint_url, request):
+                test_body = body
+                if isinstance(test_body, str):
+                    if location == "json_body":
+                        test_body = json.loads(test_body)
+                    elif location == "form_body":
+                        test_body = dict(parse_qsl(test_body, keep_blank_values=True))
+                jobs.append(
+                    {
+                        "target": target,
+                        "endpoint": endpoint_url,
+                        "safe_endpoint": safe_endpoint,
+                        "method": target["method"],
+                        "headers": headers,
+                        "body": test_body,
+                        "request": {
+                            **request,
+                            "url": endpoint_url,
+                            "method": target["method"],
+                            "headers": headers,
+                            "body": test_body,
+                        },
+                        "location": location,
+                        "parameter": parameter,
+                    }
+                )
 
-            executed_command = {
-                "tool": "sqlmap",
-                "args": tool_args,
-                "command": build_real_command("sqlmap", tool_args),
-                "target_id": target.get("target_id"),
-                "request_id": target.get("request_id"),
-                "endpoint": (
-                    tool_args.get("request", {}).get("url")
-                    or tool_args.get("target_url")
-                ),
-                "output": output,
+        semaphore = asyncio.Semaphore(SQLI_AGENT_MAX_CONCURRENCY)
+
+        async def execute_sqli_check(job: dict) -> tuple[dict, str]:
+            async with semaphore:
+                output = await call_mcp_skill(
+                    channel,
+                    "sqli_agent",
+                    {
+                        "target_url": job["endpoint"],
+                        "param": job["parameter"],
+                        "method": job["method"],
+                        "location": job["location"],
+                        "headers": job["headers"],
+                        "body": job["body"],
+                    },
+                    tool_timings,
+                )
+            return job, output
+
+        for job, output in await asyncio.gather(
+            *(execute_sqli_check(job) for job in jobs)
+        ):
+            report = json.loads(output)
+            if not isinstance(report, dict):
+                raise TypeError("El agente SQLi no devolvió un objeto JSON")
+            report.pop("target", None)
+            safe_report = json.dumps(report, ensure_ascii=False)
+            raw_tool_outputs.append(safe_report)
+            command = (
+                f"MCP sqli_agent --param {job['parameter']} "
+                f"--location {job['location']}"
+            )
+            execution = {
+                "tool": "sqli_agent",
+                "command": command,
+                "target_id": job["target"].get("target_id"),
+                "request_id": job["target"].get("request_id"),
+                "endpoint": job["safe_endpoint"],
+                "parameter": job["parameter"],
+                "output": safe_report,
             }
-            executed_commands.append(executed_command)
-
+            executed_commands.append(execution)
             pre_executed_context.append(
                 {
-                    "target_id": target.get("target_id"),
-                    "request_id": target.get("request_id"),
-                    "endpoint": executed_command["endpoint"],
-                    "method": target["method"],
-                    "request": tool_args.get("request"),
-                    "tool_args": tool_args,
-                    "headers": tool_args.get("request", {}).get("headers", {}),
-                    "tool": "sqlmap",
-                    "output": output,
+                    **execution,
+                    "method": job["method"],
+                    "location": job["location"],
+                    "status": (
+                        "ERROR"
+                        if report.get("error") or report.get("persistence_error")
+                        else "COMPLETED"
+                    ),
                 }
             )
 
+        if not jobs:
+            pre_executed_context.append(
+                {
+                    "tool": "sqli_agent",
+                    "status": "SKIPPED",
+                    "reason": "no_supported_captured_parameters",
+                }
+            )
+            pre_executed_context.append(
+                {
+                    "tool": "sqli_map",
+                    "status": "SKIPPED",
+                    "reason": "no_supported_captured_parameters",
+                }
+            )
+        else:
+            logger.info(
+                "[VALIDATE] task_id=%s phase=sqli_map starting scans=%d after=sqli_agent",
+                trace_id,
+                len(jobs),
+            )
+            for job in jobs:
+                output = await call_mcp_skill(
+                    channel,
+                    "sqli_map",
+                    {
+                        "target_url": job["endpoint"],
+                        "request": job["request"],
+                        "param": job["parameter"],
+                    },
+                    tool_timings,
+                )
+                report = json.loads(output)
+                if not isinstance(report, dict):
+                    raise TypeError("SQLMap skill no devolvió un objeto JSON")
+                safe_report = json.dumps(report, ensure_ascii=False)
+                raw_tool_outputs.append(safe_report)
+                command = (
+                    f"MCP sqli_map --param {json.dumps(job['parameter'])} "
+                    "--action detect"
+                )
+                execution = {
+                    "tool": "sqli_map",
+                    "command": command,
+                    "target_id": job["target"].get("target_id"),
+                    "request_id": job["target"].get("request_id"),
+                    "endpoint": job["safe_endpoint"],
+                    "parameter": job["parameter"],
+                    "output": safe_report,
+                }
+                executed_commands.append(execution)
+                pre_executed_context.append(
+                    {
+                        **execution,
+                        "method": job["method"],
+                        "location": job["location"],
+                        "status": (
+                            "ERROR"
+                            if report.get("error") or report.get("persistence_error")
+                            else "COMPLETED"
+                        ),
+                    }
+                )
 
-    excluded_tools = {"sqlmap"} if is_sqli else set()
+    excluded_tools = {"sqlmap", "sqli_map"} if is_sqli else set()
     tools = build_validation_tools(
         catalog, channel, attack_type, excluded_tools, tool_timings
     )
@@ -216,13 +296,9 @@ async def process_validate_task(
         validation_context = build_validate_sqli_context(pre_executed_context)
 
     user_message = HumanMessage(content=(
-                "Analiza la evidencia disponible de las herramientas y determina si "
-                "confirma la vulnerabilidad solicitada.\n\n"
-                "Estructura y tipos observados directamente en las requests capturadas. "
-                "Estos datos describen únicamente las entradas observadas; no demuestran "
-                "qué otros tipos acepta el servidor:\n"
-                f"{json.dumps(analysis_skills, ensure_ascii=False, indent=2)}\n\n"
-                "Fuentes obligatorias de validacion ya ejecutadas:\n"
+            "Analiza la evidencia disponible de las herramientas y determina si "
+            "confirma la vulnerabilidad solicitada.\n\n"
+            "Fuentes obligatorias de validacion ya ejecutadas:\n"
                 f"{json.dumps(validation_context, ensure_ascii=False, indent=2)}\n\n"
                 "Copia target_id, request_id y endpoint exclusivamente de la ejecucion que "
                 "aporta la evidencia. No inventes IDs, endpoints, URLs ni comandos."
@@ -237,7 +313,6 @@ async def process_validate_task(
                 "user_message": user_message.content,
             },
             pre_executed_context,
-            analysis_skills=analysis_skills,
             task_id=trace_id,
         )
         logger.info(
@@ -270,9 +345,11 @@ async def process_validate_task(
         parsed_dict = structured_output.model_dump()
 
     if is_sqli:
+        parsed_dict = merge_sqli_agent_findings(parsed_dict, executed_commands)
         parsed_dict = merge_sqlmap_findings(parsed_dict, executed_commands)
+        parsed_dict = merge_sqli_map_findings(parsed_dict, executed_commands)
         logger.info(
-            "[VALIDATE] task_id=%s vulnerabilidades tras incorporar SQLMap=%d",
+            "[VALIDATE] task_id=%s vulnerabilidades tras incorporar SQLi=%d",
             trace_id,
             len(parsed_dict.get("vulnerabilities", [])),
         )

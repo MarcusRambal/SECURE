@@ -4,7 +4,7 @@ import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import urljoin, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
 from pydantic import ValidationError
 
@@ -92,14 +92,109 @@ def prepare_sqlmap_request(request: dict,target_url: str,endpoint: str,method: s
     return prepared_request
 
 
+def get_sqli_test_parameters(endpoint: str, request: dict) -> list[tuple[str, str]]:
+    """Return supported query, form, and JSON field names from a captured request."""
+    parameters = []
+    seen = set()
+    try:
+        query_names = [
+            name for name, _ in parse_qsl(urlsplit(endpoint).query, keep_blank_values=True)
+        ]
+    except ValueError:
+        query_names = []
+    for name in query_names:
+        key = (name, "query")
+        if key not in seen:
+            parameters.append(key)
+            seen.add(key)
+
+    headers = request.get("headers")
+    headers = headers if isinstance(headers, dict) else {}
+    content_type = next(
+        (
+            str(value).split(";", 1)[0].strip().casefold()
+            for name, value in headers.items()
+            if isinstance(name, str) and name.casefold() == "content-type"
+        ),
+        "",
+    )
+    body = request.get("body")
+
+    if content_type == "application/x-www-form-urlencoded":
+        body_names = (
+            [name for name, _ in parse_qsl(body, keep_blank_values=True)]
+            if isinstance(body, str)
+            else list(body) if isinstance(body, dict) else []
+        )
+        for name in body_names:
+            key = (name, "form_body")
+            if isinstance(name, str) and key not in seen:
+                parameters.append(key)
+                seen.add(key)
+        return parameters
+
+    if content_type != "application/json":
+        return parameters
+
+    if isinstance(body, str):
+        try:
+            body = json.loads(body)
+        except json.JSONDecodeError:
+            return parameters
+
+    def visit_json(value: object, prefix: str = "") -> None:
+        if isinstance(value, dict):
+            for name, child in value.items():
+                if not isinstance(name, str) or "." in name or "[]" in name:
+                    continue
+                path = f"{prefix}.{name}" if prefix else name
+                visit_json(child, path)
+        elif prefix and not isinstance(value, list):
+            key = (prefix, "json_body")
+            if key not in seen:
+                parameters.append(key)
+                seen.add(key)
+
+    visit_json(body)
+    return parameters
+
+
+def sanitize_endpoint_for_context(endpoint: str) -> str:
+    """Redact user info and query values before persisting or displaying a URL."""
+    try:
+        parts = urlsplit(endpoint)
+        query = urlencode(
+            [
+                (name, "[REDACTED]")
+                for name, _ in parse_qsl(parts.query, keep_blank_values=True)
+            ]
+        )
+    except ValueError:
+        return "[invalid-url]"
+
+    return urlunsplit(
+        (parts.scheme, parts.netloc.rsplit("@", 1)[-1], parts.path, query, "")
+    )
+
+
 def build_validate_sqli_context(sqlmap_executions: list[dict]) -> dict:
-    """Construye el contexto SQLi a partir de ejecuciones reales de SQLMap."""
+    """Builds SQLi context from the validation tools that actually ran."""
     return {
         "attack_type_filter": "sqli",
         "sqlmap_executions": [
             execution
             for execution in sqlmap_executions
             if isinstance(execution, dict) and execution.get("tool") == "sqlmap"
+        ],
+        "sqli_agent_executions": [
+            execution
+            for execution in sqlmap_executions
+            if isinstance(execution, dict) and execution.get("tool") == "sqli_agent"
+        ],
+        "sqli_map_executions": [
+            execution
+            for execution in sqlmap_executions
+            if isinstance(execution, dict) and execution.get("tool") == "sqli_map"
         ],
     }
 
@@ -109,10 +204,9 @@ def write_validate_context_snapshot(
     attack_type: str,
     agent_context: dict,
     sqlmap_executions: list[dict],
-    analysis_skills: list[dict] | None = None,
     task_id: str | None = None,
 ) -> Path:
-    """Guarda el contexto del agente, análisis pasivo y requests de SQLMap."""
+    """Guarda el contexto del agente y las requests de validación ejecutadas."""
     output_dir = Path(
         os.getenv(
             "VALIDATE_CONTEXT_OUTPUT_DIR",
@@ -135,7 +229,6 @@ def write_validate_context_snapshot(
         "attack_type": attack_type,
         "task_id": task_id,
         "agent_context": agent_context,
-        "analysis_skills": analysis_skills or [],
         "sqlmap_executions": sqlmap_executions,
     }
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -241,6 +334,182 @@ def merge_sqlmap_findings(model_output: dict, executions: list[dict]) -> dict:
     }
 
     for finding in extract_sqlmap_findings(executions):
+        key = (
+            finding["type"].casefold(),
+            str(finding.get("endpoint") or "").casefold(),
+            str(finding.get("parameter") or "").casefold(),
+        )
+        if key not in known_findings:
+            vulnerabilities.append(finding)
+            known_findings.add(key)
+
+    return {**model_output, "vulnerabilities": vulnerabilities}
+
+
+def extract_sqli_map_findings(executions: list[dict]) -> list[dict]:
+    """Extract positive detection-only reports from the SQLMap skill."""
+    findings = []
+    for execution in executions:
+        if execution.get("tool") != "sqli_map":
+            continue
+        try:
+            report = json.loads(execution.get("output", ""))
+        except (TypeError, json.JSONDecodeError):
+            continue
+        result = report.get("result") if isinstance(report, dict) else None
+        if not isinstance(result, dict) or result.get("injectable") is not True:
+            continue
+
+        techniques = result.get("techniques")
+        technique_text = (
+            ", ".join(technique for technique in techniques if isinstance(technique, str))
+            if isinstance(techniques, list)
+            else ""
+        )
+        summary = result.get("summary")
+        evidence = (
+            "; ".join(line for line in summary if isinstance(line, str))[:1200]
+            if isinstance(summary, list)
+            else ""
+        )
+        if not evidence:
+            evidence = "SQLMap detection reported this parameter as injectable"
+        if technique_text:
+            evidence += f" (techniques: {technique_text})"
+        database = result.get("database")
+        if isinstance(database, str) and database and database.casefold() != "unknown":
+            evidence += f" (database: {database})"
+
+        findings.append(
+            {
+                "type": "SQL Injection",
+                "severity": "HIGH",
+                "endpoint": execution.get("endpoint"),
+                "parameter": execution.get("parameter"),
+                "evidence": evidence,
+                "confidence": "HIGH",
+                "tools_used": ["sqli_map"],
+                "target_id": execution.get("target_id"),
+                "request_id": execution.get("request_id"),
+                "reproducible_command": execution.get("command"),
+            }
+        )
+    return findings
+
+
+def merge_sqli_map_findings(model_output: dict, executions: list[dict]) -> dict:
+    """Retain positive SQLMap-skill results if the model omits them."""
+    vulnerabilities = list(model_output.get("vulnerabilities", []) or [])
+    known_findings = {
+        (
+            str(finding.get("type", "")).casefold(),
+            str(finding.get("endpoint", "")).casefold(),
+            str(finding.get("parameter") or "").casefold(),
+        )
+        for finding in vulnerabilities
+        if isinstance(finding, dict)
+    }
+
+    for finding in extract_sqli_map_findings(executions):
+        key = (
+            finding["type"].casefold(),
+            str(finding.get("endpoint") or "").casefold(),
+            str(finding.get("parameter") or "").casefold(),
+        )
+        if key not in known_findings:
+            vulnerabilities.append(finding)
+            known_findings.add(key)
+
+    return {**model_output, "vulnerabilities": vulnerabilities}
+
+
+def extract_sqli_agent_findings(executions: list[dict]) -> list[dict]:
+    """Extract only positive error, boolean, or timing checks from the SQLi agent."""
+    findings = []
+    techniques = ("error_based", "boolean_based", "time_based")
+
+    for execution in executions:
+        if execution.get("tool") != "sqli_agent":
+            continue
+        try:
+            report = json.loads(execution.get("output", ""))
+        except (TypeError, json.JSONDecodeError):
+            continue
+        if not isinstance(report, dict) or report.get("error"):
+            continue
+
+        confirmed = [
+            report[technique]
+            for technique in techniques
+            if isinstance(report.get(technique), dict)
+            and report[technique].get("injectable") is True
+        ]
+        if not confirmed:
+            continue
+
+        evidence = []
+        for result in confirmed:
+            technique = result.get("technique", "SQLi")
+            detail = f"{technique} validation reported injectable=true"
+            login_check = result.get("login_or_bypass")
+            if isinstance(login_check, dict) and login_check.get("injectable"):
+                detail += (
+                    "; OR tautology accepted and contradiction rejected "
+                    f"(HTTP {login_check.get('true_status_code')} vs "
+                    f"{login_check.get('false_status_code')})"
+                )
+            if result.get("database"):
+                detail += f" (database: {result['database']})"
+            if "baseline_length" in result:
+                detail += (
+                    f" (baseline/true/false response lengths: "
+                    f"{result['baseline_length']}/{result['true_length']}/"
+                    f"{result['false_length']})"
+                )
+            evidence.append(detail)
+
+        findings.append(
+            {
+                "type": "SQL Injection",
+                "severity": "HIGH",
+                "endpoint": execution.get("endpoint"),
+                "parameter": execution.get("parameter"),
+                "evidence": "; ".join(evidence),
+                "confidence": (
+                    "HIGH"
+                    if any(
+                        item.get("technique") == "error_based"
+                        or (
+                            isinstance(item.get("login_or_bypass"), dict)
+                            and item["login_or_bypass"].get("injectable")
+                        )
+                        for item in confirmed
+                    )
+                    else "MEDIUM"
+                ),
+                "tools_used": ["sqli_agent"],
+                "target_id": execution.get("target_id"),
+                "request_id": execution.get("request_id"),
+                "reproducible_command": execution.get("command"),
+            }
+        )
+    return findings
+
+
+def merge_sqli_agent_findings(model_output: dict, executions: list[dict]) -> dict:
+    """Retain positive SQLi-agent evidence if the model omits it."""
+    vulnerabilities = list(model_output.get("vulnerabilities", []) or [])
+    known_findings = {
+        (
+            str(finding.get("type", "")).casefold(),
+            str(finding.get("endpoint", "")).casefold(),
+            str(finding.get("parameter") or "").casefold(),
+        )
+        for finding in vulnerabilities
+        if isinstance(finding, dict)
+    }
+
+    for finding in extract_sqli_agent_findings(executions):
         key = (
             finding["type"].casefold(),
             str(finding.get("endpoint") or "").casefold(),
@@ -440,6 +709,36 @@ def build_fallback_validate_output(target_url: str,raw_tool_outputs: list[str],e
                 evidence=finding["evidence"],
                 reproducible_command=finding.get("reproducible_command")
                 or "Comando no verificado",
+                confidence=finding["confidence"],
+                tools_used=finding["tools_used"],
+            )
+        )
+
+    for finding in extract_sqli_map_findings(executed_commands):
+        vulnerabilities.append(
+            Vulnerability(
+                type=finding["type"],
+                severity=finding["severity"],
+                endpoint=finding.get("endpoint") or target_url,
+                parameter=finding.get("parameter"),
+                evidence=finding["evidence"],
+                reproducible_command=finding.get("reproducible_command")
+                or "MCP sqli_map --action detect",
+                confidence=finding["confidence"],
+                tools_used=finding["tools_used"],
+            )
+        )
+
+    for finding in extract_sqli_agent_findings(executed_commands):
+        vulnerabilities.append(
+            Vulnerability(
+                type=finding["type"],
+                severity=finding["severity"],
+                endpoint=finding.get("endpoint") or target_url,
+                parameter=finding.get("parameter"),
+                evidence=finding["evidence"],
+                reproducible_command=finding.get("reproducible_command")
+                or "MCP sqli_agent",
                 confidence=finding["confidence"],
                 tools_used=finding["tools_used"],
             )

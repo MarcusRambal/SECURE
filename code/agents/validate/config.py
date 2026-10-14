@@ -17,7 +17,7 @@ LOG_RPC_PAYLOADS = os.getenv("LOG_RPC_PAYLOADS", "false").strip().lower() in {
 ALLOWED_ATTACK_TYPES = {"full", "sql_injection", "xss", "command_injection"}
 TOOL_MAP = {
     "full": ["sqlmap", "dalfox", "commix", "nuclei", "ffuf"],
-    "sql_injection": ["sqlmap"],
+    "sql_injection": ["sqlmap", "sqli_agent", "sqli_map"],
     "xss": ["dalfox"],
     "command_injection": ["commix"],
 }

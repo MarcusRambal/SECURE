@@ -10,13 +10,25 @@ def build_prompt(attack_type_filter: str) -> str:
         Analiza exclusivamente evidencia relacionada con posibles vulnerabilidades
         de SQL Injection.
 
-        Solo considera las requests de validación que hayan sido realmente
-        observadas y proporcionadas en las fuentes de entrada.
+        El agente SQLi puede haber ejecutado pruebas limitadas de error, booleanas
+        y de tiempo sobre parámetros observados en requests capturadas. Basa cualquier
+        conclusión exclusivamente en los resultados concretos incluidos en el
+        contexto de validación.
+
+        Después de esas pruebas también puede haber resultados de SQLMap en modo
+        detección. Una detección positiva explícita de SQLMap es evidencia; un
+        resultado sin confirmar o un error de ejecución no demuestra que el endpoint
+        sea vulnerable.
 
         Prioriza:
 
-        - Evidencia producida por herramientas de validación que indique errores,
-        comportamientos o respuestas compatibles con SQL Injection.
+        - Errores SQL explícitos vinculados al parámetro probado.
+        - Diferencias repetibles entre las respuestas de las condiciones verdadera
+        y falsa.
+        - En endpoints de login, una respuesta exitosa a la tautología SQL
+        únicamente cuando la condición contradictoria sea rechazada.
+        - Retrasos compatibles con la prueba temporal ejecutada, distinguiéndolos
+        de latencia de red o errores de transporte.
 
         La presencia de palabras como "sql", "query", "database", "SELECT",
         "INSERT", "UPDATE" o similares tampoco confirma una vulnerabilidad.
@@ -29,9 +41,10 @@ def build_prompt(attack_type_filter: str) -> str:
         Si existe un indicio relacionado con SQL Injection pero la evidencia no
         es suficiente para confirmarlo, clasifícalo como unconfirmed_finding.
 
-        No inventes consultas SQL, parámetros, payloads, respuestas, errores,
-        comandos ni comportamiento de la aplicación que no aparezcan en las
-        fuentes proporcionadas.
+        No inventes consultas SQL, parámetros, resultados de pruebas, respuestas,
+        errores, comandos ni comportamiento de la aplicación que no aparezcan en
+        las fuentes proporcionadas. Una prueba con error de transporte no es una
+        prueba negativa ni confirma una vulnerabilidad.
         
         La identificación de un parámetro potencialmente vulnerable es evidencia
         de superficie, no confirmación de SQL Injection.

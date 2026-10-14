@@ -1,9 +1,71 @@
-from tools.sqlmap_handler import handle_sqlmap_args
-from tools.deep_crawler_handler import handle_deep_crawler_args
-from tools.commix_handler import handle_commix_args
-from tools.dalfox_handler import handle_dalfox_args
+from handlers.sqlmap_handler import handle_sqlmap_args
+from handlers.sqliManual_handler import execute_sqli_manual
+from handlers.sqli_map_handler import execute_sqli_map
+from handlers.deep_crawler_handler import handle_deep_crawler_args
+from handlers.commix_handler import handle_commix_args
+from handlers.dalfox_handler import handle_dalfox_args
 
 MCP_SKILLS_REGISTRY = {
+    "sqli_agent": {
+        "mcp_schema": {
+            "name": "sqli_agent",
+            "description": (
+                "Realiza pruebas SQLi acotadas de error, booleanas y de tiempo "
+                "sobre un parámetro observado. No extrae datos ni ejecuta escrituras."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "target_url": {"type": "string", "description": "Endpoint capturado"},
+                    "param": {"type": "string", "description": "Campo observado a validar"},
+                    "method": {"type": "string", "description": "Método HTTP observado"},
+                    "location": {
+                        "type": "string",
+                        "description": "Ubicación observada: query, form_body o json_body",
+                    },
+                    "headers": {
+                        "type": "object",
+                        "description": "Headers capturados para reproducir la request",
+                    },
+                    "body": {
+                        "type": "object",
+                        "description": "Body estructurado capturado, cuando esté disponible",
+                    },
+                },
+                "required": ["target_url", "param"],
+            },
+        },
+        "handler": execute_sqli_manual,
+    },
+    "sqli_map": {
+        "mcp_schema": {
+            "name": "sqli_map",
+            "description": (
+                "Ejecuta SQLMap en un contenedor conectado a sec-net para confirmar "
+                "SQLi en un parámetro observado. Solo realiza detección; no enumera "
+                "bases de datos ni extrae datos."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "target_url": {
+                        "type": "string",
+                        "description": "Endpoint capturado dentro del origen autorizado",
+                    },
+                    "request": {
+                        "type": "object",
+                        "description": "Petición HTTP estructurada capturada",
+                    },
+                    "param": {
+                        "type": "string",
+                        "description": "Único parámetro observado que se debe probar",
+                    },
+                },
+                "required": ["param"],
+            },
+        },
+        "handler": execute_sqli_map,
+    },
     "katana_full": {
         "mcp_schema": {
             "name": "katana_full",
