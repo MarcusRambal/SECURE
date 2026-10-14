@@ -3,7 +3,7 @@ import json
 import logging
 import aio_pika
 from datetime import datetime, timezone
-from urllib.parse import parse_qsl, urljoin, urlsplit
+from urllib.parse import parse_qsl, urljoin
 from validate_prompts import get_system_prompt
 from llm_factory import get_llm
 
@@ -17,6 +17,7 @@ from helpers import (
     build_validate_output_from_dict,
     build_fallback_validate_output,
     get_sqli_test_parameters,
+    is_same_origin,
     merge_sqlmap_findings,
     merge_sqli_agent_findings,
     merge_sqli_map_findings,
@@ -115,14 +116,7 @@ async def process_validate_task(
             endpoint = str(request.get("url") or target["url"])
             endpoint_url = urljoin(f"{target_url.rstrip('/')}/", endpoint)
             safe_endpoint = sanitize_endpoint_for_context(endpoint_url)
-            root_parts = urlsplit(target_url)
-            endpoint_parts = urlsplit(endpoint_url)
-            if (
-                not root_parts.hostname
-                or not endpoint_parts.hostname
-                or root_parts.hostname.casefold() != endpoint_parts.hostname.casefold()
-                or root_parts.port != endpoint_parts.port
-            ):
+            if not is_same_origin(target_url, endpoint_url):
                 pre_executed_context.append(
                     {
                         "target_id": target.get("target_id"),
@@ -246,6 +240,7 @@ async def process_validate_task(
                         "target_url": job["endpoint"],
                         "request": job["request"],
                         "param": job["parameter"],
+                        "action": "validate",
                     },
                     tool_timings,
                 )
@@ -256,7 +251,7 @@ async def process_validate_task(
                 raw_tool_outputs.append(safe_report)
                 command = (
                     f"MCP sqli_map --param {json.dumps(job['parameter'])} "
-                    "--action detect"
+                    "--action validate"
                 )
                 execution = {
                     "tool": "sqli_map",

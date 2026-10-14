@@ -2,6 +2,7 @@ import json
 import logging
 import shlex
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from docker_runner import docker_runner
 from handlers.sqlmap_handler import build_raw_request
@@ -38,15 +39,26 @@ async def execute_sqli_map(arguments: dict) -> str:
     if not isinstance(parameter, str) or not parameter.strip():
         raise ValueError("A non-empty SQLi parameter is required")
 
+    action = arguments.get("action", "detect")
+    if not isinstance(action, str) or action not in {"detect", "validate"}:
+        raise ValueError("Unsupported SQLMap action")
+
     target_url = arguments.get("target_url")
     request = arguments.get("request")
     input_files = {}
-    command_args = ["--action", "detect", "--param", parameter]
+    command_args = ["--action", action, "--param", parameter]
 
     if isinstance(request, dict):
         request = dict(request)
         if isinstance(target_url, str) and target_url:
             request["url"] = target_url
+            headers = request.get("headers")
+            if isinstance(headers, dict):
+                target_host = urlsplit(target_url).netloc
+                for name in headers:
+                    if name.casefold() == "host":
+                        headers[name] = target_host
+                        break
         if not isinstance(request.get("url"), str) or not request["url"]:
             raise ValueError("A request URL or target_url is required")
         input_files[REQUEST_FILE] = build_raw_request(request)

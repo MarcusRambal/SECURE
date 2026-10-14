@@ -15,6 +15,7 @@ from config import (
 from contract_schemas import ValidateOutput, Vulnerability
 
 logger = logging.getLogger("validate-agent-worker")
+MAX_SQLI_MAP_EVIDENCE_LENGTH = 3000
 
 
 
@@ -177,8 +178,37 @@ def sanitize_endpoint_for_context(endpoint: str) -> str:
     )
 
 
+def is_same_origin(first_url: str, second_url: str) -> bool:
+    """Compare web origins while treating omitted HTTP(S) ports as defaults."""
+    try:
+        first = urlsplit(first_url)
+        second = urlsplit(second_url)
+        first_port = first.port
+        second_port = second.port
+    except ValueError:
+        return False
+
+    if first_port is None:
+        first_port = {"http": 80, "https": 443}.get(first.scheme.casefold())
+    if second_port is None:
+        second_port = {"http": 80, "https": 443}.get(second.scheme.casefold())
+
+    return (
+        first.scheme.casefold() == second.scheme.casefold()
+        and first.hostname is not None
+        and second.hostname is not None
+        and first.hostname.casefold() == second.hostname.casefold()
+        and first_port == second_port
+    )
+
+
 def build_validate_sqli_context(sqlmap_executions: list[dict]) -> dict:
     """Builds SQLi context from the validation tools that actually ran."""
+    sqli_map_executions = [
+        execution
+        for execution in sqlmap_executions
+        if isinstance(execution, dict) and execution.get("tool") == "sqli_map"
+    ]
     return {
         "attack_type_filter": "sqli",
         "sqlmap_executions": [
@@ -191,11 +221,8 @@ def build_validate_sqli_context(sqlmap_executions: list[dict]) -> dict:
             for execution in sqlmap_executions
             if isinstance(execution, dict) and execution.get("tool") == "sqli_agent"
         ],
-        "sqli_map_executions": [
-            execution
-            for execution in sqlmap_executions
-            if isinstance(execution, dict) and execution.get("tool") == "sqli_map"
-        ],
+        "sqli_map_executions": sqli_map_executions,
+        "sqli_map_schema": extract_sqli_map_schema(sqli_map_executions),
     }
 
 
@@ -350,15 +377,10 @@ def extract_sqli_map_findings(executions: list[dict]) -> list[dict]:
     """Extract positive detection-only reports from the SQLMap skill."""
     findings = []
     for execution in executions:
-        if execution.get("tool") != "sqli_map":
+        report = _positive_sqli_map_report(execution)
+        if report is None:
             continue
-        try:
-            report = json.loads(execution.get("output", ""))
-        except (TypeError, json.JSONDecodeError):
-            continue
-        result = report.get("result") if isinstance(report, dict) else None
-        if not isinstance(result, dict) or result.get("injectable") is not True:
-            continue
+        result = report["result"]
 
         techniques = result.get("techniques")
         technique_text = (
@@ -379,6 +401,22 @@ def extract_sqli_map_findings(executions: list[dict]) -> list[dict]:
         database = result.get("database")
         if isinstance(database, str) and database and database.casefold() != "unknown":
             evidence += f" (database: {database})"
+        profile = report.get("profile")
+        if isinstance(profile, dict):
+            databases = profile.get("databases")
+            if isinstance(databases, list):
+                names = [
+                    name for name in databases
+                    if isinstance(name, str) and name
+                ][:3]
+                if names:
+                    evidence += f"; databases listed: {', '.join(names)}"
+        table_listing = _format_sqli_map_tables(
+            _sqli_map_schema_for_report(execution, report)
+        )
+        if table_listing:
+            evidence += f"; {table_listing}"
+        evidence = evidence[:MAX_SQLI_MAP_EVIDENCE_LENGTH]
 
         findings.append(
             {
@@ -397,18 +435,83 @@ def extract_sqli_map_findings(executions: list[dict]) -> list[dict]:
     return findings
 
 
+def _positive_sqli_map_report(execution: dict) -> dict | None:
+    if not isinstance(execution, dict) or execution.get("tool") != "sqli_map":
+        return None
+    try:
+        report = json.loads(execution.get("output", ""))
+    except (TypeError, json.JSONDecodeError):
+        return None
+    if not isinstance(report, dict):
+        return None
+    result = report.get("result")
+    if not isinstance(result, dict) or result.get("injectable") is not True:
+        return None
+    return report
+
+
+def _sqli_map_schema_for_report(execution: dict, report: dict) -> list[dict]:
+    profile = report.get("profile")
+    table_groups = profile.get("tables") if isinstance(profile, dict) else None
+    if not isinstance(table_groups, list):
+        return []
+
+    schema = []
+    for item in table_groups:
+        if not isinstance(item, dict):
+            continue
+        database = item.get("database")
+        tables = item.get("tables")
+        if not isinstance(database, str) or not isinstance(tables, list):
+            continue
+        table_names = [
+            name for name in tables if isinstance(name, str) and name
+        ]
+        if table_names:
+            schema.append(
+                {
+                    "endpoint": execution.get("endpoint"),
+                    "parameter": execution.get("parameter"),
+                    "database": database,
+                    "tables": table_names,
+                }
+            )
+    return schema
+
+
+def _format_sqli_map_tables(schema: list[dict]) -> str:
+    table_groups = [
+        f"{item['database']}: {', '.join(item['tables'])}"
+        for item in schema
+    ]
+    return f"tables listed: {'; '.join(table_groups)}" if table_groups else ""
+
+
+def extract_sqli_map_schema(executions: list[dict]) -> list[dict]:
+    """Extract table names from positive SQLMap validation reports."""
+    schema = []
+    for execution in executions:
+        report = _positive_sqli_map_report(execution)
+        if report is not None:
+            schema.extend(_sqli_map_schema_for_report(execution, report))
+    return schema
+
+
 def merge_sqli_map_findings(model_output: dict, executions: list[dict]) -> dict:
     """Retain positive SQLMap-skill results if the model omits them."""
-    vulnerabilities = list(model_output.get("vulnerabilities", []) or [])
-    known_findings = {
-        (
-            str(finding.get("type", "")).casefold(),
-            str(finding.get("endpoint", "")).casefold(),
-            str(finding.get("parameter") or "").casefold(),
-        )
-        for finding in vulnerabilities
-        if isinstance(finding, dict)
-    }
+    vulnerabilities = [
+        dict(finding) if isinstance(finding, dict) else finding
+        for finding in (model_output.get("vulnerabilities", []) or [])
+    ]
+    known_findings = {}
+    for finding in vulnerabilities:
+        if isinstance(finding, dict):
+            key = (
+                str(finding.get("type", "")).casefold(),
+                str(finding.get("endpoint", "")).casefold(),
+                str(finding.get("parameter") or "").casefold(),
+            )
+            known_findings[key] = finding
 
     for finding in extract_sqli_map_findings(executions):
         key = (
@@ -416,9 +519,26 @@ def merge_sqli_map_findings(model_output: dict, executions: list[dict]) -> dict:
             str(finding.get("endpoint") or "").casefold(),
             str(finding.get("parameter") or "").casefold(),
         )
-        if key not in known_findings:
+        existing = known_findings.get(key)
+        if existing is None:
             vulnerabilities.append(finding)
-            known_findings.add(key)
+            known_findings[key] = finding
+            continue
+
+        table_listing = finding["evidence"].partition("tables listed: ")[2]
+        if table_listing:
+            evidence = str(existing.get("evidence") or "")
+            table_names = [
+                name.strip()
+                for group in table_listing.split("; ")
+                for name in group.partition(": ")[2].split(", ")
+                if name.strip()
+            ]
+            if any(name not in evidence for name in table_names):
+                addition = f"tables listed: {table_listing}"
+                existing["evidence"] = (
+                    f"{evidence}; {addition}".strip("; ")
+                )[:MAX_SQLI_MAP_EVIDENCE_LENGTH]
 
     return {**model_output, "vulnerabilities": vulnerabilities}
 
@@ -723,7 +843,7 @@ def build_fallback_validate_output(target_url: str,raw_tool_outputs: list[str],e
                 parameter=finding.get("parameter"),
                 evidence=finding["evidence"],
                 reproducible_command=finding.get("reproducible_command")
-                or "MCP sqli_map --action detect",
+                or "MCP sqli_map --action validate",
                 confidence=finding["confidence"],
                 tools_used=finding["tools_used"],
             )

@@ -13,6 +13,31 @@ from typing import List, Optional
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
+MAX_PROFILE_DATABASES = 3
+MAX_PROFILE_TABLES = 40
+SQLMAP_TEST_OPTIONS = ("--level=3", "--risk=2")
+
+
+def _base_command(sqlmap_bin: str, url: Optional[str], param: Optional[str],
+                  request_file: Optional[str] = None, cookie: str = "") -> list:
+    cmd = [
+        sqlmap_bin,
+        "--batch",
+        "--random-agent",
+        "--output-dir=/tmp/sqlmap_out",
+        "--ignore-code=401",
+    ]
+    if request_file:
+        cmd.extend(["-r", request_file])
+    elif url:
+        cmd.extend(["-u", url])
+    else:
+        raise ValueError("Either url or request_file is required")
+    if param:
+        cmd.extend(["-p", param])
+    if cookie:
+        cmd.extend(["--cookie", cookie])
+    return cmd
 
 
 def find_sqlmap() -> str:
@@ -30,27 +55,8 @@ def run_detection_scan(sqlmap_bin: str, url: Optional[str], param: Optional[str]
                         request_file: Optional[str] = None,
                         cookie: str = "", tamper: str = "") -> dict:
     """Run sqlmap detection scan and parse results."""
-    cmd = [
-        sqlmap_bin,
-        "--batch",
-        "--random-agent",
-        "--level=3",
-        "--risk=2",
-        "--ignore-code=401",
-        "--output-dir=/tmp/sqlmap_out",
-    ]
-
-    if request_file:
-        cmd.extend(["-r", request_file])
-    elif url:
-        cmd.extend(["-u", url])
-    else:
-        raise ValueError("Either url or request_file is required")
-
-    if param:
-        cmd.extend(["-p", param])
-    if cookie:
-        cmd.extend(["--cookie", cookie])
+    cmd = _base_command(sqlmap_bin, url, param, request_file, cookie)
+    cmd.extend(SQLMAP_TEST_OPTIONS)
     if tamper:
         cmd.extend(["--tamper", tamper])
 
@@ -109,43 +115,44 @@ def run_detection_scan(sqlmap_bin: str, url: Optional[str], param: Optional[str]
     }
 
 
-def enumerate_databases(sqlmap_bin: str, url: str, param: Optional[str] = None,
-                         cookie: str = "") -> List[str]:
+def enumerate_databases(sqlmap_bin: str, url: Optional[str],
+                         param: Optional[str] = None, cookie: str = "",
+                         request_file: Optional[str] = None) -> List[str]:
     """Enumerate databases using sqlmap --dbs."""
-    cmd = [sqlmap_bin, "-u", url, "--dbs", "--batch", "--random-agent"]
-    if param:
-        cmd.extend(["-p", param])
-    if cookie:
-        cmd.extend(["--cookie", cookie])
+    cmd = _base_command(sqlmap_bin, url, param, request_file, cookie)
+    cmd.extend(SQLMAP_TEST_OPTIONS)
+    cmd.append("--dbs")
 
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+    _require_success(result, "database enumeration")
     databases = []
     in_db_section = False
     for line in result.stdout.split("\n"):
         if "available databases" in line.lower():
             in_db_section = True
-            continue
-        if in_db_section and line.strip().startswith("[*]"):
-            db_name = line.strip().replace("[*] ", "")
-            databases.append(db_name)
-        elif in_db_section and not line.strip():
+        if in_db_section:
+            for db_name in re.findall(r"\[\*\]\s*(\S+)", line):
+                if db_name not in databases:
+                    databases.append(db_name)
+        if in_db_section and not line.strip():
             break
 
     logger.info("Found %d databases", len(databases))
     return databases
 
 
-def enumerate_tables(sqlmap_bin: str, url: str, database: str,
-                      param: Optional[str] = None, cookie: str = "") -> List[str]:
-    """Enumerate tables in a specific database."""
-    cmd = [sqlmap_bin, "-u", url, "-D", database, "--tables",
-           "--batch", "--random-agent"]
-    if param:
-        cmd.extend(["-p", param])
-    if cookie:
-        cmd.extend(["--cookie", cookie])
+def enumerate_tables(sqlmap_bin: str, url: Optional[str], database: Optional[str],
+                     param: Optional[str] = None, cookie: str = "",
+                     request_file: Optional[str] = None) -> List[str]:
+    """Enumerate tables in a database, or the SQLite schema when unspecified."""
+    cmd = _base_command(sqlmap_bin, url, param, request_file, cookie)
+    if database:
+        cmd.extend(["-D", database])
+    cmd.extend(SQLMAP_TEST_OPTIONS)
+    cmd.append("--tables")
 
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+    _require_success(result, "table enumeration")
     tables = []
     for line in result.stdout.split("\n"):
         stripped = line.strip()
@@ -154,8 +161,85 @@ def enumerate_tables(sqlmap_bin: str, url: str, database: str,
             if table_name and table_name != "Table":
                 tables.append(table_name)
 
-    logger.info("Found %d tables in %s", len(tables), database)
+    if not tables:
+        raise RuntimeError("SQLMap table enumeration returned no table names")
+    logger.info("Found %d tables in %s", len(tables), database or "SQLite schema")
     return tables
+
+
+def _require_success(result: subprocess.CompletedProcess, action: str) -> None:
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"SQLMap {action} failed with exit code {result.returncode}"
+        )
+
+
+def run_schema_scan(sqlmap_bin: str, url: Optional[str], param: Optional[str],
+                    request_file: Optional[str] = None, cookie: str = "",
+                    database_type: str = "unknown") -> dict:
+    """List database and table names without inspecting columns or row data."""
+    profile = {"databases": [], "databases_truncated": False, "tables": [], "errors": []}
+    if database_type.casefold() == "sqlite":
+        databases: List[Optional[str]] = [None]
+    else:
+        try:
+            found_databases = enumerate_databases(
+                sqlmap_bin, url, param, cookie, request_file
+            )
+            if not found_databases:
+                raise RuntimeError("SQLMap database enumeration returned no names")
+            profile["databases"] = found_databases[:MAX_PROFILE_DATABASES]
+            profile["databases_truncated"] = (
+                len(found_databases) > MAX_PROFILE_DATABASES
+            )
+            databases = found_databases[:MAX_PROFILE_DATABASES]
+        except RuntimeError as error:
+            profile["errors"].append({"action": "dbs", "message": str(error)})
+            databases = []
+
+    for database in databases:
+        try:
+            tables = enumerate_tables(
+                sqlmap_bin, url, database, param, cookie, request_file
+            )
+            profile["tables"].append({
+                "database": database or "SQLite_masterdb",
+                "tables": tables[:MAX_PROFILE_TABLES],
+                "tables_truncated": len(tables) > MAX_PROFILE_TABLES,
+            })
+        except RuntimeError as error:
+            profile["errors"].append({
+                "action": "tables",
+                "database": database or "SQLite_masterdb",
+                "message": str(error),
+            })
+
+    profile["status"] = "partial" if profile["errors"] else "completed"
+    return profile
+
+
+def run_validation_scan(sqlmap_bin: str, url: Optional[str],
+                        param: Optional[str] = None,
+                        request_file: Optional[str] = None,
+                        cookie: str = "") -> dict:
+    """Confirm injection, then list database and table names only."""
+    result = run_detection_scan(
+        sqlmap_bin, url, param, request_file=request_file, cookie=cookie
+    )
+    profile = {"status": "skipped", "reason": "not_confirmed"}
+    if result["exit_code"] == 0 and result["injectable"] is True:
+        profile = run_schema_scan(
+            sqlmap_bin,
+            url,
+            param,
+            request_file=request_file,
+            cookie=cookie,
+            database_type=result["database"],
+        )
+    elif result["exit_code"] != 0:
+        profile = {"status": "skipped", "reason": "detection_failed"}
+
+    return {"action": "validate", "result": result, "profile": profile}
 
 
 def dump_table(sqlmap_bin: str, url: str, database: str, table: str,
@@ -246,7 +330,11 @@ def main():
     parser.add_argument("--param", help="Specific parameter to test")
     parser.add_argument("--cookie", default="", help="Cookie header value")
     parser.add_argument("--tamper", default="", help="Tamper scripts (comma-separated)")
-    parser.add_argument("--action", choices=["detect", "dbs", "tables", "dump", "privs"], default="detect")
+    parser.add_argument(
+        "--action",
+        choices=["detect", "validate", "dbs", "tables", "dump", "privs"],
+        default="detect",
+    )
     parser.add_argument("--database", help="Database name for table/dump actions")
     parser.add_argument("--table", help="Table name for dump action")
     parser.add_argument("--output", default="sqlmap_report.json")
@@ -254,8 +342,8 @@ def main():
 
     if not args.url and not args.request_file:
         parser.error("either --url or --request-file is required")
-    if args.request_file and args.action != "detect":
-        parser.error("--request-file is supported only for detection")
+    if args.request_file and args.action not in {"detect", "validate"}:
+        parser.error("--request-file is supported only for detect or validate")
 
     sqlmap_bin = find_sqlmap()
     report = {
@@ -272,6 +360,16 @@ def main():
             request_file=args.request_file,
             cookie=args.cookie,
             tamper=args.tamper,
+        )
+    elif args.action == "validate":
+        report.update(
+            run_validation_scan(
+                sqlmap_bin,
+                args.url,
+                args.param,
+                request_file=args.request_file,
+                cookie=args.cookie,
+            )
         )
     elif args.action == "dbs":
         report["databases"] = enumerate_databases(sqlmap_bin, args.url, args.param, args.cookie)

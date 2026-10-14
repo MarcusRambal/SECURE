@@ -1,11 +1,13 @@
 import unittest
 
 from helpers import (
+    build_validate_sqli_context,
     build_validate_output_from_dict,
     extract_sqli_agent_findings,
     extract_sqli_map_findings,
     extract_sqlmap_findings,
     get_sqli_test_parameters,
+    is_same_origin,
     merge_sqli_agent_findings,
     merge_sqli_map_findings,
     merge_sqlmap_findings,
@@ -53,6 +55,28 @@ class ValidateSqliHelperTests(unittest.TestCase):
         self.assertEqual(
             safe_url,
             "https://example.test/items?id=%5BREDACTED%5D&token=%5BREDACTED%5D",
+        )
+
+    def test_same_origin_accepts_explicit_default_http_port(self):
+        self.assertTrue(
+            is_same_origin(
+                "http://wackopicko-target:80",
+                "http://wackopicko-target/admin/index.php?page=login",
+            )
+        )
+
+    def test_same_origin_rejects_different_scheme_or_non_default_port(self):
+        self.assertFalse(
+            is_same_origin(
+                "http://wackopicko-target",
+                "https://wackopicko-target/admin/index.php",
+            )
+        )
+        self.assertFalse(
+            is_same_origin(
+                "http://wackopicko-target:8080",
+                "http://wackopicko-target/admin/index.php",
+            )
         )
 
 
@@ -185,11 +209,16 @@ class SqliMapFindingTests(unittest.TestCase):
                 "request_id": "request-1",
                 "endpoint": "http://juice-shop:3000/rest/user/login",
                 "parameter": "email",
-                "command": "MCP sqli_map --param \"email\" --action detect",
+                "command": "MCP sqli_map --param \"email\" --action validate",
                 "output": (
-                    '{"action":"detect","result":{"injectable":true,'
+                    '{"action":"validate","result":{"injectable":true,'
                     '"database":"SQLite","techniques":["boolean-based blind"],'
-                    '"summary":["Parameter: email (POST)"]}}'
+                    '"summary":["Parameter: email (POST)"]},'
+                    '"profile":{"databases":["main"],"tables":['
+                    '{"database":"main","tables":['
+                    '"Addresses","BasketItems","Baskets","Captchas","Cards",'
+                    '"ChallengeDependencies","Challenges","Complaints",'
+                    '"Deliveries","Feedbacks","Hints","Users"]}]}}'
                 ),
             },
             {
@@ -212,6 +241,13 @@ class SqliMapFindingTests(unittest.TestCase):
         self.assertEqual(len(findings), 1)
         self.assertEqual(findings[0]["parameter"], "email")
         self.assertIn("boolean-based blind", findings[0]["evidence"])
+        self.assertIn("Users", findings[0]["evidence"])
+
+        context = build_validate_sqli_context(executions)
+        self.assertEqual(len(context["sqli_map_schema"]), 1)
+        self.assertEqual(context["sqli_map_schema"][0]["database"], "main")
+        self.assertEqual(context["sqli_map_schema"][0]["parameter"], "email")
+        self.assertIn("Users", context["sqli_map_schema"][0]["tables"])
 
         merged = merge_sqli_map_findings({"vulnerabilities": []}, executions)
         result = build_validate_output_from_dict(
@@ -225,9 +261,46 @@ class SqliMapFindingTests(unittest.TestCase):
         self.assertEqual(finding.tools_used, ["sqli_map"])
         self.assertEqual(finding.parameter, "email")
         self.assertIn("Parameter: email (POST)", finding.evidence)
+        self.assertIn("databases listed: main", finding.evidence)
+        self.assertIn("tables listed: main: Addresses", finding.evidence)
+        self.assertIn("Users", finding.evidence)
         self.assertEqual(
             finding.reproducible_command,
-            'MCP sqli_map --param "email" --action detect',
+            'MCP sqli_map --param "email" --action validate',
+        )
+
+    def test_adds_listed_tables_to_existing_model_finding(self):
+        executions = [
+            {
+                "tool": "sqli_map",
+                "endpoint": "http://juice-shop:3000/rest/user/login",
+                "parameter": "email",
+                "output": (
+                    '{"result":{"injectable":true},'
+                    '"profile":{"tables":[{"database":"SQLite_masterdb",'
+                    '"tables":["Addresses","Users"]}]}}'
+                ),
+            }
+        ]
+        model_output = {
+            "vulnerabilities": [{
+                "type": "SQL Injection",
+                "endpoint": "http://juice-shop:3000/rest/user/login",
+                "parameter": "email",
+                "evidence": "SQLMap confirmed SQL injection.",
+            }]
+        }
+
+        merged = merge_sqli_map_findings(model_output, executions)
+
+        self.assertEqual(len(merged["vulnerabilities"]), 1)
+        self.assertIn(
+            "tables listed: SQLite_masterdb: Addresses, Users",
+            merged["vulnerabilities"][0]["evidence"],
+        )
+        self.assertEqual(
+            model_output["vulnerabilities"][0]["evidence"],
+            "SQLMap confirmed SQL injection.",
         )
 
 

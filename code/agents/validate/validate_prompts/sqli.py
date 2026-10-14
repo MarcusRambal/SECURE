@@ -16,9 +16,13 @@ def build_prompt(attack_type_filter: str) -> str:
         contexto de validación.
 
         Después de esas pruebas también puede haber resultados de SQLMap en modo
-        detección. Una detección positiva explícita de SQLMap es evidencia; un
+        validate. Una detección positiva explícita de SQLMap es evidencia; un
         resultado sin confirmar o un error de ejecución no demuestra que el endpoint
-        sea vulnerable.
+        sea vulnerable. Tras una detección positiva, SQLMap puede listar nombres de
+        bases de datos y tablas; esos nombres apoyan el contexto, pero por sí solos
+        no confirman SQL Injection. Si el contexto contiene `sqli_map_schema`,
+        menciona en la evidencia los nombres de tablas listados allí. No infieras
+        su contenido ni afirmes que se extrajeron filas.
 
         Prioriza:
 

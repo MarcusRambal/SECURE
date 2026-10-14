@@ -41,13 +41,22 @@ MCP_SKILLS_REGISTRY = {
         "mcp_schema": {
             "name": "sqli_map",
             "description": (
-                "Ejecuta SQLMap en un contenedor conectado a sec-net para confirmar "
-                "SQLi en un parámetro observado. Solo realiza detección; no enumera "
-                "bases de datos ni extrae datos."
+                "Ejecuta SQLMap en un contenedor conectado a sec-net sobre un único "
+                "parámetro observado. validate detecta y, solo con confirmación "
+                "positiva, lista nombres de bases de datos y tablas. No consulta "
+                "columnas ni extrae filas. detect ejecuta solo la detección."
             ),
             "inputSchema": {
                 "type": "object",
                 "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["detect", "validate"],
+                        "description": (
+                            "detecta únicamente o valida y lista bases/tablas tras "
+                            "una detección positiva (por defecto: detect)"
+                        ),
+                    },
                     "target_url": {
                         "type": "string",
                         "description": "Endpoint capturado dentro del origen autorizado",

