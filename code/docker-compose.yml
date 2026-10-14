@@ -221,3 +221,10 @@ services:
       - "127.0.0.1:3003:80"
     networks:
       - sec-net
+
+#Hydra      
+build-hydra:
+    build:
+      context: ./skills_controller
+      dockerfile: docker_images/Dockerfile.hydra
+    image: local-hydra:latest
