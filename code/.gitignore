@@ -116,3 +116,4 @@ __pycache__
 # Historial local de VS Code
 # ==========================================
 .history/
+*outputs
