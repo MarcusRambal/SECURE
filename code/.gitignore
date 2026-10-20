@@ -126,3 +126,17 @@ ffuf-results/
 # ==========================================
 crawler_output.json
 deep_output.json
+
+# JWT tooling test artifacts
+admin_token.txt
+token.txt
+.token
+pubkey.pem
+login.json
+request.txt
+jwttool_*
+forge_admin.py
+jwtconf.ini
+jwt_result.json
+jwt_artifacts/
+**/*.req
