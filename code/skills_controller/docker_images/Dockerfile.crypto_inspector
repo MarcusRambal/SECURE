@@ -1,0 +1,25 @@
+FROM python:3.12-slim
+
+# Instalar dependencias del sistema necesarias para compilar/ejecutar módulos criptográficos y ZeroMQ
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    libffi-dev \
+    libssl-dev \
+    libzmq3-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Instalar dependencias de Python para análisis criptográfico y comunicación MCP
+RUN pip install --no-cache-dir \
+    pyzmq \
+    cryptography \
+    pyjwt \
+    requests
+
+# Copiar el script del inspector al contenedor
+COPY crypto_inspector.py /app/crypto_inspector.py
+
+# Punto de entrada predeterminado para el ejecutor efímero
+ENTRYPOINT ["python", "/app/crypto_inspector.py"]

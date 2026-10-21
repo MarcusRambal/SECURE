@@ -1,7 +1,7 @@
 import logging
 import shlex
 from typing import Any, Dict, Tuple
-from tools._common import is_static_asset
+from ._common import is_static_asset
 
 logger = logging.getLogger("hydra_handler")
 

@@ -1,0 +1,29 @@
+modules:
+  rest:
+    base_url: http://localhost:3000
+
+subjects:
+  - name: alice
+    role: user
+    token: "${ALICE_TOKEN}"
+    attributes:
+      user_id: 1
+  - name: bob
+    role: user
+    token: "${BOB_TOKEN}"
+    attributes:
+      user_id: 2
+
+resources:
+  - name: get_basket
+    request:
+      method: GET
+      path: "/rest/basket/{id}"
+    type: object
+    owner: id
+
+policy:
+  get_basket:
+    allow:
+      - role: user
+        scope: own

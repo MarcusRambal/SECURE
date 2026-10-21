@@ -1,10 +1,11 @@
-from tools.sqlmap_handler import handle_sqlmap_args
-from tools.deep_crawler_handler import handle_deep_crawler_args
-from tools.commix_handler import handle_commix_args
-from tools.dalfox_handler import handle_dalfox_args
-from tools.testssl_handler import handle_testssl_args
-from tools.hydra_handler import handle_hydra_args
-from skills_controller.tools.ffuf_handler import handle_ffuf_args
+# En skills_controller/tools/mcp_tools_registry.py
+from .sqlmap_handler import handle_sqlmap_args
+from .commix_handler import handle_commix_args
+from .dalfox_handler import handle_dalfox_args
+from .testssl_handler import prepare_args as handle_testssl_args
+from .hydra_handler import prepare_args as handle_hydra_args
+from .ffuf_handler import prepare_args as handle_ffuf_args
+from .crypto_inspector_handler import prepare_args as handle_crypto_inspector_args
 
 MCP_SKILLS_REGISTRY = {
     "katana_full": {
@@ -268,7 +269,8 @@ MCP_SKILLS_REGISTRY = {
             "name": "testssl",
             "description": (
                 "Análisis pasivo y activo de configuraciones TLS/SSL, certificados, cifer de cifrado "
-                "obsoletos y vulnerabilidades del protocolo (OWASP Cryptographic Failures)."
+                "obsoletos y vulnerabilidades del protocolo (OWASP Cryptographic Failures). "
+                "Input esperado: target_url (ej: http://juice-shop-target:3000 o hostname:puerto)."
             ),
             "inputSchema": {
                 "type": "object",
@@ -289,7 +291,7 @@ MCP_SKILLS_REGISTRY = {
         "image": "drwetter/testssl.sh:latest",
         "command_template": "{args}",
         "timeout": 600,
-        "prepare_args": handle_testssl_args, 
+        "prepare_args": handle_testssl_args,
         "success_exit_codes": [0, 1],
     },
 
@@ -369,6 +371,37 @@ MCP_SKILLS_REGISTRY = {
         "command_template": "{args}",
         "timeout": 1800,
         "prepare_args": handle_ffuf_args,
+        "success_exit_codes": [0],
+    },
+
+# =========================================================================
+    # crypto_inspector - Análisis de seguridad de JWT y algoritmos de hashing
+    "crypto_inspector": {
+        "mcp_schema": {
+            "name": "crypto_inspector",
+            "description": (
+                "Análisis pasivo de respuestas JSON de API REST y tokens JWT. "
+                "Detecta algoritmos de hashing obsoletos (MD5, SHA1), claves expuestas y JWTs inseguros."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "jwt_token": {
+                        "type": "string",
+                        "description": "Token JWT a analizar",
+                    },
+                    "target_url": {
+                        "type": "string",
+                        "description": "URL u endpoint a evaluar",
+                    },
+                },
+                "required": [],
+            },
+        },
+        "image": "local-crypto-inspector:latest",
+        "command_template": "{args}",
+        "timeout": 300,
+        "prepare_args": handle_crypto_inspector_args,
         "success_exit_codes": [0],
     },
 }
