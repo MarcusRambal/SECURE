@@ -24,7 +24,7 @@ TOOL_MAP = {
 
 TOOL_COMMAND_TEMPLATES = {
     "sqlmap": 'sqlmap -r "{file_path}" --batch --level=5 --risk=3 --ignore-stdin --ignore-code=401 --no-escape',
-    "dalfox": 'dalfox url "{target_url}" --silence',
+    "dalfox": 'dalfox scan "{target_url}"',
     "commix": 'commix --url="{target_url}" --batch',
     "nuclei": 'nuclei -u "{target_url}" -tags {tags} -silent -nc',
     "ffuf": 'ffuf -u "{target_url}" -w /wordlists/common.txt -s',

@@ -1,11 +1,17 @@
 import json
 import logging
+import shlex
 from dataclasses import dataclass, field
 from urllib.parse import parse_qsl, urljoin
 
 import aio_pika
 
-from attack_types import is_sqli_attack
+from attack_types import is_sqli_attack, is_xss_attack
+from dalfox_output import (
+    build_dalfox_validator_context,
+    merge_verified_dalfox_findings,
+    parse_dalfox_output,
+)
 from helpers import (
     build_validate_sqli_context,
     get_sqli_test_parameters,
@@ -254,7 +260,130 @@ class SqliValidationStrategy(ValidationStrategy):
         return parsed_output
 
 
+class XssValidationStrategy(ValidationStrategy):
+    """Execute Dalfox per captured endpoint and expose only normalized evidence."""
+
+    async def execute(
+        self,
+        channel: aio_pika.Channel,
+        target_url: str,
+        targets: list[dict],
+        task_id: str,
+        tool_timings: list[dict],
+    ) -> ValidationEvidence:
+        evidence = ValidationEvidence()
+        for target in targets:
+            request = target.get("request")
+            request = request if isinstance(request, dict) else {}
+            endpoint_url = str(request.get("url") or target["url"])
+            endpoint_url = urljoin(f"{target_url.rstrip('/')}/", endpoint_url)
+            safe_endpoint = sanitize_endpoint_for_context(endpoint_url)
+
+            if not is_same_origin(target_url, endpoint_url):
+                evidence.pre_executed_context.append(
+                    {
+                        "tool": "dalfox",
+                        "status": "SKIPPED",
+                        "target_id": target.get("target_id"),
+                        "request_id": target.get("request_id"),
+                        "endpoint": safe_endpoint,
+                        "method": str(target.get("method") or "GET").upper(),
+                        "reason": "endpoint_outside_target_origin",
+                        "findings": [],
+                    }
+                )
+                continue
+
+            raw_output = await call_mcp_skill(
+                channel,
+                "dalfox",
+                {"target_url": endpoint_url, "request": request},
+                tool_timings,
+            )
+            result = parse_dalfox_output(raw_output)
+            normalized_output = {
+                "status": result.status,
+                "findings": [
+                    {
+                        "endpoint": sanitize_endpoint_for_context(finding.endpoint),
+                        "method": finding.method,
+                        "parameter": finding.parameter,
+                        "verification": finding.verification,
+                        "context": finding.context,
+                        "payload": finding.payload,
+                    }
+                    for finding in result.findings
+                ],
+                "message": result.message,
+            }
+            method = str(request.get("method") or target.get("method") or "GET").upper()
+            body = request.get("body") or ""
+            has_body = bool(body)
+            if method != "GET" or has_body:
+                command = '/app/dalfox scan --input-type raw-http "/tmp/dalfox-req.txt"'
+            else:
+                command = f"/app/dalfox scan {shlex.quote(endpoint_url)}"
+                headers = request.get("headers")
+                if isinstance(headers, dict):
+                    cookie = next(
+                        (
+                            value
+                            for name, value in headers.items()
+                            if isinstance(name, str) and name.casefold() == "cookie"
+                        ),
+                        None,
+                    )
+                    if cookie:
+                        command += f" --cookies {shlex.quote(str(cookie))}"
+            execution = {
+                "tool": "dalfox",
+                "command": command,
+                "target_id": target.get("target_id"),
+                "request_id": target.get("request_id"),
+                "endpoint": safe_endpoint,
+                "method": method,
+                "output": json.dumps(normalized_output, ensure_ascii=False),
+            }
+            evidence.executed_commands.append(execution)
+            evidence.pre_executed_context.append(
+                build_dalfox_validator_context(
+                    result,
+                    target_id=target.get("target_id"),
+                    request_id=target.get("request_id"),
+                    endpoint=endpoint_url,
+                    method=method,
+                )
+            )
+        return evidence
+
+    def build_validation_context(self, evidence: ValidationEvidence) -> dict:
+        return {"dalfox_results": evidence.pre_executed_context}
+
+    def merge_findings(
+        self,
+        parsed_output: dict,
+        evidence: ValidationEvidence,
+        task_id: str,
+    ) -> dict:
+        merged = merge_verified_dalfox_findings(
+            parsed_output, evidence.executed_commands
+        )
+        logger.info(
+            "[VALIDATE] task_id=%s verified_dalfox_findings=%d",
+            task_id,
+            sum(
+                1
+                for item in evidence.pre_executed_context
+                for finding in item.get("findings", [])
+                if finding.get("verification") == "verified"
+            ),
+        )
+        return merged
+
+
 def get_validation_strategy(attack_type: str) -> ValidationStrategy:
     if is_sqli_attack(attack_type):
         return SqliValidationStrategy()
+    if is_xss_attack(attack_type):
+        return XssValidationStrategy()
     return ValidationStrategy()

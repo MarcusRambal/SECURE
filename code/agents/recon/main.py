@@ -8,12 +8,13 @@ from pydantic import ValidationError
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.exceptions import OutputParserException
 
-from attack_types import is_sqli_attack
+from attack_types import is_sqli_attack, is_xss_attack
 from contract_schemas import ReconPlannerOutput
 from helpers import (
     build_recon_output_from_dict,
     build_sqli_recon_context,
     build_sqli_fallback_output,
+    build_xss_recon_context,
     deduplicate_urls,
     ensure_sqli_entry_point_coverage,
     extract_urls_from_crawler,
@@ -40,6 +41,7 @@ async def process_recon_task(channel: aio_pika.Channel,target_url: str, attack_t
 
     started_at = datetime.now(timezone.utc).isoformat()
     is_sqli = is_sqli_attack(attack_type_filter)
+    is_xss = is_xss_attack(attack_type_filter)
     tool_timings: list[dict] = []
 
     logger.info("🟡 [RECON] Inicio target=%s attack_type=%s started_at=%s",target_url,attack_type_filter,started_at)
@@ -58,11 +60,26 @@ async def process_recon_task(channel: aio_pika.Channel,target_url: str, attack_t
         raise RuntimeError(f"crawler no devolvió JSON válido: {error}") from error
 
     crawler_urls = extract_urls_from_crawler(crawler_data)
+    discovered_urls = list(crawler_urls)
 
     logger.info("[RECON] crawler completado urls=%d", len(crawler_urls))
 
-    if is_sqli:
-        logger.info("[RECON] SQLi: ejecutando deep_crawler con la salida efimera de crawler")
+    deep_crawler_data = None
+    deep_crawler_urls = []
+    available_tools = [
+        {
+            "name": tool.get("name"),
+            "description": tool.get("description", ""),
+        }
+        for tool in catalog
+        if tool.get("name") not in {"crawler", "deep_crawler"}
+    ]
+
+    if is_sqli or is_xss:
+        logger.info(
+            "[RECON] %s: ejecutando deep_crawler con la salida efímera de crawler",
+            attack_type_filter,
+        )
 
         deep_crawler_output = await call_mcp_skill(
             channel,
@@ -82,15 +99,20 @@ async def process_recon_task(channel: aio_pika.Channel,target_url: str, attack_t
         #Fase de limpieza del contexto para que el agente pueda consumirlo
         discovered_urls = deduplicate_urls(crawler_urls, deep_crawler_urls)
 
-        available_tools = [
-                {
-                    "name": tool.get("name"),
-                    "description": tool.get("description", ""),
-                }
-                for tool in catalog
-                if tool.get("name") not in {"crawler", "deep_crawler"}
-            ]
-        recon_sources = build_sqli_recon_context(crawler_data,deep_crawler_data,discovered_urls,available_tools )
+    if is_sqli:
+        recon_sources = build_sqli_recon_context(
+            crawler_data, deep_crawler_data, discovered_urls, available_tools
+        )
+    elif is_xss:
+        recon_sources = build_xss_recon_context(
+            crawler_data, deep_crawler_data, discovered_urls, available_tools
+        )
+    else:
+        recon_sources = {
+            "crawler_endpoints": crawler_data.get("navigation", {}).get("endpoints", [])[:50],
+            "deduplicated_urls": discovered_urls[:100],
+            "available_validation_tools": available_tools,
+        }
 
     try:
         context_path = write_recon_context_snapshot(target_url, attack_type_filter, recon_sources)
@@ -137,7 +159,7 @@ async def process_recon_task(channel: aio_pika.Channel,target_url: str, attack_t
         parsed_dict,
         target_url,
         attack_type_filter,
-        deep_crawler_data if is_sqli else None,
+        deep_crawler_data if is_sqli or is_xss else None,
     )
     logger.info("[RECON] Plan JSON validado targets=%d ", len(recon_output.high_priority_targets),)
 

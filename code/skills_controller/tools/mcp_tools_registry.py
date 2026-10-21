@@ -206,6 +206,8 @@ MCP_SKILLS_REGISTRY = {
             "Análisis especializado en Cross-Site Scripting (XSS reflejado y DOM). "
             "Para GET: requiere URL con parámetros en la query string (?q=test). "
             "Para POST: acepta 'request' estructurada con body y headers. "
+            "El modo POST analiza la request capturada, pero no implementa por sí solo "
+            "la secuencia almacenado escritura-lectura de XSS almacenado. "
             "USAR EN FASE DE VALIDACIÓN sobre endpoints de búsqueda, filtros o formularios. "
             "Devuelve: confirmación de XSS y PoC con payload ejecutable."
         ),
@@ -228,7 +230,7 @@ MCP_SKILLS_REGISTRY = {
     "command_template": '/app/dalfox {target_arg} {extra_flags}',
     "timeout": 1800,
     "prepare_args": handle_dalfox_args,
-    "success_exit_codes": [0, 1, 2],
+    "success_exit_codes": [0, 1],
 },
     # =========================================================================
     # 7. Commix - Inyección de Comandos del SO (Command Injection)
