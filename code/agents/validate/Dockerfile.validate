@@ -13,9 +13,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY contract_schemas.py .
 COPY llm_factory.py .
 COPY validate/config.py .
+COPY validate/context_utils.py .
 COPY validate/helpers.py .
+COPY validate/attack_validators.py .
+COPY validate/dalfox_output.py .
 COPY validate/mcp_skills.py .
-COPY validate/analysis_skills.py .
 COPY validate/validate_prompts/ validate_prompts/
 COPY validate/main.py .
 COPY validate/worker.py .

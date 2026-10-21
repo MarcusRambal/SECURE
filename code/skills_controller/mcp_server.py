@@ -30,6 +30,17 @@ class SkillsMCPServer:
         merged_args = dict(arguments) if arguments else {}
         input_files = {}
 
+        handler = tool_config.get("handler")
+        if handler:
+            output = await handler(merged_args)
+            return {
+                "jsonrpc": "2.0",
+                "result": {
+                    "content": [{"type": "text", "text": output}],
+                    "isError": False,
+                },
+            }
+
         # 1. Si la herramienta define un handler/preparador especial, lo invocamos
         prepare_fn = tool_config.get("prepare_args")
         if prepare_fn:

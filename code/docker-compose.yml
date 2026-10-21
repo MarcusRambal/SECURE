@@ -56,7 +56,7 @@ services:
       - RABBITMQ_DEFAULT_USER=${RABBITMQ_USER}
       - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASS}
     volumes:
-      - ./enable_plugins:/etc/rabbitmq/enabled_plugins:ro
+      - ./enable_plugins:/etc/rabbitmq/enabled_plugins:ro,z
     networks:
       - internal-net
     healthcheck:
@@ -72,15 +72,22 @@ services:
       context: ./skills_controller
       dockerfile: Dockerfile.skills_controller
     container_name: ctnr-skills-controller
+    security_opt:
+      - label=disable # SELinux (Fedora) bloquea el acceso al docker.sock
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock # Acceso al Engine de Docker
+      - ./skills_controller/tools/sqli_map/outputs:/app/tools/sqli_map/outputs
+      - ./skills_controller/tools/sqli_skill/outputs:/app/tools/sqli_skill/outputs
     env_file:
       - .env
     networks:
       - internal-net
+      - sec-net
     depends_on:
       rabbitmq:
         condition: service_healthy
+      build-sqli-map:
+        condition: service_completed_successfully
 
   # 4. Orquestador Principal (LLM Router)
   orchestrator:
@@ -95,6 +102,8 @@ services:
     networks:
       - public-net
       - internal-net
+    extra_hosts:
+      - "host.docker.internal:host-gateway" # Docker Engine nativo en Linux no lo resuelve solo
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -113,6 +122,8 @@ services:
     networks:
       - sec-net
       - internal-net
+    extra_hosts:
+      - "host.docker.internal:host-gateway" # Docker Engine nativo en Linux no lo resuelve solo
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -131,6 +142,8 @@ services:
     networks:
       - sec-net
       - internal-net
+    extra_hosts:
+      - "host.docker.internal:host-gateway" # Docker Engine nativo en Linux no lo resuelve solo
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -146,6 +159,8 @@ services:
     networks:
       - sec-net
       - internal-net
+    extra_hosts:
+      - "host.docker.internal:host-gateway" # Docker Engine nativo en Linux no lo resuelve solo
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -155,7 +170,7 @@ services:
       context: ./skills_controller
       dockerfile: docker_images/Dockerfile.spa_crawler
     image: local-spa-crawler:latest
-    command: ["echo", "local-spa-crawler listo"]
+    command: ["--help"]
 
   build-crawler:
     build:
@@ -169,6 +184,13 @@ services:
       context: ./skills_controller
       dockerfile: docker_images/Dockerfile.deep_crawler
     image: local-deep-crawler:latest
+    command: ["--help"]
+
+  build-sqli-map:
+    build:
+      context: ./skills_controller
+      dockerfile: docker_images/Dockerfile.sqli_map
+    image: local-sqli-map:latest
     command: ["--help"]
 
   # 8. Entorno Vulnerable: WebGoat
