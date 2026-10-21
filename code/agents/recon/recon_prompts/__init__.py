@@ -2,11 +2,13 @@ from collections.abc import Callable
 
 from attack_types import normalize_attack_type
 from .sqli import build_prompt as build_sqli_prompt
+from .xss import build_prompt as build_xss_prompt
 
 PromptBuilder = Callable[[str], str]
 
 PROMPT_BUILDERS: dict[str, PromptBuilder] = {
     "sqli": build_sqli_prompt,
+    "xss": build_xss_prompt,
 }
 
 
