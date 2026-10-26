@@ -8,8 +8,8 @@ from pydantic import ValidationError
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.exceptions import OutputParserException
 
-from attack_types import is_sqli_attack
-from contract_schemas import ReconPlannerOutput
+from attack_types import is_sqli_attack, is_jwt_attack
+from contract_schemas import ReconPlannerOutput, ReconSummary, HighPriorityTarget
 from helpers import (
     build_recon_output_from_dict,
     build_sqli_recon_context,
@@ -40,6 +40,36 @@ async def process_recon_task(channel: aio_pika.Channel,target_url: str,attack_ty
 
     started_at = datetime.now(timezone.utc).isoformat()
     is_sqli = is_sqli_attack(attack_type_filter)
+
+    is_jwt = is_jwt_attack(attack_type_filter)
+
+    if is_jwt:
+        # JWT no requiere crawling: jwt_tool autodescubre el endpoint protegido.
+        # Devolvemos un único target apuntando a la raíz para no romper el contrato
+        # ReconPlannerOutput que espera el orquestador.
+        logger.info("[RECON] JWT fast-path: skipping crawl for %s", target_url)
+        return (
+            ReconPlannerOutput(
+                recon_summary=ReconSummary(
+                    target_url=target_url,
+                    attack_type_filter=attack_type_filter,
+                    total_targets_identified=1,
+                    total_requests_captured=0,
+                ),
+                high_priority_targets=[
+                    HighPriorityTarget(
+                        target_id="target_001",
+                        request_id="",
+                        vulnerability_target="JWT authentication analysis (A07)",
+                        endpoint=target_url,
+                        method="GET",
+                        request=None,
+                        recommended_tool="jwt_tool",
+                    )
+                ],
+            ),
+            "clean",
+        )
 
     logger.info("🟡 [RECON] Inicio target=%s attack_type=%s started_at=%s",target_url,attack_type_filter,started_at)
 

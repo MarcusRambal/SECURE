@@ -10,7 +10,7 @@ from pydantic import ValidationError
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.exceptions import OutputParserException
 
-from contract_schemas import ValidateOutput
+from contract_schemas import ValidateOutput, Vulnerability
 from helpers import (
     build_validate_output_from_dict,
     build_fallback_validate_output,
@@ -19,27 +19,206 @@ from helpers import (
     write_validate_context_snapshot,
 )
 from mcp_skills import build_validation_tools, call_mcp_skill, get_mcp_catalog
-from attack_types import is_sqli_attack
+from attack_types import is_sqli_attack, is_jwt_attack
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("validate-agent-worker")
 
 
 logger.info("🟢 [VALIDATE] Cargando LLM de validación")
-    
+
 llm = get_llm("MODEL_VALIDATE")
 structured_llm = llm.with_structured_output(ValidateOutput, method="json_schema",)
+
+VALID_SEVERITIES = {"CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"}
+
+
+# ============================================================================
+# JWT: flujo determinista (sin LLM)
+# ============================================================================
+
+async def _process_jwt_validation(
+    channel: aio_pika.Channel,
+    target_url: str,
+    token: str | None,
+    started_at: str,
+) -> tuple[ValidateOutput, str]:
+    """Ejecuta jwt_tool y transforma su JSON estructurado a ValidateOutput.
+
+    No pasa por el LLM: la salida del handler ya es el contrato final.
+    """
+    if not token:
+        logger.warning("[VALIDATE] JWT requiere token; no se recibió uno.")
+        return (
+            ValidateOutput(
+                target_url=target_url,
+                vulnerabilities=[],
+                unconfirmed_findings=[{
+                    "reason": (
+                        "El ataque JWT requiere un token de sesión válido. "
+                        "No se recibió token en el payload."
+                    )
+                }],
+                scan_started_at=started_at,
+                scan_finished_at=datetime.now(timezone.utc).isoformat(),
+            ),
+            "clean",
+        )
+
+    logger.info("[VALIDATE] JWT: invocando jwt_tool para %s", target_url)
+
+    try:
+        raw_output = await call_mcp_skill(
+            channel,
+            "jwt_tool",
+            {"target_url": target_url, "token": token},
+        )
+    except Exception as exc:
+        logger.exception("[VALIDATE] Falló la invocación de jwt_tool")
+        return (
+            ValidateOutput(
+                target_url=target_url,
+                vulnerabilities=[],
+                unconfirmed_findings=[{"reason": f"jwt_tool falló: {exc}"}],
+                scan_started_at=started_at,
+                scan_finished_at=datetime.now(timezone.utc).isoformat(),
+            ),
+            "clean",
+        )
+
+    try:
+        report = json.loads(raw_output)
+    except json.JSONDecodeError as exc:
+        logger.error("[VALIDATE] jwt_tool devolvió salida no-JSON: %s", exc)
+        return (
+            ValidateOutput(
+                target_url=target_url,
+                vulnerabilities=[],
+                unconfirmed_findings=[{
+                    "reason": f"jwt_tool devolvió salida no-JSON: {str(exc)[:200]}",
+                    "raw_preview": raw_output[:500] if isinstance(raw_output, str) else "",
+                }],
+                scan_started_at=started_at,
+                scan_finished_at=datetime.now(timezone.utc).isoformat(),
+            ),
+            "clean",
+        )
+
+    # Error controlado del handler (ej. JWT malformado)
+    if report.get("error") and not report.get("findings"):
+        return (
+            ValidateOutput(
+                target_url=target_url,
+                vulnerabilities=[],
+                unconfirmed_findings=[{
+                    "reason": f"jwt_tool error: {report.get('error')}",
+                    "message": report.get("message", ""),
+                    "hint": report.get("hint", ""),
+                }],
+                scan_started_at=started_at,
+                scan_finished_at=datetime.now(timezone.utc).isoformat(),
+            ),
+            "clean",
+        )
+
+    reproducible = (
+        f"python jwt_tool_handler.py --target {target_url} --token <JWT>"
+    )
+    vulnerabilities: list[Vulnerability] = []
+
+    for finding in report.get("findings", []) or []:
+        if not isinstance(finding, dict):
+            continue
+
+        sev = str(finding.get("severity", "MEDIUM")).upper()
+        if sev not in VALID_SEVERITIES:
+            sev = "MEDIUM"
+
+        title = finding.get("title") or "JWT weakness"
+        description = finding.get("description") or ""
+        evidence_field = finding.get("evidence") or ""
+        cwe = finding.get("cwe") or ""
+        owasp = finding.get("owasp") or ""
+        remediation = finding.get("remediation") or ""
+
+        # El handler nuevo devuelve evidence como STRING (no dict).
+        # Se compone: "[CWE-XXX / A07:2025] description | evidence_tecnica"
+        composed = " | ".join(p for p in (description, evidence_field) if p)
+        mapping = " / ".join(x for x in (cwe, owasp) if x)
+        if mapping and composed:
+            evidence_text = f"[{mapping}] {composed}"
+        elif composed:
+            evidence_text = composed
+        else:
+            evidence_text = title
+
+        if remediation:
+            evidence_text += f" | Mitigation: {remediation}"
+
+        evidence_text = evidence_text[:1500]
+
+        try:
+            vulnerabilities.append(
+                Vulnerability(
+                    type=title,
+                    severity=sev,
+                    endpoint=target_url,
+                    parameter=None,
+                    evidence=evidence_text,
+                    reproducible_command=reproducible,
+                    confidence="HIGH",
+                    tools_used=["jwt_tool"],
+                )
+            )
+        except ValidationError as exc:
+            logger.warning("[VALIDATE] Finding JWT descartado por schema: %s", exc)
+
+    # Contexto adicional para el reporter (no es una vulnerabilidad, es metadata)
+    context = {
+        "jwt_analysis": report.get("jwt_analysis", {}),
+        "attacks_summary": report.get("summary", {}),
+        "discovery": report.get("discovery", {}),
+    }
+
+    logger.info(
+        "[VALIDATE] JWT completado: findings=%d risk=%s",
+        len(vulnerabilities),
+        report.get("summary", {}).get("risk_level", "UNKNOWN"),
+    )
+
+    return (
+        ValidateOutput(
+            target_url=target_url,
+            vulnerabilities=vulnerabilities,
+            unconfirmed_findings=[context],
+            scan_started_at=started_at,
+            scan_finished_at=datetime.now(timezone.utc).isoformat(),
+        ),
+        "clean",
+    )
+
 
 # ============================================================================
 # FLUJO PRINCIPAL DE VALIDACIÓN
 # ============================================================================
 
-async def process_validate_task(channel: aio_pika.Channel,target_url: str,attack_type: str,targets: list[dict],) -> tuple[ValidateOutput, str]:
-   
+async def process_validate_task(
+    channel: aio_pika.Channel,
+    target_url: str,
+    attack_type: str,
+    targets: list[dict],
+    token: str | None = None,
+) -> tuple[ValidateOutput, str]:
+
     started_at = datetime.now(timezone.utc).isoformat()
 
     is_sqli = is_sqli_attack(attack_type)
-    logger.info("[VALIDATE] Es ataque SQLi: %s", is_sqli)
+    is_jwt = is_jwt_attack(attack_type)
+    logger.info("[VALIDATE] Es ataque SQLi: %s | JWT: %s", is_sqli, is_jwt)
+
+    # JWT: flujo determinista, sin crawl ni LLM.
+    if is_jwt:
+        return await _process_jwt_validation(channel, target_url, token, started_at)
 
     selected_targets = [
         {
@@ -48,35 +227,38 @@ async def process_validate_task(channel: aio_pika.Channel,target_url: str,attack
             "target_id": target.get("target_id"),
             "request_id": target.get("request_id"),
             "recommended_tool": target.get("recommended_tool"),
-            "request": target.get("request", {}), 
+            "request": target.get("request", {}),
         }
         for target in targets
         if isinstance(target, dict) and target.get("endpoint")
     ]
 
-    # Manejo de caso borde: Vino vacio
     if not selected_targets:
-        logger.warning("Recon no devolvió objetivos prioritarios válidos. Omisión de la fase de validación.")
+        logger.warning(
+            "Recon no devolvió objetivos prioritarios válidos. Omisión de la fase de validación."
+        )
         return (
             ValidateOutput(
                 target_url=target_url,
                 vulnerabilities=[],
-                unconfirmed_findings=[{"reason": "Recon sin objetivos válidos para analizar"}],
-                scan_started_at=started_at,
-                scan_finished_at=datetime.now(timezone.utc).isoformat(),
+                unconfirmed_findings=[
+                    {"reason": "Recon sin objetivos válidos para analizar"}
+                ],
             ),
-            "clean",  # Omisión controlada
+            "clean",
         )
 
-    # Construcción del catálogo de herramientas MCP y preparación de la ejecución
     catalog = await get_mcp_catalog(channel)
     raw_tool_outputs: list[str] = []
     executed_commands: list[dict] = []
-    pre_executed_context: list[str] = []
+    pre_executed_context: list[dict] = []
 
     if is_sqli:
-        logger.info( "[VALIDATE] Ejecutando SQLMap de forma obligatoria sobre %d endpoint(s)",len(selected_targets))
-        
+        logger.info(
+            "[VALIDATE] Ejecutando SQLMap de forma obligatoria sobre %d endpoint(s)",
+            len(selected_targets),
+        )
+
         for target in selected_targets:
             request_data = target.get("request", {})
             if isinstance(request_data, dict) and request_data:
@@ -95,12 +277,11 @@ async def process_validate_task(channel: aio_pika.Channel,target_url: str,attack
                         target["url"],
                     )
                 }
-            
+
             try:
                 output = await call_mcp_skill(channel, "sqlmap", tool_args)
                 raw_tool_outputs.append(output)
-                
-                # Construir registro de comandos ejecutados
+
                 executed_command = {
                     "tool": "sqlmap",
                     "args": tool_args,
@@ -114,8 +295,7 @@ async def process_validate_task(channel: aio_pika.Channel,target_url: str,attack
                     "output": output,
                 }
                 executed_commands.append(executed_command)
-                
-                # Contexto formateado para que el LLM lo analice
+
                 pre_executed_context.append(
                     {
                         "target_id": target.get("target_id"),
@@ -130,24 +310,26 @@ async def process_validate_task(channel: aio_pika.Channel,target_url: str,attack
                     }
                 )
             except Exception as err:
-                logger.error(f"Fallo en ejecución obligatoria de SQLMap en {target['url']}: {err}")
-
+                logger.error(
+                    "Fallo en ejecución obligatoria de SQLMap en %s: %s",
+                    target["url"],
+                    err,
+                )
 
     excluded_tools = {"sqlmap"} if is_sqli else set()
     tools = build_validation_tools(catalog, channel, attack_type, excluded_tools)
     logger.info("Herramientas Validate activas: %s", [tool.name for tool in tools])
 
-    
-
     system_prompt = SystemMessage(content=get_system_prompt(attack_type))
 
     user_message = HumanMessage(content=(
-                f"Analiza los resultados de SQLMap y determina si existe vulnerabilidad.\n\n"
-                "Fuentes obligatorias de validacion ya ejecutadas:\n"
-                f"{json.dumps(pre_executed_context, ensure_ascii=False, indent=2)}\n\n"
-                "Copia target_id, request_id y endpoint exclusivamente de la ejecucion que "
-                "aporta la evidencia. No inventes IDs, endpoints, URLs ni comandos."
-            ))
+        "Analiza los resultados de las herramientas de validación y determina si "
+        "existe una vulnerabilidad confirmada.\n\n"
+        "Fuentes obligatorias de validación ya ejecutadas:\n"
+        f"{json.dumps(pre_executed_context, ensure_ascii=False, indent=2)}\n\n"
+        "Copia target_id, request_id y endpoint exclusivamente de la ejecución que "
+        "aporta la evidencia. No inventes IDs, endpoints, URLs ni comandos."
+    ))
 
     try:
         snapshot_path = write_validate_context_snapshot(
@@ -163,29 +345,39 @@ async def process_validate_task(channel: aio_pika.Channel,target_url: str,attack
     except OSError:
         logger.exception("[VALIDATE] No se pudo guardar el contexto")
 
-
     try:
-        # Salida estructurada del LLM
         structured_output = await structured_llm.ainvoke([system_prompt, user_message])
-
     except (OutputParserException, ValidationError) as error:
         if not is_sqli:
             raise
         logger.warning(
-            "[VALIDATE] El LLM no devolvio ValidateOutput compatible (%s); usando resultados de herramientas.",
+            "[VALIDATE] El LLM no devolvió ValidateOutput compatible (%s); "
+            "usando resultados de herramientas.",
             error,
         )
-        parsed_dict = build_fallback_validate_output(target_url, raw_tool_outputs, executed_commands, started_at)
+        parsed_dict = build_fallback_validate_output(
+            target_url, raw_tool_outputs, executed_commands, started_at
+        )
     else:
         if not isinstance(structured_output, ValidateOutput):
-            raise TypeError("El LLM estructurado no devolvió una instancia de ValidateOutput")
-        
-        logger.info("[VALIDATE] Salida original del agente antes del procesamiento:\n%s",structured_output.model_dump_json(indent=2),)
-        
+            raise TypeError(
+                "El LLM estructurado no devolvió una instancia de ValidateOutput"
+            )
+
+        logger.info(
+            "[VALIDATE] Salida original del agente antes del procesamiento:\n%s",
+            structured_output.model_dump_json(indent=2),
+        )
+
         parsed_dict = structured_output.model_dump()
 
-    validate_output = build_validate_output_from_dict(parsed_dict,target_url,started_at,executed_commands)
-    logger.info("[VALIDATE] Salida normalizada vulnerabilidades=%d no_confirmados=%d", len(validate_output.vulnerabilities), len(validate_output.unconfirmed_findings))
+    validate_output = build_validate_output_from_dict(
+        parsed_dict, target_url, started_at, executed_commands
+    )
+    logger.info(
+        "[VALIDATE] Salida normalizada vulnerabilidades=%d no_confirmados=%d",
+        len(validate_output.vulnerabilities),
+        len(validate_output.unconfirmed_findings),
+    )
 
     return validate_output, "clean"
-

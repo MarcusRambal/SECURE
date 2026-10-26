@@ -177,6 +177,7 @@ def create_orchestrator_tools(channel: aio_pika.Channel) -> list[StructuredTool]
             "target_url": state["target_url"],
             "attack_type": state["attack_type"],
             "recon_data": recon_data,
+            "token": state.get("token"),
         }
 
         if LOG_RPC_PAYLOADS:

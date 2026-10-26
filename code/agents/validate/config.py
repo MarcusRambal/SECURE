@@ -14,12 +14,14 @@ LOG_RPC_PAYLOADS = os.getenv("LOG_RPC_PAYLOADS", "false").strip().lower() in {
     "on",
 }
 
-ALLOWED_ATTACK_TYPES = {"full", "sql_injection", "xss", "command_injection"}
+ALLOWED_ATTACK_TYPES = {"full", "sql_injection", "xss", "command_injection", "jwt"}
+
 TOOL_MAP = {
     "full": ["sqlmap", "dalfox", "commix", "nuclei", "ffuf"],
     "sql_injection": ["sqlmap"],
     "xss": ["dalfox"],
     "command_injection": ["commix"],
+    "jwt": ["jwt_tool"],
 }
 
 TOOL_COMMAND_TEMPLATES = {
@@ -28,4 +30,7 @@ TOOL_COMMAND_TEMPLATES = {
     "commix": 'commix --url="{target_url}" --batch',
     "nuclei": 'nuclei -u "{target_url}" -tags {tags} -silent -nc',
     "ffuf": 'ffuf -u "{target_url}" -w /wordlists/common.txt -s',
+    # jwt_tool se ejecuta dentro de un contenedor efímero.
+    # El token NUNCA se incluye en este template: se pasa con prepare_args.
+    "jwt_tool": 'python /app/jwt_tool_handler.py --target "{target_url}" --token <JWT_REDACTED>',
 }

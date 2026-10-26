@@ -1,4 +1,5 @@
 SQLI_ATTACK_TYPE = "sqli"
+JWT_ATTACK_TYPE = "jwt"
 
 
 def normalize_attack_type(attack_type_filter: str) -> str:
@@ -7,3 +8,7 @@ def normalize_attack_type(attack_type_filter: str) -> str:
 
 def is_sqli_attack(attack_type_filter: str) -> bool:
     return normalize_attack_type(attack_type_filter) == SQLI_ATTACK_TYPE
+
+
+def is_jwt_attack(attack_type_filter: str) -> bool:
+    return normalize_attack_type(attack_type_filter) == JWT_ATTACK_TYPE

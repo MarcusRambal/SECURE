@@ -20,7 +20,6 @@ async def start_validate_worker():
                 channel = await connection.channel()
                 queue = await channel.declare_queue(VALIDATE_QUEUE, durable=True)
                 logger.info(f"🎧 Validate-Agent escuchando activamente en '{VALIDATE_QUEUE}'...")
-
                 async with queue.iterator() as queue_iter:
                     async for message in queue_iter:
                         async with message.process():
@@ -32,6 +31,7 @@ async def start_validate_worker():
 
                                 target_url = payload.get("target_url")
                                 attack_type = payload.get("attack_type")
+                                token = payload.get("token")  # None para ataques sin token
 
                                 recon_data = payload.get("recon_data", {})
                                 
@@ -67,7 +67,7 @@ async def start_validate_worker():
 
                                 logger.info( f"📥 [VALIDATE-AGENT] Tarea de validación recibida para {target_url}")
 
-                                validate_data, recovery_mode = await process_validate_task(channel, target_url, attack_type, simplified_targets)
+                                validate_data, recovery_mode = await process_validate_task(channel, target_url, attack_type, simplified_targets, token=token)
 
                                 if recovery_mode == "fallback":
                                     status = "PARTIAL"

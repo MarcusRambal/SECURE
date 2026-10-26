@@ -81,6 +81,8 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
+      build-jwt:
+        condition: service_completed_successfully
 
   # 4. Orquestador Principal (LLM Router)
   orchestrator:
@@ -169,6 +171,13 @@ services:
       context: ./skills_controller
       dockerfile: docker_images/Dockerfile.deep_crawler
     image: local-deep-crawler:latest
+    command: ["--help"]
+
+  build-jwt:
+    build:
+      context: ./skills_controller/tools
+      dockerfile: Dockerfile.jwt
+    image: local-jwt-tool:latest
     command: ["--help"]
 
   # 8. Entorno Vulnerable: WebGoat

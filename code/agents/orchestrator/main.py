@@ -76,6 +76,7 @@ async def execute_orchestration_flow(payload: dict, channel: aio_pika.Channel):
         # Cómo se recuperó cada fase: "clean" | "recovered" | "fallback" | "error".
         "recon_recovery_mode": None,
         "validate_recovery_mode": None,
+        "token": payload.get("token"),
     }
 
     try:
