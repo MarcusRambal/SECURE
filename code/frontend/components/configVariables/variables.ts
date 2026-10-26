@@ -10,7 +10,10 @@ export const ATTACK_CATEGORIES = {
   },
   auth_failure: {
     label: "Authentication Failure",
-    attacks: [{ id: "auth_default", label: "Proximamente / General" }],
+    attacks: [
+      { id: "jwt", label: "JWT Analysis" },
+      { id: "auth_default", label: "Proximamente / General" },
+    ],
   },
   crypto_failure: {
     label: "Cryptographic Failures",
@@ -28,6 +31,4 @@ export const AVAILABLE_LLM_MODELS = [
   "DeepSeek-R1",
 ];
 
-export const DEFAULT_AGENT_MODELS = [
-  
-]
+export const DEFAULT_AGENT_MODELS = [];

@@ -17,9 +17,15 @@ export const ConfigPanel = ({ onTaskCreated }: ConfigPanelProps) => {
   const [targetUrl, setTargetUrl] = useState<string>("");
   const [selectedCategory, setSelectedCategory] = useState<string>("injection");
   const [selectedAttack, setSelectedAttack] = useState<string>(ATTACK_CATEGORIES.injection.attacks[0].id);
-  const [agentModels, setAgentModels] = useState({scanner: "GPT-4o-mini (OpenAI)", attacker: "Claude 3.5 Sonnet (Anthropic)", reporter: "GPT-4o-mini (OpenAI)"});
+  const [agentModels, setAgentModels] = useState({scanner: "Qwen 2.5 7B (Ollama / Local)", attacker: "Qwen 2.5 7B (Ollama / Local)", reporter: "Qwen 2.5 7B (Ollama / Local)"});
+  const [token, setToken] = useState<string>("");
+  const [tokenPasted, setTokenPasted] = useState<boolean>(false);
+  const [tokenError, setTokenError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+
+  // JWT solo se muestra cuando el ataque seleccionado es jwt.
+  const needsToken = selectedAttack === "jwt";
 
   const handleCategoryChange = (key: string) => {
     setSelectedCategory(key);
@@ -27,28 +33,60 @@ export const ConfigPanel = ({ onTaskCreated }: ConfigPanelProps) => {
     setSelectedAttack(firstAttackOfNewCategory);
   };
 
+  const handlePasteToken = async () => {
+    setTokenError(null);
+    try {
+      const clip = await navigator.clipboard.readText();
+      if (!clip || !clip.trim()) {
+        setTokenError("El portapapeles está vacío.");
+        return;
+      }
+      // Limpieza defensiva por si el usuario copia con "Bearer " o comillas
+      let clean = clip.trim().replace(/^["']|["']$/g, "");
+      if (clean.toLowerCase().startsWith("bearer ")) {
+        clean = clean.slice(7).trim();
+      }
+      // Validación mínima: header.payload.signature
+      if (clean.split(".").length !== 3) {
+        setTokenError("El JWT no tiene el formato esperado (header.payload.signature).");
+        return;
+      }
+      setToken(clean);
+      setTokenPasted(true);
+    } catch (err) {
+      console.error("[clipboard]", err);
+      setTokenError("No se pudo leer el portapapeles (revisa los permisos del navegador).");
+    }
+  };
+
   const currentAttacks = ATTACK_CATEGORIES[selectedCategory as keyof typeof ATTACK_CATEGORIES]?.attacks || [];
 
   const handleSubmit = (e: React.SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError(null);
+    setTokenError(null);
 
-    /* const payload = {
-        targetUrl,
-        category: selectedCategory,
-        attackType: selectedAttack,
-        // Opcional: podrías explícitamente enviar un flag de modo
-        configMode: activeTab, 
-        agentModels: activeTab === "advanced" ? agentModels : DEFAULT_AGENT_MODELS,
-        }; */
+    // Validar token si el ataque lo requiere
+    if (needsToken) {
+      if (!token.trim()) {
+        setTokenError("El ataque JWT requiere un token de sesión válido.");
+        return;
+      }
+      if (token.trim().split(".").length !== 3) {
+        setTokenError("El token no tiene el formato esperado (header.payload.signature).");
+        return;
+      }
+    }
+
     const payload = {
       targetUrl,
       category: selectedCategory,
       attackType: selectedAttack,
       agentModels,
+      // Solo se envía si el ataque lo requiere
+      ...(needsToken ? { token: token.trim() } : {}),
     };
 
-    // Executamos la Server Action usando React Transition
     startTransition(async () => {
       const response = await submitScanConfigAction(payload);
 
@@ -70,7 +108,6 @@ export const ConfigPanel = ({ onTaskCreated }: ConfigPanelProps) => {
     <>
       <h2 className={styles.configurationTitle}>Choose your configuration</h2>
 
-      {/* Pestañas de Navegación */}
       <div className={styles.tabHeader}>
         <button type="button" className={`${styles.tabButton} ${activeTab === "basic" ? styles.activeTab : ""}`} onClick={() => setActiveTab("basic")}>
           Configuración Básica
@@ -81,126 +118,161 @@ export const ConfigPanel = ({ onTaskCreated }: ConfigPanelProps) => {
         </button>
       </div>
 
-      <form className = {styles.formContent} onSubmit={handleSubmit}>      
+      <form className={styles.formContent} onSubmit={handleSubmit}>
 
-        {/* Campo 1: URL de Destino (Común para ambas pestañas) */}
+        {/* URL de Destino */}
         <div className={styles.fieldGroup}>
           <label htmlFor="targetUrl" className={styles.label}>
             Target URL
           </label>
-          <input id="targetUrl"  type="url" placeholder="https://ejemplo.com" value={targetUrl} onChange={(e) => setTargetUrl(e.target.value)} className={styles.inputUrl} required/>
-        </div>{/* URL */}
+          <input
+            id="targetUrl"
+            type="url"
+            placeholder="https://ejemplo.com"
+            value={targetUrl}
+            onChange={(e) => setTargetUrl(e.target.value)}
+            className={styles.inputUrl}
+            required
+          />
+        </div>
 
-
-        {/*Campo 2: Categorias de ataque (Comun para ambas pestañas) */}
+        {/* Categorías */}
         <div className={styles.fieldGroup}>
           <label htmlFor="attackCategories" className={styles.label}>
             Attack Categories
           </label>
-                <div className={styles.radioButtons}> 
-                    {Object.entries(ATTACK_CATEGORIES).map(([Key, category]) => (
-                        <label key={Key}>
-                            <input type= "radio" name="attackCategory" value={Key} checked = {selectedCategory === Key} onChange={() => handleCategoryChange(Key)} />
-                                <span> {category.label}</span>
-                        </label>
-                    ))}    
-               </div>
-               
-        </div> {/* Radio Categorias*/}
-
-        {/* Campo 3 : Tipo de ataques segun categorias seleccionadas*/}
-        
-        <div className={styles.fieldGroup}>
-               <label htmlFor="specificAttack" className={styles.label}>
-                Ataque especifico
-               </label>
-            <div className={styles.radioButtons}>
-               {currentAttacks.map((attack) => (
-            <label key={attack.id} >
-                <input type="radio" name="specificAttack" value={attack.id} checked={selectedAttack === attack.id} onChange={(e) => setSelectedAttack(e.target.value)}  />
-            <span>{attack.label}</span>
-        
-            </label>
+          <div className={styles.radioButtons}>
+            {Object.entries(ATTACK_CATEGORIES).map(([Key, category]) => (
+              <label key={Key}>
+                <input
+                  type="radio"
+                  name="attackCategory"
+                  value={Key}
+                  checked={selectedCategory === Key}
+                  onChange={() => handleCategoryChange(Key)}
+                />
+                <span> {category.label}</span>
+              </label>
             ))}
-            </div>
+          </div>
         </div>
 
-         {/* Sección Extra solo activa en la Pestaña Avanzada */}
+        {/* Ataque específico */}
+        <div className={styles.fieldGroup}>
+          <label htmlFor="specificAttack" className={styles.label}>
+            Ataque específico
+          </label>
+          <div className={styles.radioButtons}>
+            {currentAttacks.map((attack) => (
+              <label key={attack.id}>
+                <input
+                  type="radio"
+                  name="specificAttack"
+                  value={attack.id}
+                  checked={selectedAttack === attack.id}
+                  onChange={(e) => setSelectedAttack(e.target.value)}
+                />
+                <span>{attack.label}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        {/* Campo condicional: solo visible para ataques JWT */}
+        {needsToken && (
+          <div className={styles.tokenFieldGroup}>
+            <label htmlFor="jwtToken" className={styles.label}>
+              JWT de sesión
+            </label>
+            <textarea
+              id="jwtToken"
+              className={styles.tokenInput}
+              placeholder="eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJkYXRhIjp7..."
+              value={token}
+              onChange={(e) => { setToken(e.target.value); setTokenPasted(false); }}
+              spellCheck={false}
+              autoComplete="off"
+            />
+            <p className={styles.tokenHint}>
+              Pega aquí un token JWT válido de un usuario de prueba del objetivo.
+              Obtenlo tras hacer login (<code>POST /rest/user/login</code> → campo <code>authentication.token</code>)
+              o desde las DevTools del navegador (<code>localStorage</code> o <code>Authorization: Bearer</code>).
+            </p>
+            <div className={styles.tokenActions}>
+              <button
+                type="button"
+                onClick={handlePasteToken}
+                className={styles.tokenButton}
+              >
+                Pegar del portapapeles
+              </button>
+              {tokenPasted && <span className={styles.tokenStatus}>✓ Token cargado</span>}
+            </div>
+            {tokenError && <p className={styles.tokenError} role="alert">{tokenError}</p>}
+          </div>
+        )}
+
+        {/* Configuración Avanzada */}
         {activeTab === "advanced" && (
           <div className={styles.advancedSection}>
             <h3 className={styles.subTitle}>Asignación de Modelos por Agente</h3>
 
-            {/* Agente Orquestador (No modificable) 
             <div className={styles.fieldGroup}>
-              <label className={styles.label}>
-                Agente Orquestador <span className={styles.lockBadge}>Fijo</span>
-              </label>
-              <input
-                type="text"
-                value="GPT-4o (Modelo Base No Modificable)"
-                disabled
-                className={styles.disabledInput}
-              />
-            </div>
-                */}
-            {/* Agente Reconocimiento & Scan */}
-            <div className={styles.fieldGroup}>
-                <label className={styles.label}>Agente Reconocimiento & Scan</label>
-                <div className={styles.radioButtons}>
-                    {AVAILABLE_LLM_MODELS.map((model) => (
-                    <label key={model} className={styles.radioLabel}>
-                        <input
-                        type="radio"
-                        name="agent-scanner"
-                        value={model}
-                        checked={agentModels.scanner === model}
-                        onChange={(e) => setAgentModels({ ...agentModels, scanner: e.target.value })} />
-                        <span>{model}</span>
-                    </label>
-                    ))}
-                </div>
+              <label className={styles.label}>Agente Reconocimiento & Scan</label>
+              <div className={styles.radioButtons}>
+                {AVAILABLE_LLM_MODELS.map((model) => (
+                  <label key={model} className={styles.radioLabel}>
+                    <input
+                      type="radio"
+                      name="agent-scanner"
+                      value={model}
+                      checked={agentModels.scanner === model}
+                      onChange={(e) => setAgentModels({ ...agentModels, scanner: e.target.value })}
+                    />
+                    <span>{model}</span>
+                  </label>
+                ))}
+              </div>
             </div>
 
-            {/* Agente Verificador / Explotación */}
             <div className={styles.fieldGroup}>
-                <label className={styles.label}>Agente Atacante & Verificador</label>
-                <div className={styles.radioButtons}>
-                    {AVAILABLE_LLM_MODELS.map((model) => (
-                    <label key={model} className={styles.radioLabel}>
-                        <input
-                        type="radio"
-                        name="agent-attacker"
-                        value={model}
-                        checked={agentModels.attacker === model}
-                        onChange={(e) => setAgentModels({ ...agentModels, attacker: e.target.value })} />
-                        <span>{model}</span>
-                    </label>
-                    ))}
-                </div>
+              <label className={styles.label}>Agente Atacante & Verificador</label>
+              <div className={styles.radioButtons}>
+                {AVAILABLE_LLM_MODELS.map((model) => (
+                  <label key={model} className={styles.radioLabel}>
+                    <input
+                      type="radio"
+                      name="agent-attacker"
+                      value={model}
+                      checked={agentModels.attacker === model}
+                      onChange={(e) => setAgentModels({ ...agentModels, attacker: e.target.value })}
+                    />
+                    <span>{model}</span>
+                  </label>
+                ))}
+              </div>
             </div>
 
-            {/* Agente de Reportes */}
             <div className={styles.fieldGroup}>
-                <label className={styles.label}>Agente Generador de Reportes</label>
-                <div className={styles.radioButtons}>
-                    {AVAILABLE_LLM_MODELS.map((model) => (
-                    <label key={model} className={styles.radioLabel}>
-                        <input
-                        type="radio"
-                        name="agent-reporter"
-                        value={model}
-                        checked={agentModels.reporter === model}
-                        onChange={(e) => setAgentModels({ ...agentModels, reporter: e.target.value })} />
-                        <span>{model}</span>
-                    </label>
-                    ))}
-                </div>
+              <label className={styles.label}>Agente Generador de Reportes</label>
+              <div className={styles.radioButtons}>
+                {AVAILABLE_LLM_MODELS.map((model) => (
+                  <label key={model} className={styles.radioLabel}>
+                    <input
+                      type="radio"
+                      name="agent-reporter"
+                      value={model}
+                      checked={agentModels.reporter === model}
+                      onChange={(e) => setAgentModels({ ...agentModels, reporter: e.target.value })}
+                    />
+                    <span>{model}</span>
+                  </label>
+                ))}
+              </div>
             </div>
-           
           </div>
         )}
 
-        {/* Botón de Envío del Formulario */}
         <div className={styles.submitContainer}>
           <button type="submit" className={styles.submitButton} disabled={isPending}>
             {isPending ? "Encolando..." : "Iniciar Escaneo"}
@@ -208,9 +280,7 @@ export const ConfigPanel = ({ onTaskCreated }: ConfigPanelProps) => {
         </div>
 
         {error && <p role="alert">{error}</p>}
-
       </form>
-
     </>
   );
 }
