@@ -15,8 +15,7 @@ from typing import Any, Dict, Optional, Tuple
 from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 
 from ._common import is_static_asset
-from tools.sqlmap_handler import build_raw_request  # reutilizamos serializador HTTP
-
+from handlers.sqlmap_handler import build_raw_request
 
 logger = logging.getLogger("commix_handler")
 

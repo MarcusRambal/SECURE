@@ -1,20 +1,16 @@
-<<<<<<< HEAD
-# En skills_controller/tools/mcp_tools_registry.py
-from .sqlmap_handler import handle_sqlmap_args
-from .commix_handler import handle_commix_args
-from .dalfox_handler import handle_dalfox_args
-from .testssl_handler import prepare_args as handle_testssl_args
-from .hydra_handler import prepare_args as handle_hydra_args
-from .ffuf_handler import prepare_args as handle_ffuf_args
-from .crypto_inspector_handler import prepare_args as handle_crypto_inspector_args
-=======
+
+from handlers.commix_handler import handle_commix_args
+from handlers.dalfox_handler import handle_dalfox_args
 from handlers.sqlmap_handler import handle_sqlmap_args
 from handlers.sqliManual_handler import execute_sqli_manual
 from handlers.sqli_map_handler import execute_sqli_map
 from handlers.deep_crawler_handler import handle_deep_crawler_args
-from handlers.commix_handler import handle_commix_args
-from handlers.dalfox_handler import handle_dalfox_args
->>>>>>> origin/testing
+
+from tools.crypto_inspector_handler import prepare_args as handle_crypto_inspector_args
+from tools.testssl_handler import prepare_args as handle_testssl_args
+from tools.hydra_handler import prepare_args as handle_hydra_args
+from tools.ffuf_handler import prepare_args as handle_ffuf_args
+
 
 MCP_SKILLS_REGISTRY = {
     "sqli_agent": {

@@ -2,7 +2,6 @@ import unittest
 
 from handlers.dalfox_handler import handle_dalfox_args
 
-
 class DalfoxHandlerTests(unittest.TestCase):
     def test_get_target_uses_scan_mode(self):
         args, input_files = handle_dalfox_args(

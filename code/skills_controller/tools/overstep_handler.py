@@ -1,7 +1,7 @@
 import logging
 import shlex
 from typing import Any, Dict, List, Tuple
-from ._common import is_static_asset
+from handlers._common import is_static_asset
 
 logger = logging.getLogger("overstep_handler")
 

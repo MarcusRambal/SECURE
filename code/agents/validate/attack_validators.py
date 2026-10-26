@@ -2,11 +2,11 @@ import json
 import logging
 import shlex
 from dataclasses import dataclass, field
-from urllib.parse import parse_qsl, urljoin
+from urllib.parse import parse_qsl, urljoin, urlsplit, urlunsplit
 
 import aio_pika
 
-from attack_types import is_sqli_attack, is_xss_attack
+from attack_types import is_crypto_attack, is_sqli_attack, is_xss_attack
 from dalfox_output import (
     build_dalfox_validator_context,
     merge_verified_dalfox_findings,
@@ -380,10 +380,166 @@ class XssValidationStrategy(ValidationStrategy):
         )
         return merged
 
+class CryptoValidationStrategy(ValidationStrategy):
+    """Ejecuta crypto_inspector sobre el objetivo y compila la evidencia criptográfica."""
+
+    async def execute(
+        self,
+        channel: aio_pika.Channel,
+        target_url: str,
+        targets: list[dict],
+        task_id: str,
+        tool_timings: list[dict],
+    ) -> ValidationEvidence:
+        logger.info(
+            "[VALIDATE] task_id=%s Ejecutando crypto_inspector sobre %s",
+            task_id,
+            target_url,
+        )
+        evidence = ValidationEvidence()
+
+        for target in targets:
+            request = target.get("request") or {}
+            raw_endpoint = str(request.get("url") or target.get("url") or target.get("endpoint") or target_url)
+            target_parts = urlsplit(target_url)
+            endpoint_parts = urlsplit(raw_endpoint)
+
+            if target_parts.netloc and endpoint_parts.netloc and target_parts.netloc != endpoint_parts.netloc:
+                endpoint_url = urlunsplit((
+                    target_parts.scheme or "http",
+                    target_parts.netloc,
+                    endpoint_parts.path or "/",
+                    endpoint_parts.query,
+                    "",
+                ))
+            else:
+                endpoint_url = urljoin(f"{target_url.rstrip('/')}/", raw_endpoint)
+
+            safe_endpoint = sanitize_endpoint_for_context(endpoint_url)
+
+            if not is_same_origin(target_url, endpoint_url):
+                evidence.pre_executed_context.append(
+                    {
+                        "tool": "crypto_inspector",
+                        "status": "SKIPPED",
+                        "target_id": target.get("target_id"),
+                        "request_id": target.get("request_id"),
+                        "endpoint": safe_endpoint,
+                        "reason": "endpoint_outside_target_origin",
+                    }
+                )
+                continue
+
+            # Invocación de la habilidad MCP crypto_inspector
+            output = await call_mcp_skill(
+                channel,
+                "crypto_inspector",
+                {"target_url": endpoint_url},
+                tool_timings,
+            )
+
+            try:
+                report = json.loads(output)
+            except (TypeError, json.JSONDecodeError):
+                report = {"error": "Respuesta no válida de crypto_inspector", "raw": str(output)}
+
+            safe_report = json.dumps(report, ensure_ascii=False)
+            command = f"MCP crypto_inspector --target {shlex.quote(endpoint_url)}"
+
+            execution = {
+                "tool": "crypto_inspector",
+                "command": command,
+                "target_id": target.get("target_id"),
+                "request_id": target.get("request_id"),
+                "endpoint": safe_endpoint,
+                "output": safe_report,
+            }
+
+            evidence.executed_commands.append(execution)
+            evidence.pre_executed_context.append(
+                {
+                    **execution,
+                    "status": "ERROR" if report.get("error") else "COMPLETED",
+                }
+            )
+
+        return evidence
+
+    def build_validation_context(self, evidence: ValidationEvidence) -> dict:
+        return {"crypto_inspector_results": evidence.pre_executed_context}
+
+    def merge_findings(
+        self,
+        parsed_output: dict,
+        evidence: ValidationEvidence,
+        task_id: str,
+    ) -> dict:
+        merged = dict(parsed_output) if isinstance(parsed_output, dict) else {}
+        vulnerabilities = list(merged.get("vulnerabilities") or [])
+        crypto_executions = [
+            item
+            for item in evidence.executed_commands
+            if item.get("tool") == "crypto_inspector"
+        ]
+
+        for vulnerability in vulnerabilities:
+            if isinstance(vulnerability, dict):
+                vulnerability.setdefault("tools_used", ["crypto_inspector"])
+                if "crypto_inspector" not in vulnerability["tools_used"]:
+                    vulnerability["tools_used"].append("crypto_inspector")
+
+        # Si el LLM omitio clasificar los hallazgos positivos devueltos por crypto_inspector:
+        if not vulnerabilities and crypto_executions:
+            for item in crypto_executions:
+                try:
+                    report = json.loads(item.get("output", "{}"))
+                except Exception:
+                    continue
+
+                json_findings = report.get("json_structure_findings", [])
+                regex_matches = [
+                    m for m in report.get("regex_matches", [])
+                    if m.get("pattern") in {
+                        "SHA1 Hash", "MD5 Hash", "SHA256 Hash", "JWT Token",
+                        "Generic Secret Key", "RSA/Generic Private Key"
+                    }
+                ]
+                multilevel = report.get("multilevel_decodings", [])
+
+                if json_findings or regex_matches or multilevel:
+                    evidence_snippets = []
+                    for jf in json_findings:
+                        evidence_snippets.append(f"Clave criptográfica expuesta: {jf.get('key')} (path: {jf.get('path')})")
+                    for rm in regex_matches:
+                        samples = rm.get("samples", [])
+                        evidence_snippets.append(f"Patrón detectado: {rm.get('pattern')} ({len(samples)} muestras)")
+                    for ml in multilevel:
+                        evidence_snippets.append(f"Desofuscación multinivel: {ml.get('final_decoded_value')}")
+
+                    vulnerabilities.append({
+                        "type": "Cryptographic Failure / Insecure Data Exposure",
+                        "severity": "HIGH",
+                        "endpoint": item.get("endpoint", ""),
+                        "parameter": None,
+                        "evidence": " | ".join(evidence_snippets[:3]),
+                        "reproducible_command": item.get("command", ""),
+                        "confidence": "HIGH",
+                        "tools_used": ["crypto_inspector"],
+                    })
+
+        merged["vulnerabilities"] = vulnerabilities
+        logger.info(
+            "[VALIDATE] task_id=%s vulnerabilidades tras incorporar crypto_inspector=%d",
+            task_id,
+            len(vulnerabilities),
+        )
+        return merged
 
 def get_validation_strategy(attack_type: str) -> ValidationStrategy:
     if is_sqli_attack(attack_type):
         return SqliValidationStrategy()
     if is_xss_attack(attack_type):
         return XssValidationStrategy()
+    if is_crypto_attack(attack_type):
+        return CryptoValidationStrategy()
     return ValidationStrategy()

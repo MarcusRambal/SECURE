@@ -1,9 +1,10 @@
+import argparse
 import base64
 import codecs
 import json
 import math
 import re
-import sys
+import requests
 from typing import Any, Dict, List, Optional
 
 # Intentar importación de zmq para soporte nativo Z85
@@ -241,14 +242,34 @@ def inspect_crypto_payload(raw_content: str) -> Dict[str, Any]:
         "multilevel_decodings": multilevel_findings
     }
 
+def _resolve_input_data(target_url: str, jwt_token: str) -> str:
+    """Resuelve el contenido a analizar: JWT recibido o contenido de la URL objetivo."""
+    if jwt_token:
+        # Token JWT entregado directamente para analisis de algoritmo/entropia.
+        return jwt_token
+
+    if target_url:
+        try:
+            response = requests.get(target_url, timeout=10)
+            response.raise_for_status()
+            return response.text
+        except Exception:
+            return json.dumps({"error": f"No se pudo obtener el contenido del objetivo: {target_url}"})
+
+    # Payload de prueba por defecto
+    return json.dumps({
+        "config": {"showCryptoExtraScore": "19c01cb7157e4645e9e2c863062a85a8cbfbdcda"},
+        "secret_token": "L012LzM0T3BlblNvdXJjZQ=="
+    })
+
+
 if __name__ == "__main__":
-    input_data = sys.stdin.read() if not sys.stdin.isatty() else (sys.argv[1] if len(sys.argv) > 1 else "")
-    if not input_data:
-        # Payload de prueba por defecto
-        input_data = json.dumps({
-            "config": {"showCryptoExtraScore": "19c01cb7157e4645e9e2c863062a85a8cbfbdcda"},
-            "secret_token": "L012LzM0T3BlblNvdXJjZQ=="
-        })
+    parser = argparse.ArgumentParser(description="Crypto Inspector - OWASP A02: Cryptographic Failures")
+    parser.add_argument("--url", default="", help="URL objetivo a analizar (ej: http://host:3000/rest/application-config)")
+    parser.add_argument("--jwt", default="", help="Token JWT a analizar directamente (ej: eyJ...)")
+    cli_args = parser.parse_args()
+
+    input_data = _resolve_input_data(cli_args.url, cli_args.jwt)
     
     report = inspect_crypto_payload(input_data)
     print(json.dumps(report, indent=2))

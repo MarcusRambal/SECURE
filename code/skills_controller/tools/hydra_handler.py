@@ -1,11 +1,11 @@
 import logging
 import shlex
 from typing import Any, Dict, Tuple
-from ._common import is_static_asset
+from handlers._common import is_static_asset
 
 logger = logging.getLogger("hydra_handler")
 
-def handle_hydra_args(arguments: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, str]]:
+def prepare_args(arguments: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, str]]:
     """
     Adaptador para THC-Hydra.
     Devuelve (args_actualizados, input_files).

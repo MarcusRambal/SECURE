@@ -4,12 +4,12 @@ from typing import Any, Dict, Tuple
 from urllib.parse import urlparse
 
 # Importación correcta de utilidades comunes desde el mismo paquete
-from ._common import is_static_asset
+from handlers._common import is_static_asset
 
 logger = logging.getLogger("testssl_handler")
 
 
-def handle_testssl_args(arguments: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, str]]:
+def prepare_args(arguments: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, str]]:
     """
     Adaptador para testssl.sh.
     Devuelve (args_actualizados, input_files).
@@ -66,7 +66,3 @@ def handle_testssl_args(arguments: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict
         args["skip_execution"] = True
         args["reason"] = f"Error interno en testssl_handler: {e}"
         return args, input_files
-
-
-# Alias opcional por compatibilidad con el estándar prepare_args
-prepare_args = handle_testssl_args

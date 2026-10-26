@@ -19,7 +19,7 @@ RUN pip install --no-cache-dir \
     requests
 
 # Copiar el script del inspector al contenedor
-COPY crypto_inspector.py /app/crypto_inspector.py
+COPY tools/crypto_inspector.py /app/crypto_inspector.py
 
 # Punto de entrada predeterminado para el ejecutor efímero
 ENTRYPOINT ["python", "/app/crypto_inspector.py"]

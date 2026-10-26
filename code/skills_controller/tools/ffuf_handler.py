@@ -1,12 +1,12 @@
 import logging
 import shlex
 from typing import Any, Dict, List, Tuple
-from ._common import is_static_asset
+from handlers._common import is_static_asset
 
 logger = logging.getLogger("ffuf_handler")
 
 
-def handle_ffuf_args(arguments: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str]]:
+def prepare_args(arguments: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str]]:
     """
     Adaptador para ffuf.
     Prepara los argumentos para la ejecución en contenedores efímeros.
@@ -49,7 +49,3 @@ def handle_ffuf_args(arguments: Dict[str, Any]) -> Tuple[Dict[str, Any], List[st
     logger.info("[FFUF HANDLER] Comando generado correctamente para %s", target_url)
 
     return args, input_files
-
-
-# Alias para integración con mcp_tools_registry
-prepare_args = handle_ffuf_args

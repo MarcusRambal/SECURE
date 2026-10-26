@@ -78,6 +78,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock # Acceso al Engine de Docker
       - ./skills_controller/tools/sqli_map/outputs:/app/tools/sqli_map/outputs
       - ./skills_controller/tools/sqli_skill/outputs:/app/tools/sqli_skill/outputs
+    environment:
+      - PYTHONPATH=.
     env_file:
       - .env
     networks:
@@ -96,6 +98,8 @@ services:
       dockerfile: orchestrator/Dockerfile.orchestrator
     ports:
       - "8001:8001"
+    environment:
+      - PYTHONPATH=.
     restart: unless-stopped
     env_file:
       - .env
@@ -193,6 +197,13 @@ services:
     image: local-sqli-map:latest
     command: ["--help"]
 
+  build-crypto-inspector:
+    build:
+      context: ./skills_controller
+      dockerfile: docker_images/Dockerfile.crypto_inspector
+    image: local-crypto-inspector:latest
+    command: ["--help"]
+
   # 8. Entorno Vulnerable: WebGoat
   webgoat:
     image: webgoat/webgoat:latest
@@ -244,9 +255,3 @@ services:
     networks:
       - sec-net
 
-#Hydra      
-build-hydra:
-    build:
-      context: ./skills_controller
-      dockerfile: docker_images/Dockerfile.hydra
-    image: local-hydra:latest
