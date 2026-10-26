@@ -2,7 +2,10 @@
 export const ATTACK_CATEGORIES = {
   injection: {
     label: "Injection",
-    attacks: [{ id: "sqli", label: "SQL Injection" }],
+    attacks: [
+      { id: "sqli", label: "SQL Injection" },
+      { id: "xss", label: "Cross-Site Scripting (XSS)" },
+    ],
   },
   broken_access: {
     label: "Broken Access Control",

@@ -1,5 +1,6 @@
 import uuid
 import logging
+from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,6 +15,7 @@ logging.basicConfig(level=logging.INFO)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await rabbitmq_client.connect()
+    await rabbitmq_client.consume_scan_events(websocket_manager.broadcast)
     yield
     await rabbitmq_client.close()
 
@@ -61,6 +63,7 @@ async def start_scan(request: TaskRequest):
         "attack_type": request.attack_type,
         "agent_models": request.agent_models.model_dump() if request.agent_models else None,
         "status": "INITIATED",
+        "queued_at": datetime.now(timezone.utc).isoformat(),
     }
 
     # El token solo tiene sentido en ataques que lo requieren (jwt).

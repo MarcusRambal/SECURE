@@ -4,7 +4,7 @@ Adaptador (handler) para Dalfox.
 Soporta dos modos:
 1. Modo URL (`scan`) — para GET con query params. Dalfox prueba payloads en cada
    parámetro sin marcadores manuales.
-2. Modo archivo (`file`) — para POST o peticiones con body. Preserva el método,
+2. Modo raw HTTP — para POST o peticiones con body. Preserva el método,
    headers, body y cookies completos.
 
 En ambos casos se descartan recursos estáticos y URLs sin parámetros inyectables.
@@ -15,8 +15,8 @@ import shlex
 from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urlsplit
 
-from tools._common import is_static_asset
-from tools.sqlmap_handler import build_raw_request
+from ._common import is_static_asset
+from .sqlmap_handler import build_raw_request
 
 logger = logging.getLogger("dalfox_handler")
 
@@ -76,12 +76,12 @@ def handle_dalfox_args(arguments: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[
             logger.info("[DALFOX HANDLER] Skip por recurso estático: %s", url)
             return args, input_files
 
-        # --- Modo archivo: POST, body, o métodos no-GET ---
+        # --- Modo raw HTTP: POST, body, o métodos no-GET ---
         if request and _should_use_file_mode(request):
             file_path = "/tmp/dalfox-req.txt"
             input_files[file_path] = build_raw_request(request)
-            args["target_arg"] = f'file "{file_path}"'
-            logger.info("[DALFOX HANDLER] Modo archivo (.req): %s", url)
+            args["target_arg"] = f'scan --input-type raw-http "{file_path}"'
+            logger.info("[DALFOX HANDLER] Modo raw HTTP (.req): %s", url)
             return args, input_files
 
         # --- Modo URL: GET con query params ---

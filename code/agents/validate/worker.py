@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import time
 
 import aio_pika
 
@@ -25,6 +26,8 @@ async def start_validate_worker():
                         async with message.process():
                             correlation_id = message.correlation_id
                             reply_to = message.reply_to
+                            processing_started = time.perf_counter()
+                            published_at = (message.headers or {}).get("x-published-at")
 
                             try:
                                 payload = json.loads(message.body.decode("utf-8"))
@@ -32,6 +35,7 @@ async def start_validate_worker():
                                 target_url = payload.get("target_url")
                                 attack_type = payload.get("attack_type")
                                 token = payload.get("token")  # None para ataques sin token
+                                task_id = payload.get("task_id") or correlation_id
 
                                 recon_data = payload.get("recon_data", {})
                                 
@@ -65,9 +69,20 @@ async def start_validate_worker():
                                         ),
                                     )
 
-                                logger.info( f"📥 [VALIDATE-AGENT] Tarea de validación recibida para {target_url}")
+                                logger.info(
+                                    "[VALIDATE-AGENT] task_id=%s target_url=%s",
+                                    task_id,
+                                    target_url,
+                                )
 
-                                validate_data, recovery_mode = await process_validate_task(channel, target_url, attack_type, simplified_targets, token=token)
+                                validate_data, recovery_mode, tool_timings = await process_validate_task(
+                                    channel,
+                                    target_url,
+                                    attack_type,
+                                    simplified_targets,
+                                    token=token,
+                                    task_id=task_id,
+                                )
 
                                 if recovery_mode == "fallback":
                                     status = "PARTIAL"
@@ -81,8 +96,8 @@ async def start_validate_worker():
                                     "used_fallback": used_fallback,
                                     "recovery_mode": recovery_mode,
                                     "validation_data": validate_data.model_dump(),
+                                    "tool_timings": tool_timings,
                                 }
-                                response_body = json.dumps(response_payload)
                             except Exception as msg_error:
                                 logger.error(
                                     f"❌ Error procesando mensaje Validate: {msg_error}",
@@ -92,8 +107,18 @@ async def start_validate_worker():
                                     "status": "ERROR",
                                     "error": str(msg_error),
                                 }
-                                response_body = json.dumps(response_payload)
 
+                            response_payload["timing"] = {
+                                "queueWaitMs": round(
+                                    max(0, time.time() - published_at) * 1000, 2
+                                )
+                                if isinstance(published_at, (int, float))
+                                else None,
+                                "processingMs": round(
+                                    (time.perf_counter() - processing_started) * 1000, 2
+                                ),
+                            }
+                            response_body = json.dumps(response_payload)
                             if LOG_RPC_PAYLOADS:
                                 logger.info(
                                     "[VALIDATE -> ORQUESTADOR] Respuesta RPC completa: %s",

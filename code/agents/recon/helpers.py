@@ -155,6 +155,55 @@ def build_sqli_recon_context(crawler_data: dict, deep_crawler_data: dict | None 
     }
     return sqli_context
 
+
+def build_xss_recon_context(
+    crawler_data: dict,
+    deep_crawler_data: dict | None,
+    discovered_urls: list[str],
+    available_tools: list[dict],
+) -> dict:
+    """Keep captured query/form inputs and relevant endpoints for XSS planning."""
+    entry_points = []
+    for request in (deep_crawler_data or {}).get("entry_points", [])[:40]:
+        if not isinstance(request, dict):
+            continue
+        headers = request.get("headers")
+        headers = headers if isinstance(headers, dict) else {}
+        entry_points.append(
+            {
+                "id": request.get("id"),
+                "method": request.get("method"),
+                "url": request.get("url"),
+                "path": request.get("path"),
+                "headers": {
+                    name: value
+                    for name, value in headers.items()
+                    if isinstance(name, str)
+                    and name.casefold() in {"content-type", "accept"}
+                },
+                "body": request.get("body"),
+                "response_status": (request.get("response") or {}).get("status"),
+            }
+        )
+
+    endpoints = [
+        {
+            "template": endpoint.get("template"),
+            "sample_urls": endpoint.get("sample_urls", []),
+            "methods": endpoint.get("methods", []),
+        }
+        for endpoint in crawler_data.get("navigation", {}).get("endpoints", [])[:50]
+        if isinstance(endpoint, dict)
+    ]
+    return {
+        "attack_type_filter": "xss",
+        "crawler_endpoints": endpoints,
+        "deduplicated_urls": discovered_urls[:100],
+        "captured_entry_points": entry_points,
+        "available_validation_tools": available_tools,
+    }
+
+
 # Funcion de ayuda para ver el contexto que obtiene el agente
 def write_recon_context_snapshot(target_url: str,attack_type_filter: str,context: dict,) -> Path:
     """Guarda el contexto compacto enviado al LLM para su inspeccion posterior."""
@@ -210,6 +259,70 @@ def build_sqli_fallback_output(target_url: str,deep_crawler_data: dict | None,) 
     }
 
 
+def ensure_sqli_entry_point_coverage(data: dict, deep_crawler_data: dict | None) -> dict:
+    """Incluye cada request observada con body aunque el LLM haya omitido alguna."""
+    output = dict(data)
+    targets = [
+        target for target in output.get("high_priority_targets", [])
+        if isinstance(target, dict)
+    ]
+    requests = [
+        request
+        for request in (deep_crawler_data or {}).get("entry_points", [])
+        if isinstance(request, dict) and request.get("url") and request.get("body") is not None
+    ]
+    covered_request_ids = {
+        request_id
+        for target in targets
+        for request_id in (
+            target.get("request_id"),
+            (target.get("request") or {}).get("id")
+            if isinstance(target.get("request"), dict)
+            else None,
+        )
+        if request_id
+    }
+    covered_request_objects = set()
+    for target in targets:
+        captured_request = _find_matching_captured_request(target, deep_crawler_data)
+        if captured_request:
+            if captured_request.get("id"):
+                covered_request_ids.add(captured_request["id"])
+            else:
+                covered_request_objects.add(id(captured_request))
+
+    for request in requests:
+        request_id = request.get("id")
+        if (
+            (request_id and request_id in covered_request_ids)
+            or id(request) in covered_request_objects
+        ):
+            continue
+
+        targets.append({
+            "target_id": f"target_{len(targets) + 1:03d}",
+            "request_id": request_id or "",
+            "vulnerability_target": (
+                "Solicitud observada con datos de entrada; validar posible SQLi"
+            ),
+            "endpoint": request["url"],
+            "method": request.get("method", "GET"),
+            "request": {
+                key: request.get(key)
+                for key in ("id", "method", "url", "headers", "body")
+            },
+            "recommended_tool": "sqlmap",
+        })
+        if request_id:
+            covered_request_ids.add(request_id)
+
+    output["high_priority_targets"] = targets
+    summary = dict(output.get("recon_summary", {}))
+    summary["total_targets_identified"] = len(targets)
+    output["recon_summary"] = summary
+    return output
+
+
 
 def _normalize_request_path(value: str) -> str:
     value = value.strip()
@@ -223,7 +336,9 @@ def _normalize_request_path(value: str) -> str:
     return path.split("?", maxsplit=1)[0].rstrip("/") or "/"
 
 
-def _find_matching_sqli_request(target: dict,deep_crawler_data: dict | None,) -> dict | None:
+def _find_matching_captured_request(
+    target: dict, deep_crawler_data: dict | None
+) -> dict | None:
     requests = [
         request
         for request in (deep_crawler_data or {}).get("entry_points", [])
@@ -283,13 +398,16 @@ def build_recon_output_from_dict(data: dict,target_url: str,attack_type_filter: 
         if not isinstance(target, dict):
             continue
         captured_request = (
-            _find_matching_sqli_request(target, deep_crawler_data)
-            if attack_type_filter.lower() == "sqli"
+            _find_matching_captured_request(target, deep_crawler_data)
+            if attack_type_filter.casefold() in {"sqli", "xss"}
             else None
         )
         request_id = target.get("request_id") or ""
         request = target.get("request") or {}
         method = target.get("method", "GET")
+        default_tool = (
+            "dalfox" if attack_type_filter.casefold() == "xss" else "sqlmap"
+        )
         if captured_request:
             request_id = captured_request.get("id") or request_id
             request = _build_request_from_capture(captured_request)
@@ -305,7 +423,7 @@ def build_recon_output_from_dict(data: dict,target_url: str,attack_type_filter: 
                 endpoint=target.get("endpoint", target_url),
                 method=str(method or "GET").upper(),
                 request=request,
-                recommended_tool=target.get("recommended_tool", "sqlmap"),
+                recommended_tool=target.get("recommended_tool", default_tool),
             )
         )
     output = ReconPlannerOutput(
@@ -317,5 +435,3 @@ def build_recon_output_from_dict(data: dict,target_url: str,attack_type_filter: 
         len(output.high_priority_targets),
     )
     return output
-
-

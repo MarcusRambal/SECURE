@@ -45,29 +45,20 @@ node_modules/
 .pnp
 .pnp.js
 .yarn/
-.yarnrc.yml
 npm-debug.log*
 yarn-debug.log*
-yarn-error.log*
 pnpm-debug.log*
 .pnpm-store/
-
-# Next.js
-.next/
 out/
-build/
-dist/
-.vercel/
+.next/
+.nuxt/
+.vuepress/dist/
+.astro/
+.output/
+.turbo/
+.cache/
+.parcel-cache/
 next-env.d.ts.timestamp-*
-
-# Producción
-.vercel
-
-# ============================================================
-# Docker
-# ============================================================
-*.dockerignore.bak
-docker-compose.override.yml
 
 # ============================================================
 # Variables de entorno y secretos
@@ -88,7 +79,7 @@ jwtconf.ini
 *.ini
 
 # ============================================================
-# Estado de sesión / tokens / artefactos de pentesting
+# Estado de sesión / artefactos de pentesting
 # ============================================================
 *.session.json
 *_session.json
@@ -98,8 +89,8 @@ session.json
 *.http
 
 # Volúmenes compartidos de agentes
-recon_context/
-validate_context/
+code/agents/recon/recon_context/
+code/agents/validate/validate_context/
 code/skills_controller/tools/sqli_map/outputs/
 code/skills_controller/tools/sqli_skill/outputs/
 code/skills_controller/tools/jwt_tool/outputs/
@@ -128,10 +119,7 @@ Thumbs.db
 # ============================================================
 .idea/
 .vscode/
-!.vscode/extensions.json
-!.vscode/settings.json.example
 *.code-workspace
-.cache/
 
 # ============================================================
 # Ollama / modelos locales

@@ -19,16 +19,16 @@ from helpers import (
     write_validate_context_snapshot,
 )
 from mcp_skills import build_validation_tools, call_mcp_skill, get_mcp_catalog
-from attack_types import is_sqli_attack, is_jwt_attack
+from attack_validators import get_validation_strategy
+from attack_types import is_sqli_attack, is_jwt_attack, is_xss_attack
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("validate-agent-worker")
 
-
 logger.info("🟢 [VALIDATE] Cargando LLM de validación")
 
 llm = get_llm("MODEL_VALIDATE")
-structured_llm = llm.with_structured_output(ValidateOutput, method="json_schema",)
+structured_llm = llm.with_structured_output(ValidateOutput, method="json_schema")
 
 VALID_SEVERITIES = {"CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"}
 
@@ -69,8 +69,7 @@ async def _process_jwt_validation(
 
     try:
         raw_output = await call_mcp_skill(
-            channel,
-            "jwt_tool",
+            channel, "jwt_tool",
             {"target_url": target_url, "token": token},
         )
     except Exception as exc:
@@ -104,7 +103,6 @@ async def _process_jwt_validation(
             "clean",
         )
 
-    # Error controlado del handler (ej. JWT malformado)
     if report.get("error") and not report.get("findings"):
         return (
             ValidateOutput(
@@ -141,8 +139,6 @@ async def _process_jwt_validation(
         owasp = finding.get("owasp") or ""
         remediation = finding.get("remediation") or ""
 
-        # El handler nuevo devuelve evidence como STRING (no dict).
-        # Se compone: "[CWE-XXX / A07:2025] description | evidence_tecnica"
         composed = " | ".join(p for p in (description, evidence_field) if p)
         mapping = " / ".join(x for x in (cwe, owasp) if x)
         if mapping and composed:
@@ -173,7 +169,6 @@ async def _process_jwt_validation(
         except ValidationError as exc:
             logger.warning("[VALIDATE] Finding JWT descartado por schema: %s", exc)
 
-    # Contexto adicional para el reporter (no es una vulnerabilidad, es metadata)
     context = {
         "jwt_analysis": report.get("jwt_analysis", {}),
         "attacks_summary": report.get("summary", {}),
@@ -199,6 +194,86 @@ async def _process_jwt_validation(
 
 
 # ============================================================================
+# XSS: delega al strategy pattern de main
+# ============================================================================
+
+async def _process_xss_validation(
+    channel: aio_pika.Channel,
+    target_url: str,
+    targets: list[dict],
+    task_id: str,
+    started_at: str,
+) -> tuple[ValidateOutput, str, list[dict]]:
+    """Ejecuta XSS usando la estrategia heredada de main."""
+    strategy = get_validation_strategy("xss")
+    tool_timings: list[dict] = []
+
+    selected_targets = [
+        {
+            "url": t.get("endpoint", ""),
+            "method": t.get("method", "GET"),
+            "target_id": t.get("target_id"),
+            "request_id": t.get("request_id"),
+            "recommended_tool": t.get("recommended_tool"),
+            "request": t.get("request", {}),
+        }
+        for t in targets if isinstance(t, dict) and t.get("endpoint")
+    ]
+
+    if not selected_targets:
+        return (
+            ValidateOutput(
+                target_url=target_url,
+                vulnerabilities=[],
+                unconfirmed_findings=[{"reason": "Recon sin objetivos válidos"}],
+                scan_started_at=started_at,
+                scan_finished_at=datetime.now(timezone.utc).isoformat(),
+            ),
+            "clean",
+            tool_timings,
+        )
+
+    evidence = await strategy.execute(
+        channel, target_url, selected_targets, task_id, tool_timings
+    )
+    system_prompt = SystemMessage(content=get_system_prompt("xss"))
+    validation_context = strategy.build_validation_context(evidence)
+
+    user_message = HumanMessage(content=(
+        "Analiza la evidencia disponible de las herramientas y determina si "
+        "confirma la vulnerabilidad solicitada.\n\n"
+        f"{json.dumps(validation_context, ensure_ascii=False, indent=2)}\n\n"
+        "Copia target_id, request_id y endpoint exclusivamente de la ejecución "
+        "que aporta la evidencia."
+    ))
+
+    try:
+        snapshot_path = write_validate_context_snapshot(
+            target_url, "xss",
+            {
+                "system_prompt": system_prompt.content,
+                "user_message": user_message.content,
+            },
+            evidence.pre_executed_context,
+        )
+        logger.info("[VALIDATE] Contexto XSS guardado en %s", snapshot_path)
+    except OSError:
+        logger.exception("[VALIDATE] No se pudo guardar el contexto XSS")
+
+    structured_output = await structured_llm.ainvoke([system_prompt, user_message])
+    if not isinstance(structured_output, ValidateOutput):
+        raise TypeError("El LLM no devolvió ValidateOutput")
+
+    parsed_dict = structured_output.model_dump()
+    parsed_dict = strategy.merge_findings(parsed_dict, evidence, task_id)
+
+    validate_output = build_validate_output_from_dict(
+        parsed_dict, target_url, started_at, evidence.executed_commands
+    )
+    return validate_output, "clean", tool_timings
+
+
+# ============================================================================
 # FLUJO PRINCIPAL DE VALIDACIÓN
 # ============================================================================
 
@@ -208,18 +283,34 @@ async def process_validate_task(
     attack_type: str,
     targets: list[dict],
     token: str | None = None,
-) -> tuple[ValidateOutput, str]:
+    task_id: str | None = None,
+) -> tuple[ValidateOutput, str, list[dict]]:
 
     started_at = datetime.now(timezone.utc).isoformat()
+    trace_id = task_id or "unknown"
 
     is_sqli = is_sqli_attack(attack_type)
     is_jwt = is_jwt_attack(attack_type)
-    logger.info("[VALIDATE] Es ataque SQLi: %s | JWT: %s", is_sqli, is_jwt)
+    is_xss = is_xss_attack(attack_type)
+    logger.info(
+        "[VALIDATE] attack_type=%s | SQLi=%s JWT=%s XSS=%s",
+        attack_type, is_sqli, is_jwt, is_xss,
+    )
 
-    # JWT: flujo determinista, sin crawl ni LLM.
+    # JWT: flujo determinista (David)
     if is_jwt:
-        return await _process_jwt_validation(channel, target_url, token, started_at)
+        validate_output, mode = await _process_jwt_validation(
+            channel, target_url, token, started_at
+        )
+        return validate_output, mode, []
 
+    # XSS: estrategia heredada de main
+    if is_xss:
+        return await _process_xss_validation(
+            channel, target_url, targets, trace_id, started_at
+        )
+
+    # SQLi: flujo directo de David (probado end-to-end)
     selected_targets = [
         {
             "url": target.get("endpoint", ""),
@@ -234,18 +325,17 @@ async def process_validate_task(
     ]
 
     if not selected_targets:
-        logger.warning(
-            "Recon no devolvió objetivos prioritarios válidos. Omisión de la fase de validación."
-        )
+        logger.warning("Recon no devolvió objetivos válidos.")
         return (
             ValidateOutput(
                 target_url=target_url,
                 vulnerabilities=[],
-                unconfirmed_findings=[
-                    {"reason": "Recon sin objetivos válidos para analizar"}
-                ],
+                unconfirmed_findings=[{"reason": "Recon sin objetivos válidos"}],
+                scan_started_at=started_at,
+                scan_finished_at=datetime.now(timezone.utc).isoformat(),
             ),
             "clean",
+            [],
         )
 
     catalog = await get_mcp_catalog(channel)
@@ -255,27 +345,19 @@ async def process_validate_task(
 
     if is_sqli:
         logger.info(
-            "[VALIDATE] Ejecutando SQLMap de forma obligatoria sobre %d endpoint(s)",
-            len(selected_targets),
+            "[VALIDATE] Ejecutando SQLMap sobre %d endpoint(s)", len(selected_targets),
         )
-
         for target in selected_targets:
             request_data = target.get("request", {})
             if isinstance(request_data, dict) and request_data:
                 tool_args = {
                     "request": prepare_sqlmap_request(
-                        request_data,
-                        target_url,
-                        target["url"],
-                        target["method"],
+                        request_data, target_url, target["url"], target["method"],
                     )
                 }
             else:
                 tool_args = {
-                    "target_url": urljoin(
-                        f"{target_url.rstrip('/')}/",
-                        target["url"],
-                    )
+                    "target_url": urljoin(f"{target_url.rstrip('/')}/", target["url"])
                 }
 
             try:
@@ -295,7 +377,6 @@ async def process_validate_task(
                     "output": output,
                 }
                 executed_commands.append(executed_command)
-
                 pre_executed_context.append(
                     {
                         "target_id": target.get("target_id"),
@@ -311,30 +392,21 @@ async def process_validate_task(
                 )
             except Exception as err:
                 logger.error(
-                    "Fallo en ejecución obligatoria de SQLMap en %s: %s",
-                    target["url"],
-                    err,
+                    "Fallo ejecutando SQLMap en %s: %s", target["url"], err,
                 )
 
-    excluded_tools = {"sqlmap"} if is_sqli else set()
-    tools = build_validation_tools(catalog, channel, attack_type, excluded_tools)
-    logger.info("Herramientas Validate activas: %s", [tool.name for tool in tools])
-
     system_prompt = SystemMessage(content=get_system_prompt(attack_type))
-
     user_message = HumanMessage(content=(
-        "Analiza los resultados de las herramientas de validación y determina si "
-        "existe una vulnerabilidad confirmada.\n\n"
-        "Fuentes obligatorias de validación ya ejecutadas:\n"
+        "Analiza los resultados de las herramientas y determina si existe "
+        "una vulnerabilidad confirmada.\n\n"
         f"{json.dumps(pre_executed_context, ensure_ascii=False, indent=2)}\n\n"
-        "Copia target_id, request_id y endpoint exclusivamente de la ejecución que "
-        "aporta la evidencia. No inventes IDs, endpoints, URLs ni comandos."
+        "Copia target_id, request_id y endpoint exclusivamente de la ejecución "
+        "que aporta la evidencia."
     ))
 
     try:
         snapshot_path = write_validate_context_snapshot(
-            target_url,
-            attack_type,
+            target_url, attack_type,
             {
                 "system_prompt": system_prompt.content,
                 "user_message": user_message.content,
@@ -351,33 +423,17 @@ async def process_validate_task(
         if not is_sqli:
             raise
         logger.warning(
-            "[VALIDATE] El LLM no devolvió ValidateOutput compatible (%s); "
-            "usando resultados de herramientas.",
-            error,
+            "[VALIDATE] El LLM no devolvió ValidateOutput (%s); usando fallback.", error,
         )
         parsed_dict = build_fallback_validate_output(
             target_url, raw_tool_outputs, executed_commands, started_at
         )
     else:
         if not isinstance(structured_output, ValidateOutput):
-            raise TypeError(
-                "El LLM estructurado no devolvió una instancia de ValidateOutput"
-            )
-
-        logger.info(
-            "[VALIDATE] Salida original del agente antes del procesamiento:\n%s",
-            structured_output.model_dump_json(indent=2),
-        )
-
+            raise TypeError("El LLM no devolvió ValidateOutput")
         parsed_dict = structured_output.model_dump()
 
     validate_output = build_validate_output_from_dict(
         parsed_dict, target_url, started_at, executed_commands
     )
-    logger.info(
-        "[VALIDATE] Salida normalizada vulnerabilidades=%d no_confirmados=%d",
-        len(validate_output.vulnerabilities),
-        len(validate_output.unconfirmed_findings),
-    )
-
-    return validate_output, "clean"
+    return validate_output, "clean", []

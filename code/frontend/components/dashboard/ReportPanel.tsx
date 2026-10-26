@@ -15,7 +15,9 @@ export const ReportPanel = ({ vulnerabilities, finalReport }: ReportPanelProps) 
                     {vulnerabilities.map((vulnerability, index) => (
                         <li key={`${vulnerability.title}-${index}`}>
                             <strong>{vulnerability.title}</strong>
-                            <span>{vulnerability.severity} · CVSS {vulnerability.cvssScore}</span>
+                            <span>{vulnerability.severity}</span>
+                            {vulnerability.endpoint && <span>Endpoint: {vulnerability.endpoint}</span>}
+                            {vulnerability.evidence && <span>Evidencia: {vulnerability.evidence}</span>}
                         </li>
                     ))}
                 </ul>
