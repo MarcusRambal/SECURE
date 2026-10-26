@@ -76,7 +76,10 @@ async def process_report_task(payload: dict) -> tuple[str, bool]:
             "- NO inventes hallazgos que no estén presentes en validation_summary.\n"
             "- MANTÉN INTACTOS los comandos de `reproducible_command` sin alterarlos.\n"
             "- Sé conciso, pero incluye todos los hallazgos y evidencias recibidos.\n"
-            "- Retorna ÚNICAMENTE el texto en MARKDOWN puro. Sin envoltorios JSON."
+            "- Retorna ÚNICAMENTE el texto en MARKDOWN puro. Sin envoltorios JSON.\n"
+            "- NO incluyas secciones de 'Contacto', 'Autor', 'Firma' ni placeholders como "
+            "  '[su nombre]', '[su correo]', '[su teléfono]'. El informe TERMINA después "
+            "  de la sección 'Conclusiones y Próximos Pasos' (o 'Acciones Recomendadas')."
         )
     )
 
