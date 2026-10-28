@@ -71,6 +71,36 @@ class Vulnerability(BaseModel):
     tools_used: List[str] = Field(
         default_factory=list, description="Herramientas MCP utilizadas para la confirmación"
     )
+    # --- Campos opcionales que viajan desde la herramienta (crypto_inspector) ---
+    # Se mantienen sin transformar para que el Reporter no tenga que inventar nada.
+    finding_id: Optional[str] = Field(
+        default=None, description="ID del hallazgo original reportado por la herramienta"
+    )
+    cwe: Optional[str] = Field(
+        default=None, description="CWE exacto reportado por la herramienta (no inferir)"
+    )
+    owasp: Optional[str] = Field(
+        default=None, description="Categoría OWASP exacta reportada por la herramienta (no inferir)"
+    )
+    attack_demonstrated: Optional[str] = Field(
+        default=None,
+        description="Técnica de ataque demostrada (ej: dictionary_attack, none)",
+    )
+    attack_result: Optional[str] = Field(
+        default=None,
+        description="Resultado del ataque demostrado (ej: contraseña recuperada 'admin123')",
+    )
+    attack_chain: List[str] = Field(
+        default_factory=list,
+        description="Pasos de explotación documentados por la herramienta",
+    )
+    context_role: Optional[str] = Field(
+        default=None,
+        description=(
+            "Rol del dato en el contexto de seguridad (ej: authentication_material, "
+            "static_checksum, transport_security)"
+        ),
+    )
 
 
 class ValidateOutput(BaseModel):

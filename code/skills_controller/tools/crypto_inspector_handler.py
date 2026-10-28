@@ -19,6 +19,7 @@ def prepare_args(arguments: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, s
     try:
         target_url = args.get("target_url", "")
         jwt_token = args.get("jwt_token", "")
+        auth_header = args.get("auth_header", "")
 
         if not target_url and not jwt_token:
             args["skip_execution"] = True
@@ -36,6 +37,12 @@ def prepare_args(arguments: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, s
 
         if jwt_token:
             cli_flags.extend(["--jwt", shlex.quote(jwt_token)])
+
+        if auth_header:
+            cli_flags.extend(["--auth-header", shlex.quote(auth_header)])
+
+        if args.get("attempt_collision"):
+            cli_flags.append("--attempt-collision")
 
         args["args"] = " ".join(cli_flags)
         logger.info("[CRYPTO INSPECTOR HANDLER] Comando generado: %s", args["args"])

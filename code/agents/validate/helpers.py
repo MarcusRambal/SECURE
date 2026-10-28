@@ -687,6 +687,14 @@ def build_validate_output_from_dict(args: dict,target_url: str,started_at: str,e
 
         parameter = v.get("parameter", "") or None
 
+        # Propagamos los campos que la herramienta ya calculó (crypto_inspector).
+        context_role = v.get("context_role")
+        if not context_role and isinstance(v.get("context"), dict):
+            context_role = v["context"].get("role")
+        attack_chain = v.get("attack_chain") or []
+        if isinstance(attack_chain, str):
+            attack_chain = [attack_chain]
+
         try:
             vulnerabilities.append(
                 Vulnerability(
@@ -698,6 +706,13 @@ def build_validate_output_from_dict(args: dict,target_url: str,started_at: str,e
                     reproducible_command=real_cmd,
                     confidence=v.get("confidence", "MEDIUM"),
                     tools_used=tools_used,
+                    finding_id=v.get("finding_id") or v.get("id"),
+                    cwe=v.get("cwe") or None,
+                    owasp=v.get("owasp") or None,
+                    attack_demonstrated=v.get("attack_demonstrated") or None,
+                    attack_result=v.get("attack_result") or None,
+                    attack_chain=[str(step) for step in attack_chain if step],
+                    context_role=context_role or None,
                 )
             )
         except ValidationError as e:

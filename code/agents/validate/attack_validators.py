@@ -25,6 +25,84 @@ from mcp_skills import call_mcp_skill
 
 logger = logging.getLogger("validate-agent-worker")
 
+SEVERITY_RANK = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3, "INFO": 4}
+
+
+def _severity_sort_key(vulnerability: dict) -> tuple[int, str]:
+    severity = str(vulnerability.get("severity") or "").upper()
+    return (SEVERITY_RANK.get(severity, len(SEVERITY_RANK)), str(vulnerability.get("endpoint") or ""))
+
+
+def _endpoint_key(endpoint: str) -> str:
+    """Clave de comparación por ruta, sin host, para detectar duplicados."""
+    if not isinstance(endpoint, str) or not endpoint:
+        return ""
+    return (urlsplit(endpoint).path.rstrip("/") or "/").casefold()
+
+
+def _normalize_crypto_severity(finding: dict) -> str:
+    """Respeta la severidad de la herramienta y degrada checksums estáticos."""
+    severity = str(finding.get("severity") or "").strip().upper()
+    if severity not in SEVERITY_RANK:
+        severity = "INFO"
+
+    context = finding.get("context") if isinstance(finding.get("context"), dict) else {}
+    if str(context.get("role") or "").casefold() == "static_checksum" and severity in {
+        "CRITICAL",
+        "HIGH",
+        "MEDIUM",
+    }:
+        # Un checksum estático no participa en ninguna decisión de seguridad:
+        # se reporta como falso positivo controlado (LOW), nunca como explotable.
+        return "LOW"
+    return severity
+
+
+def _crypto_finding_to_vulnerability(finding: dict, execution: dict) -> dict:
+    """Normaliza un elemento del array `findings` de crypto_inspector al contrato Vulnerability."""
+    context = finding.get("context") if isinstance(finding.get("context"), dict) else {}
+    severity = _normalize_crypto_severity(finding)
+
+    attack_demonstrated = str(finding.get("attack_demonstrated") or "").strip()
+    attack_result = finding.get("attack_result")
+    attack_result = str(attack_result) if attack_result not in (None, "") else None
+
+    evidence_parts: list[str] = []
+    if finding.get("evidence"):
+        evidence_parts.append(str(finding["evidence"]))
+
+    if attack_result:
+        if attack_demonstrated.casefold() == "dictionary_attack" and (
+            str(context.get("role") or "").casefold() != "static_checksum"
+        ):
+            # Contraseña recuperada = compromiso real de credenciales.
+            # (Un checksum estático roto no habilita autenticación: se mantiene LOW.)
+            severity = "CRITICAL"
+            evidence_parts.append(f"Contraseña recuperada: {attack_result}")
+        else:
+            evidence_parts.append(f"Resultado del ataque: {attack_result}")
+
+    if not evidence_parts:
+        evidence_parts.append("Hallazgo reportado por crypto_inspector sin evidencia textual.")
+
+    return {
+        "type": finding.get("title") or "Cryptographic Failure / Insecure Data Exposure",
+        "severity": severity,
+        "endpoint": execution.get("endpoint", ""),
+        "parameter": finding.get("path") or finding.get("key") or None,
+        "evidence": " | ".join(dict.fromkeys(evidence_parts)),
+        "reproducible_command": execution.get("command", ""),
+        "confidence": "HIGH",
+        "tools_used": ["crypto_inspector"],
+        "finding_id": finding.get("id"),
+        "cwe": finding.get("cwe") or None,
+        "owasp": finding.get("owasp") or None,
+        "attack_demonstrated": attack_demonstrated or None,
+        "attack_result": attack_result,
+        "attack_chain": [str(step) for step in (finding.get("attack_chain") or []) if step],
+        "context_role": context.get("role") or finding.get("context_role") or None,
+    }
+
 
 @dataclass
 class ValidationEvidence:
@@ -475,63 +553,80 @@ class CryptoValidationStrategy(ValidationStrategy):
         task_id: str,
     ) -> dict:
         merged = dict(parsed_output) if isinstance(parsed_output, dict) else {}
-        vulnerabilities = list(merged.get("vulnerabilities") or [])
+        llm_vulnerabilities = [
+            vulnerability
+            for vulnerability in (merged.get("vulnerabilities") or [])
+            if isinstance(vulnerability, dict)
+        ]
         crypto_executions = [
             item
             for item in evidence.executed_commands
             if item.get("tool") == "crypto_inspector"
         ]
 
-        for vulnerability in vulnerabilities:
-            if isinstance(vulnerability, dict):
-                vulnerability.setdefault("tools_used", ["crypto_inspector"])
-                if "crypto_inspector" not in vulnerability["tools_used"]:
-                    vulnerability["tools_used"].append("crypto_inspector")
+        # 1. El array `findings` de la herramienta es la fuente de verdad:
+        #    se normaliza completo (severidad, evidencia, cadena de ataque, CWE/OWASP).
+        derived: list[dict] = []
+        seen_keys: set[tuple] = set()
+        for execution in crypto_executions:
+            try:
+                report = json.loads(execution.get("output") or "{}")
+            except (TypeError, json.JSONDecodeError):
+                logger.warning(
+                    "[VALIDATE] task_id=%s salida de crypto_inspector no es JSON válido; se omite",
+                    task_id,
+                )
+                continue
 
-        # Si el LLM omitio clasificar los hallazgos positivos devueltos por crypto_inspector:
-        if not vulnerabilities and crypto_executions:
-            for item in crypto_executions:
-                try:
-                    report = json.loads(item.get("output", "{}"))
-                except Exception:
+            findings = report.get("findings")
+            if not isinstance(findings, list):
+                logger.warning(
+                    "[VALIDATE] task_id=%s crypto_inspector no devolvió el array 'findings'; "
+                    "no se pueden promover hallazgos deterministas",
+                    task_id,
+                )
+                continue
+
+            for finding in findings:
+                if not isinstance(finding, dict):
                     continue
+                vulnerability = _crypto_finding_to_vulnerability(finding, execution)
+                dedupe_key = (
+                    _endpoint_key(vulnerability["endpoint"]),
+                    vulnerability.get("finding_id") or vulnerability["type"],
+                    vulnerability.get("parameter"),
+                    vulnerability.get("attack_result"),
+                )
+                if dedupe_key in seen_keys:
+                    continue
+                seen_keys.add(dedupe_key)
+                derived.append(vulnerability)
 
-                json_findings = report.get("json_structure_findings", [])
-                regex_matches = [
-                    m for m in report.get("regex_matches", [])
-                    if m.get("pattern") in {
-                        "SHA1 Hash", "MD5 Hash", "SHA256 Hash", "JWT Token",
-                        "Generic Secret Key", "RSA/Generic Private Key"
-                    }
-                ]
-                multilevel = report.get("multilevel_decodings", [])
+        # 2. Del LLM solo conservamos lo que la herramienta no cubrió ya por endpoint,
+        #    para no duplicar ni dejar que el LLM rebaje/omita hallazgos deterministas.
+        covered_paths = {_endpoint_key(item["endpoint"]) for item in derived}
+        kept_llm: list[dict] = []
+        for vulnerability in llm_vulnerabilities:
+            if _endpoint_key(str(vulnerability.get("endpoint") or "")) in covered_paths:
+                continue
+            tools_used = vulnerability.setdefault("tools_used", ["crypto_inspector"])
+            if isinstance(tools_used, str):
+                tools_used = [tool.strip() for tool in tools_used.split(",") if tool.strip()]
+                vulnerability["tools_used"] = tools_used
+            if "crypto_inspector" not in tools_used:
+                tools_used.append("crypto_inspector")
+            kept_llm.append(vulnerability)
 
-                if json_findings or regex_matches or multilevel:
-                    evidence_snippets = []
-                    for jf in json_findings:
-                        evidence_snippets.append(f"Clave criptográfica expuesta: {jf.get('key')} (path: {jf.get('path')})")
-                    for rm in regex_matches:
-                        samples = rm.get("samples", [])
-                        evidence_snippets.append(f"Patrón detectado: {rm.get('pattern')} ({len(samples)} muestras)")
-                    for ml in multilevel:
-                        evidence_snippets.append(f"Desofuscación multinivel: {ml.get('final_decoded_value')}")
+        # 3. CRITICAL primero, para que el Reporter los reciba ordenados.
+        merged["vulnerabilities"] = sorted(derived + kept_llm, key=_severity_sort_key)
 
-                    vulnerabilities.append({
-                        "type": "Cryptographic Failure / Insecure Data Exposure",
-                        "severity": "HIGH",
-                        "endpoint": item.get("endpoint", ""),
-                        "parameter": None,
-                        "evidence": " | ".join(evidence_snippets[:3]),
-                        "reproducible_command": item.get("command", ""),
-                        "confidence": "HIGH",
-                        "tools_used": ["crypto_inspector"],
-                    })
-
-        merged["vulnerabilities"] = vulnerabilities
         logger.info(
-            "[VALIDATE] task_id=%s vulnerabilidades tras incorporar crypto_inspector=%d",
+            "[VALIDATE] task_id=%s vulnerabilidades tras incorporar crypto_inspector=%d "
+            "(deterministas=%d, llm_extra=%d)",
             task_id,
-            len(vulnerabilities),
+            len(merged["vulnerabilities"]),
+            len(derived),
+            len(kept_llm),
         )
         return merged
 
