@@ -3,16 +3,11 @@ from pydantic import BaseModel, Field
 from typing import Optional
 
 
-class AgentModelsSchema(BaseModel):
-    scanner: str
-    attacker: str
-    reporter: str
 
 class TaskRequest(BaseModel):
     target_url: str
     category: str
-    attack_type: Optional[str] 
-    agent_models: Optional[AgentModelsSchema] = None
+    attack_type: str
 
 class TaskResponse(BaseModel):
     task_id: str

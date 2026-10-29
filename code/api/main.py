@@ -65,7 +65,6 @@ async def start_scan(request: TaskRequest):
         "target_url": request.target_url,
         "category": request.category,
         "attack_type": request.attack_type,
-        "agent_models": request.agent_models.model_dump() if request.agent_models else None,
         "status": "INITIATED",
         "queued_at": datetime.now(timezone.utc).isoformat(),
     }
