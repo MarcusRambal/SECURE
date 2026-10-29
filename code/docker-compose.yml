@@ -88,6 +88,8 @@ services:
         condition: service_healthy
       build-sqli-map:
         condition: service_completed_successfully
+      build-jwt:
+        condition: service_completed_successfully
 
   # 4. Orquestador Principal (LLM Router)
   orchestrator:
@@ -191,6 +193,13 @@ services:
       context: ./skills_controller
       dockerfile: docker_images/Dockerfile.sqli_map
     image: local-sqli-map:latest
+    command: ["--help"]
+
+  build-jwt:
+    build:
+      context: ./skills_controller/tools
+      dockerfile: Dockerfile.jwt
+    image: local-jwt-tool:latest
     command: ["--help"]
 
   # 8. Entorno Vulnerable: WebGoat

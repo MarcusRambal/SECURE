@@ -88,7 +88,6 @@ class ValidateOutput(BaseModel):
         default=None, description="Fecha y hora UTC de finalización de la validación"
     )
 
-
 class ValidateFindingSubmission(BaseModel):
     type: str = Field(..., description="Tipo de vulnerabilidad confirmada")
     severity: Literal["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"] = Field(

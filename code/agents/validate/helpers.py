@@ -750,3 +750,89 @@ def build_validate_output_from_dict(args: dict,target_url: str,started_at: str,e
         scan_started_at=started_at,
         scan_finished_at=datetime.now(timezone.utc).isoformat(),
     )
+
+
+
+# ============================================================================
+# Fallback parser (heredado de David) — usado por main.py cuando el LLM
+# devuelve basura en el flujo SQLi. Reconstruye hallazgos desde la salida
+# cruda de las herramientas.
+# ============================================================================
+
+def extract_evidence_line(raw_outputs: list[str], pattern: str, max_len: int = 300) -> str:
+    """Extrae la primera línea de evidencia concreta truncada a max_len."""
+    regex = re.compile(pattern, re.IGNORECASE)
+    for output in raw_outputs:
+        for line in output.splitlines():
+            if regex.search(line):
+                return line.strip()[:max_len]
+    return ""
+
+
+def build_fallback_validate_output(
+    target_url: str,
+    raw_tool_outputs: list[str],
+    executed_commands: list[dict],
+    started_at: str,
+) -> ValidateOutput:
+    """Construye un resultado parcial usando evidencia de las herramientas.
+
+    Se usa cuando el LLM estructurado falla y estamos en el flujo SQLi.
+    Aplica patrones regex por herramienta para recuperar hallazgos explícitos.
+    """
+    detections = [
+        ("SQL Injection", "sqlmap", r"sqlmap identified|dbms:|syntax error", "HIGH"),
+        ("Cross-Site Scripting (XSS)", "dalfox", r"\[POC\]|\[V\]|\[FOUND\]|xss payload", "MEDIUM"),
+        (
+            "OS Command Injection",
+            "commix",
+            r"vulnerable to.*command injection|is vulnerable|os command",
+            "CRITICAL",
+        ),
+        ("Template Vulnerability (Nuclei)", "nuclei", r"\[(critical|high|medium|low)\]", "HIGH"),
+    ]
+    vulnerabilities = []
+
+    for vulnerability_type, tool_name, pattern, severity in detections:
+        evidence = extract_evidence_line(raw_tool_outputs, pattern)
+        if not evidence:
+            continue
+        command = next(
+            (item["command"] for item in executed_commands if item["tool"] == tool_name),
+            f"{tool_name} -u '{target_url}'",
+        )
+        if tool_name == "nuclei":
+            evidence_lower = evidence.lower()
+            severity = next(
+                (
+                    level
+                    for level in ("CRITICAL", "HIGH", "MEDIUM", "LOW")
+                    if f"[{level.lower()}]" in evidence_lower
+                ),
+                severity,
+            )
+        vulnerabilities.append(
+            Vulnerability(
+                type=vulnerability_type,
+                severity=severity,
+                endpoint=target_url,
+                evidence=evidence,
+                reproducible_command=command,
+                confidence="HIGH",
+                tools_used=[tool_name],
+            )
+        )
+
+    return ValidateOutput(
+        target_url=target_url,
+        vulnerabilities=vulnerabilities,
+        unconfirmed_findings=[
+            {
+                "fallback_note": (
+                    "Respuesta LLM corrupta. Hallazgos recuperados desde logs crudos."
+                )
+            }
+        ],
+        scan_started_at=started_at,
+        scan_finished_at=datetime.now(timezone.utc).isoformat(),
+    )
