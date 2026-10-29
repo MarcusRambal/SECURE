@@ -157,10 +157,13 @@ def create_orchestrator_tools(channel: aio_pika.Channel) -> list[StructuredTool]
             state["error_message"] = error_msg
             # recon_data vacío pero con forma válida: Validate lo asume como input.
             state["recon_data"] = {
-                "target_url": target_url,
-                "endpoints": [],
-                "technologies": [],
-                "passive_findings": [],
+                "recon_summary": {
+                    "target_url": target_url,
+                    "attack_type_filter": state.get("attack_type", "full"),
+                    "total_targets_identified": 0,
+                    "total_requests_captured": 0,
+                },
+                "high_priority_targets": [],
             }
             state["recon_used_fallback"] = False
             state["recon_recovery_mode"] = "error"
@@ -179,10 +182,13 @@ def create_orchestrator_tools(channel: aio_pika.Channel) -> list[StructuredTool]
             return f"Fallo en Recon Agent: {error_msg}"
 
         recon_data = rpc_response.get("recon_data") or {
-            "target_url": target_url,
-            "endpoints": [],
-            "technologies": [],
-            "passive_findings": [],
+            "recon_summary": {
+                "target_url": target_url,
+                "attack_type_filter": state.get("attack_type", "full"),
+                "total_targets_identified": 0,
+                "total_requests_captured": 0,
+            },
+            "high_priority_targets": [],
         }
         used_fallback = rpc_response.get("used_fallback", False)
         recovery_mode = rpc_response.get("recovery_mode", "clean")
@@ -268,10 +274,13 @@ def create_orchestrator_tools(channel: aio_pika.Channel) -> list[StructuredTool]
             return "Validación omitida debido a un fallo en la fase de Reconocimiento."
 
         recon_data = state.get("recon_data") or {
-            "target_url": state["target_url"],
-            "endpoints": [],
-            "technologies": [],
-            "passive_findings": [],
+            "recon_summary": {
+                "target_url": state["target_url"],
+                "attack_type_filter": state.get("attack_type", "full"),
+                "total_targets_identified": 0,
+                "total_requests_captured": 0,
+            },
+            "high_priority_targets": [],
         }
 
         if not (
@@ -311,6 +320,7 @@ def create_orchestrator_tools(channel: aio_pika.Channel) -> list[StructuredTool]
             "target_url": state["target_url"],
             "attack_type": state["attack_type"],
             "recon_data": recon_data,
+            "token": state.get("token"),
         }
 
         if LOG_RPC_PAYLOADS:
@@ -439,10 +449,13 @@ def create_orchestrator_tools(channel: aio_pika.Channel) -> list[StructuredTool]
             "validate_used_fallback": state.get("validate_used_fallback", False) or False,
             "recon_data": state.get("recon_data")
             or {
-                "target_url": target_url,
-                "endpoints": [],
-                "technologies": [],
-                "passive_findings": [],
+                "recon_summary": {
+                    "target_url": target_url,
+                    "attack_type_filter": state.get("attack_type", "full"),
+                    "total_targets_identified": 0,
+                    "total_requests_captured": 0,
+                },
+                "high_priority_targets": [],
             },
             "validation_data": state.get("validation_data")
             or {

@@ -4,6 +4,8 @@ export interface CreateTaskPayload {
   category: string;
   attackType: string;
   sessionToken?: string;
+  // JWT de sesión, solo presente en ataques que lo requieren (jwt).
+  token?: string;
 }
 
 export interface TaskResponse {
@@ -20,6 +22,17 @@ const API_BASE_URL = isServer
 
 export const scanService = {
   async createScanTask(payload: CreateTaskPayload): Promise<TaskResponse> {
+    // El token solo se envía si está presente (no contaminar el payload de ataques sin auth).
+    const body: Record<string, unknown> = {
+      target_url: payload.targetUrl,
+      category: payload.category,
+      attack_type: payload.attackType,
+      agent_models: payload.agentModels,
+    };
+    if (payload.token && payload.token.trim()) {
+      body.token = payload.token.trim();
+    }
+
     const response = await fetch(`${API_BASE_URL}/api/task`, {
       method: 'POST',
       headers: {

@@ -18,5 +18,10 @@ export const ATTACK_CATEGORIES = {
   auth_failure: {
     label: "Fallos de autenticacion",
     attacks: [{ id: "auth_default", label: "Proximamente / General" }],
+    label: "Authentication Failure",
+    attacks: [
+      { id: "jwt", label: "JWT Analysis" },
+      { id: "auth_default", label: "Proximamente / General" },
+    ],
   },
 };

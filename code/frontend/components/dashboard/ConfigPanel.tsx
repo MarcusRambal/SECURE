@@ -22,10 +22,39 @@ export const ConfigPanel = ({ onTaskCreated }: ConfigPanelProps) => {
 
   const isAuthFailure = selectedCategory === "auth_failure";
 
+  // JWT solo se muestra cuando el ataque seleccionado es jwt.
+  const needsToken = selectedAttack === "jwt";
+
   const handleCategoryChange = (key: string) => {
     setSelectedCategory(key);
     const firstAttackOfNewCategory = ATTACK_CATEGORIES[key as keyof typeof ATTACK_CATEGORIES].attacks[0].id;
     setSelectedAttack(firstAttackOfNewCategory);
+  };
+
+  const handlePasteToken = async () => {
+    setTokenError(null);
+    try {
+      const clip = await navigator.clipboard.readText();
+      if (!clip || !clip.trim()) {
+        setTokenError("El portapapeles está vacío.");
+        return;
+      }
+      // Limpieza defensiva por si el usuario copia con "Bearer " o comillas
+      let clean = clip.trim().replace(/^["']|["']$/g, "");
+      if (clean.toLowerCase().startsWith("bearer ")) {
+        clean = clean.slice(7).trim();
+      }
+      // Validación mínima: header.payload.signature
+      if (clean.split(".").length !== 3) {
+        setTokenError("El JWT no tiene el formato esperado (header.payload.signature).");
+        return;
+      }
+      setToken(clean);
+      setTokenPasted(true);
+    } catch (err) {
+      console.error("[clipboard]", err);
+      setTokenError("No se pudo leer el portapapeles (revisa los permisos del navegador).");
+    }
   };
 
   const currentAttacks = ATTACK_CATEGORIES[selectedCategory as keyof typeof ATTACK_CATEGORIES]?.attacks || [];
@@ -33,6 +62,19 @@ export const ConfigPanel = ({ onTaskCreated }: ConfigPanelProps) => {
   const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError(null);
+    setTokenError(null);
+
+    // Validar token si el ataque lo requiere
+    if (needsToken) {
+      if (!token.trim()) {
+        setTokenError("El ataque JWT requiere un token de sesión válido.");
+        return;
+      }
+      if (token.trim().split(".").length !== 3) {
+        setTokenError("El token no tiene el formato esperado (header.payload.signature).");
+        return;
+      }
+    }
 
     const payload = {
       targetUrl,
@@ -41,7 +83,6 @@ export const ConfigPanel = ({ onTaskCreated }: ConfigPanelProps) => {
       ...(isAuthFailure && sessionToken ? { sessionToken } : {}),
     };
 
-    // Executamos la Server Action usando React Transition
     startTransition(async () => {
       const response = await submitScanConfigAction(payload);
 
