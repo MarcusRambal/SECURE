@@ -103,6 +103,10 @@ class SkillsMCPServer:
             input_files=input_files,
         )
 
+        postprocess_fn = tool_config.get("postprocess_result")
+        if postprocess_fn:
+            result = postprocess_fn(result, merged_args)
+
         is_error = result.get("status") != "SUCCESS"
 
         return {

@@ -78,6 +78,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock # Acceso al Engine de Docker
       - ./skills_controller/tools/sqli_map/outputs:/app/tools/sqli_map/outputs
       - ./skills_controller/tools/sqli_skill/outputs:/app/tools/sqli_skill/outputs
+      - ./skills_controller/tools/crawler/outputs:/app/tools/crawler/outputs
+      - ./skills_controller/tools/deep_crawler/outputs:/app/tools/deep_crawler/outputs
     env_file:
       - .env
     networks:

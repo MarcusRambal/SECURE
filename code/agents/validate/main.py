@@ -7,7 +7,11 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from attack_validators import get_validation_strategy
 from contract_schemas import ValidateOutput
-from helpers import build_validate_output_from_dict, write_validate_context_snapshot
+from helpers import (
+    build_validate_output_from_dict,
+    update_validate_context_snapshot,
+    write_validate_context_snapshot,
+)
 from llm_factory import get_llm
 from validate_prompts import get_system_prompt
 
@@ -114,6 +118,7 @@ async def process_validate_task(
         ),
     )
 
+    snapshot_path = None
     try:
         snapshot_path = write_validate_context_snapshot(
             target_url,
@@ -124,6 +129,7 @@ async def process_validate_task(
             },
             evidence.pre_executed_context,
             task_id=trace_id,
+            tool_timings=tool_timings,
         )
         logger.info(
             "[VALIDATE] task_id=%s phase=context_snapshot path=%s",
@@ -152,6 +158,15 @@ async def process_validate_task(
         started_at,
         evidence.executed_commands,
     )
+    if snapshot_path is not None:
+        try:
+            update_validate_context_snapshot(
+                snapshot_path,
+                structured_output.model_dump(),
+                validate_output.model_dump(),
+            )
+        except OSError:
+            logger.exception("[VALIDATE] No se pudo completar el contexto guardado")
     logger.info(
         "[VALIDATE] task_id=%s phase=complete vulnerabilities=%d unconfirmed=%d "
         "output=%s",

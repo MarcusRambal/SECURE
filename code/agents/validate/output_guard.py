@@ -80,6 +80,10 @@ def _merge_findings(primary: dict, duplicate: dict) -> dict:
 
     if not merged.get("parameter") and duplicate.get("parameter"):
         merged["parameter"] = duplicate["parameter"]
+    if not merged.get("method") and duplicate.get("method"):
+        merged["method"] = duplicate["method"]
+    if not merged.get("verification_steps") and duplicate.get("verification_steps"):
+        merged["verification_steps"] = duplicate["verification_steps"]
 
     tools = []
     for finding in (primary, duplicate):
@@ -124,14 +128,20 @@ def guard_validate_output(output: dict) -> tuple[dict, int]:
         raise TypeError("Each confirmed vulnerability must be a JSON object")
 
     grouped: dict[
-        tuple[str, tuple[str, str, int | None, str]],
+        tuple[str, tuple[str, str, int | None, str], str | None],
         list[tuple[str | None, int, dict]],
     ] = {}
     for index, finding in enumerate(vulnerabilities):
         endpoint = finding.get("endpoint")
         if not isinstance(endpoint, str) or not endpoint.strip():
             raise ValueError("Each confirmed vulnerability must have an endpoint")
-        key = (_canonical_type(finding.get("type")), _endpoint_identity(endpoint))
+        method = finding.get("method")
+        method = method.upper() if isinstance(method, str) and method.strip() else None
+        key = (
+            _canonical_type(finding.get("type")),
+            _endpoint_identity(endpoint),
+            method,
+        )
         grouped.setdefault(key, []).append(
             (_parameter_identity(finding), index, dict(finding))
         )

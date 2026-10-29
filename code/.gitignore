@@ -142,3 +142,6 @@ Thumbs.db
 ollama_data/
 *.gguf
 *.bin
+
+attacks.txt
+salidasdlafox.txt

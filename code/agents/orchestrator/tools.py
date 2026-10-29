@@ -456,9 +456,12 @@ def create_orchestrator_tools(channel: aio_pika.Channel) -> list[StructuredTool]
                     "title": finding.get("type", "Sin título"),
                     "severity": finding.get("severity", "INFO"),
                     "endpoint": finding.get("endpoint"),
+                    "parameter": finding.get("parameter"),
+                    "method": finding.get("method"),
                     "evidence": finding.get("evidence"),
                     "confidence": finding.get("confidence"),
                     "toolsUsed": finding.get("tools_used", []),
+                    "verificationSteps": finding.get("verification_steps"),
                 },
             )
         await publish_scan_event(

@@ -321,12 +321,13 @@ class XssValidationStrategy(ValidationStrategy):
                 tool_timings,
             )
             result = parse_dalfox_output(raw_output)
+            method = str(request.get("method") or target.get("method") or "GET").upper()
             normalized_output = {
                 "status": result.status,
                 "findings": [
                     {
                         "endpoint": sanitize_endpoint_for_context(finding.endpoint),
-                        "method": finding.method,
+                        "method": finding.method or method,
                         "parameter": finding.parameter,
                         "verification": finding.verification,
                         "context": finding.context,
@@ -336,7 +337,6 @@ class XssValidationStrategy(ValidationStrategy):
                 ],
                 "message": result.message,
             }
-            method = str(request.get("method") or target.get("method") or "GET").upper()
             body = request.get("body") or ""
             has_body = bool(body)
             if method != "GET" or has_body:

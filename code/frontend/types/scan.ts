@@ -66,9 +66,12 @@ export interface AgentWebSocketEvent {
             title: string;
             severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' | 'INFO';
             endpoint?: string;
+            parameter?: string;
+            method?: string;
             evidence?: string;
             confidence?: 'HIGH' | 'MEDIUM' | 'LOW';
             toolsUsed?: string[];
+            verificationSteps?: string;
             pocScript?: string;
         }
     }

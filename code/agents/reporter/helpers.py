@@ -50,9 +50,20 @@ def build_fallback_markdown_report(reporter_input: ReporterInput, raw_error: str
             parts.append(f"### [{vulnerability.severity}] {vulnerability.type}")
             parts.append(f"- **Endpoint:** `{vulnerability.endpoint}`")
             parts.append(f"- **Parametro:** `{vulnerability.parameter or 'N/A'}`")
+            if vulnerability.method:
+                parts.append(f"- **Método HTTP:** `{vulnerability.method}`")
             parts.append(f"- **Certeza:** `{vulnerability.confidence}`")
             parts.append(f"- **Evidencia:** `{vulnerability.evidence}`")
-            parts.append("- **Comando Reproducible:**")
+            if vulnerability.verification_steps:
+                parts.append(
+                    f"- **Cómo verificar:** {vulnerability.verification_steps}"
+                )
+            command_label = (
+                "Comando ejecutado (requiere el archivo HTTP temporal)"
+                if "/tmp/dalfox-req.txt" in vulnerability.reproducible_command
+                else "Comando reproducible"
+            )
+            parts.append(f"- **{command_label}:**")
             parts.append("```bash")
             parts.append(vulnerability.reproducible_command)
             parts.append("```")
@@ -102,10 +113,12 @@ def build_reporter_context(reporter_input: ReporterInput) -> str:
                     "severity": vulnerability.severity,
                     "endpoint": vulnerability.endpoint,
                     "parameter": vulnerability.parameter,
+                    "method": vulnerability.method,
                     "confidence": vulnerability.confidence,
                     "evidence": _limit_text(
                         vulnerability.evidence, REPORTER_MAX_EVIDENCE_CHARS
                     ),
+                    "verification_steps": vulnerability.verification_steps,
                     "reproducible_command": vulnerability.reproducible_command,
                     "tools_used": vulnerability.tools_used,
                 }

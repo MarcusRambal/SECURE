@@ -111,6 +111,40 @@ class ValidateOutputGuardTests(unittest.TestCase):
         self.assertEqual(removed, 0)
         self.assertEqual(len(guarded["vulnerabilities"]), 2)
 
+    def test_preserves_same_xss_parameter_across_distinct_methods(self):
+        output = {
+            "vulnerabilities": [
+                {
+                    "type": "Cross-Site Scripting (XSS)",
+                    "severity": "MEDIUM",
+                    "endpoint": "http://wackopicko/guestbook.php",
+                    "parameter": "comment",
+                    "method": "GET",
+                    "evidence": "GET verified",
+                    "confidence": "HIGH",
+                    "tools_used": ["dalfox"],
+                },
+                {
+                    "type": "Cross-Site Scripting (XSS)",
+                    "severity": "MEDIUM",
+                    "endpoint": "http://wackopicko/guestbook.php",
+                    "parameter": "comment",
+                    "method": "POST",
+                    "evidence": "POST verified",
+                    "confidence": "HIGH",
+                    "tools_used": ["dalfox"],
+                },
+            ]
+        }
+
+        guarded, removed = guard_validate_output(output)
+
+        self.assertEqual(removed, 0)
+        self.assertEqual(
+            [finding["method"] for finding in guarded["vulnerabilities"]],
+            ["GET", "POST"],
+        )
+
     def test_rejects_malformed_confirmed_findings_explicitly(self):
         with self.assertRaisesRegex(ValueError, "must have an endpoint"):
             guard_validate_output(

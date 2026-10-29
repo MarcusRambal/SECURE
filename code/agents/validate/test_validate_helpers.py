@@ -16,6 +16,42 @@ from helpers import (
 
 
 class ValidateSqliHelperTests(unittest.TestCase):
+    def test_preserves_xss_method_and_verification_steps(self):
+        result = build_validate_output_from_dict(
+            {
+                "vulnerabilities": [
+                    {
+                        "type": "Cross-Site Scripting (XSS)",
+                        "severity": "HIGH",
+                        "endpoint": "http://wackopicko/guestbook.php",
+                        "parameter": "comment",
+                        "method": "POST",
+                        "evidence": "Dalfox marked an XSS proof verified.",
+                        "verification_steps": "Repeat the captured request in the lab.",
+                        "confidence": "HIGH",
+                        "tools_used": ["dalfox"],
+                    }
+                ]
+            },
+            "http://wackopicko",
+            "2026-10-29T00:00:00+00:00",
+            [
+                {
+                    "tool": "dalfox",
+                    "endpoint": "http://wackopicko/guestbook.php",
+                    "method": "POST",
+                    "command": "dalfox raw-http request",
+                }
+            ],
+        )
+
+        finding = result.vulnerabilities[0]
+        self.assertEqual(finding.method, "POST")
+        self.assertEqual(
+            finding.verification_steps,
+            "Repeat the captured request in the lab.",
+        )
+
     def test_extracts_query_form_and_nested_json_parameter_names(self):
         query_and_form = get_sqli_test_parameters(
             "http://juice-shop:3000/login?next=%2Fhome&id=1",

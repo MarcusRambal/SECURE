@@ -368,7 +368,13 @@ export const PanelView = ({
               {vulnerabilities.map((vulnerability, index) => (
                 <li
                   className={styles.vulnerabilityItem}
-                  key={`${vulnerability.title}-${vulnerability.endpoint ?? index}`}
+                  key={[
+                    vulnerability.title,
+                    vulnerability.endpoint ?? "",
+                    vulnerability.method ?? "",
+                    vulnerability.parameter ?? "",
+                    index,
+                  ].join("-")}
                 >
                   <div className={styles.vulnerabilityTopline}>
                     <span
@@ -388,6 +394,14 @@ export const PanelView = ({
                   {vulnerability.endpoint && (
                     <code className={styles.endpointUrl}>{vulnerability.endpoint}</code>
                   )}
+                  {(vulnerability.method || vulnerability.parameter) && (
+                    <p className={styles.evidence}>
+                      {vulnerability.method && `Método: ${vulnerability.method}`}
+                      {vulnerability.method && vulnerability.parameter && " · "}
+                      {vulnerability.parameter &&
+                        `Parámetro: ${vulnerability.parameter}`}
+                    </p>
+                  )}
                   {vulnerability.evidence && (
                     <p className={styles.evidence}>{vulnerability.evidence}</p>
                   )}
@@ -397,8 +411,16 @@ export const PanelView = ({
                     )}
                     {vulnerability.pocScript && (
                       <details className={styles.pocDetails}>
-                        <summary>Ver prueba</summary>
+                        <summary>Ver comando utilizado</summary>
                         <pre>{vulnerability.pocScript}</pre>
+                      </details>
+                    )}
+                    {vulnerability.verificationSteps && (
+                      <details className={styles.pocDetails}>
+                        <summary>Cómo verificar</summary>
+                        <p className={styles.evidence}>
+                          {vulnerability.verificationSteps}
+                        </p>
                       </details>
                     )}
                   </div>

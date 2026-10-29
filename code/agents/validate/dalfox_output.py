@@ -26,6 +26,7 @@ class DalfoxFinding:
     verification: str
     context: str | None
     payload: str | None
+    evidence: str | None = None
 
 
 @dataclass(frozen=True)
@@ -49,12 +50,102 @@ def _extract_parameter_and_payload(endpoint: str) -> tuple[str | None, str | Non
     return parameters[0]
 
 
+def _load_json_findings(output: str) -> tuple[bool, list | None, bool]:
+    try:
+        report = json.loads(output)
+    except json.JSONDecodeError:
+        report = None
+        json_lines = []
+        for line in output.splitlines():
+            try:
+                item = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(item, dict):
+                json_lines.append(item)
+            elif isinstance(item, list):
+                json_lines.extend(entry for entry in item if isinstance(entry, dict))
+        if json_lines:
+            return True, json_lines, False
+        return False, None, False
+
+    if isinstance(report, dict):
+        if report.get("error"):
+            return True, [], True
+        findings = report.get("findings")
+        if isinstance(findings, list):
+            return True, [item for item in findings if isinstance(item, dict)], False
+        if any(key in report for key in ("data", "url", "endpoint")):
+            return True, [report], False
+    if isinstance(report, list):
+        return True, [item for item in report if isinstance(item, dict)], False
+    return False, None, False
+
+
 def parse_dalfox_output(raw_output: str) -> DalfoxResult:
-    """Parse common Dalfox ``[POC][V|R][METHOD][context] URL`` output lines."""
+    """Parse Dalfox JSON reports and legacy ``[POC]`` output lines."""
     if not isinstance(raw_output, str):
         raise TypeError("Dalfox output must be text")
 
     cleaned_output = _ANSI_ESCAPE.sub("", raw_output)
+    is_json_report, raw_findings, is_json_error = _load_json_findings(
+        cleaned_output
+    )
+    if is_json_error:
+        return DalfoxResult("ERROR", (), "Dalfox reported an execution error")
+    if is_json_report and raw_findings is not None:
+        findings = []
+        seen = set()
+        verification_by_type = {
+            "V": "verified",
+            "A": "ast_detected",
+            "R": "reflected",
+            "I": "informational",
+        }
+        for item in raw_findings:
+            endpoint = item.get("data") or item.get("url") or item.get("endpoint")
+            if not isinstance(endpoint, str) or not endpoint:
+                continue
+            finding_type = str(item.get("type") or "").upper()
+            verification = verification_by_type.get(finding_type, "unverified")
+            parameter = item.get("param")
+            parameter = parameter if isinstance(parameter, str) and parameter else None
+            method = str(item["method"]).upper() if item.get("method") else None
+            key = (endpoint, method, parameter, verification)
+            if key in seen:
+                continue
+            seen.add(key)
+            context = item.get("inject_type") or item.get("detection_method")
+            evidence_parts = [
+                item.get("evidence"),
+                item.get("confidence_reason"),
+                item.get("type_description"),
+            ]
+            evidence = "; ".join(
+                part.strip()
+                for part in evidence_parts
+                if isinstance(part, str) and part.strip()
+            ) or None
+            findings.append(
+                DalfoxFinding(
+                    endpoint=endpoint,
+                    method=method,
+                    parameter=parameter,
+                    verification=verification,
+                    context=str(context) if context else None,
+                    payload=(
+                        str(item["payload"])
+                        if item.get("payload") is not None
+                        else None
+                    ),
+                    evidence=evidence,
+                )
+            )
+        return DalfoxResult(
+            "FINDINGS" if findings else "NO_FINDINGS",
+            tuple(findings),
+        )
+
     findings: list[DalfoxFinding] = []
     seen: set[tuple[str, str | None, str]] = set()
     for raw_line in cleaned_output.splitlines():
@@ -84,7 +175,7 @@ def parse_dalfox_output(raw_output: str) -> DalfoxResult:
             None,
         )
         parameter, payload = _extract_parameter_and_payload(endpoint)
-        key = (endpoint, parameter, verification)
+        key = (endpoint, method, parameter, verification)
         if key in seen:
             continue
         seen.add(key)
@@ -135,14 +226,20 @@ def build_dalfox_validator_context(
     findings = [
         {
             "endpoint": sanitize_endpoint_for_context(finding.endpoint),
+            "method": finding.method,
             "parameter": finding.parameter,
             "verification": finding.verification,
             "context": finding.context,
             "payload": finding.payload,
-            "evidence": (
-                f"Dalfox reported a {finding.verification} POC"
-                + (f" in {finding.context}" if finding.context else "")
-                + (f" for parameter {finding.parameter}" if finding.parameter else "")
+            "evidence": "; ".join(
+                part
+                for part in (
+                    finding.evidence
+                    or f"Dalfox reported a {finding.verification} POC",
+                    f"in {finding.context}" if finding.context else "",
+                    f"for parameter {finding.parameter}" if finding.parameter else "",
+                )
+                if part
             ),
         }
         for finding in result.findings
@@ -169,15 +266,6 @@ def merge_verified_dalfox_findings(
         dict(finding) if isinstance(finding, dict) else finding
         for finding in (model_output.get("vulnerabilities", []) or [])
     ]
-    known = {
-        (
-            str(finding.get("type", "")).casefold(),
-            str(finding.get("endpoint", "")).casefold(),
-            str(finding.get("parameter") or "").casefold(),
-        )
-        for finding in vulnerabilities
-        if isinstance(finding, dict)
-    }
 
     for execution in executions:
         if execution.get("tool") != "dalfox":
@@ -193,12 +281,57 @@ def merge_verified_dalfox_findings(
                 continue
             endpoint = finding.get("endpoint") or execution.get("endpoint")
             parameter = finding.get("parameter")
-            key = (
-                "cross-site scripting (xss)",
-                str(endpoint).casefold(),
-                str(parameter or "").casefold(),
+            method = str(
+                finding.get("method") or execution.get("method") or ""
+            ).upper() or None
+            matching = [
+                existing
+                for existing in vulnerabilities
+                if isinstance(existing, dict)
+                and (
+                    "xss" in str(existing.get("type", "")).casefold()
+                    or "cross-site scripting"
+                    in str(existing.get("type", "")).casefold()
+                )
+                and str(existing.get("endpoint", "")).casefold()
+                == str(endpoint).casefold()
+                and str(existing.get("parameter") or "").casefold()
+                == str(parameter or "").casefold()
+            ]
+            exact_method = [
+                existing
+                for existing in matching
+                if method
+                and str(existing.get("method") or "").upper() == method
+            ]
+            existing = (
+                exact_method[0]
+                if len(exact_method) == 1
+                else matching[0]
+                if len(matching) == 1
+                and (
+                    not matching[0].get("method")
+                    or not method
+                    or str(matching[0].get("method")).upper() == method
+                )
+                else None
             )
-            if key in known:
+            verification_steps = _build_verification_steps(
+                method,
+                str(parameter) if parameter else None,
+                str(finding.get("context")) if finding.get("context") else None,
+            )
+            if existing is not None:
+                if not existing.get("method"):
+                    existing["method"] = method
+                if not existing.get("verification_steps"):
+                    existing["verification_steps"] = verification_steps
+                evidence = str(finding.get("evidence") or "").strip()
+                current_evidence = str(existing.get("evidence") or "")
+                if evidence and evidence.casefold() not in current_evidence.casefold():
+                    existing["evidence"] = (
+                        f"{current_evidence}; {evidence}".strip("; ")
+                    )[:3000]
                 continue
             vulnerabilities.append(
                 {
@@ -206,12 +339,38 @@ def merge_verified_dalfox_findings(
                     "severity": "MEDIUM",
                     "endpoint": endpoint,
                     "parameter": parameter,
+                    "method": method,
                     "evidence": finding.get("evidence")
                     or "Dalfox reported a verified XSS proof of concept.",
+                    "verification_steps": verification_steps,
                     "reproducible_command": execution.get("command", ""),
                     "confidence": "HIGH",
                     "tools_used": ["dalfox"],
                 }
             )
-            known.add(key)
     return {**model_output, "vulnerabilities": vulnerabilities}
+
+
+def _build_verification_steps(
+    method: str | None,
+    parameter: str | None,
+    context: str | None,
+) -> str:
+    request_method = method or "captured HTTP method"
+    parameter_detail = f" and parameter `{parameter}`" if parameter else ""
+    context_detail = f" in `{context}`" if context else ""
+    if request_method == "POST":
+        return (
+            f"Dalfox marked an XSS proof as verified for the captured POST request"
+            f"{parameter_detail}{context_detail}. In the authorized test environment, "
+            "repeat the captured request and confirm the same behavior in the rendered "
+            "response. A POST result alone does not establish stored XSS; that requires "
+            "a separate readback of the submitted value. The raw HTTP input file used "
+            "by the tool was temporary, so the recorded command cannot be replayed as-is."
+        )
+    return (
+        f"Dalfox marked an XSS proof as verified for the captured {request_method} "
+        f"request{parameter_detail}{context_detail}. In the authorized test environment, "
+        "repeat the same request and confirm JavaScript execution in the rendered page; "
+        "text reflection alone is not sufficient."
+    )

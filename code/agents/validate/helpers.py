@@ -215,6 +215,7 @@ def write_validate_context_snapshot(
     agent_context: dict,
     sqlmap_executions: list[dict],
     task_id: str | None = None,
+    tool_timings: list[dict] | None = None,
 ) -> Path:
     """Guarda el contexto del agente y las requests de validación ejecutadas."""
     output_dir = Path(
@@ -240,6 +241,8 @@ def write_validate_context_snapshot(
         "task_id": task_id,
         "agent_context": agent_context,
         "sqlmap_executions": sqlmap_executions,
+        "tool_executions": sqlmap_executions,
+        "tool_timings": tool_timings or [],
     }
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path.write_text(
@@ -247,6 +250,21 @@ def write_validate_context_snapshot(
         encoding="utf-8",
     )
     return output_path
+
+
+def update_validate_context_snapshot(
+    snapshot_path: Path,
+    llm_output: dict,
+    final_output: dict,
+) -> None:
+    """Append the validator's structured answer and normalized output."""
+    payload = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    payload["llm_output"] = llm_output
+    payload["final_output"] = final_output
+    snapshot_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, default=str) + "\n",
+        encoding="utf-8",
+    )
 
 
 def extract_sqlmap_findings(executions: list[dict]) -> list[dict]:
@@ -668,6 +686,7 @@ def build_validate_output_from_dict(args: dict,target_url: str,started_at: str,e
 
         # Determinar comando reproducible real
         real_cmd = "Comando no verificado"
+        matched_command = None
         if tools_used:
             tool_used = tools_used[0]
             tool_commands = [
@@ -686,6 +705,9 @@ def build_validate_output_from_dict(args: dict,target_url: str,started_at: str,e
             real_cmd = (f"Comando no verificado (sin tools_used) para {v.get('endpoint', target_url)}")
 
         parameter = v.get("parameter", "") or None
+        method = v.get("method") or (
+            matched_command.get("method") if matched_command else None
+        )
 
         try:
             vulnerabilities.append(
@@ -694,7 +716,9 @@ def build_validate_output_from_dict(args: dict,target_url: str,started_at: str,e
                     severity=v.get("severity", "MEDIUM"),
                     endpoint=v.get("endpoint", target_url),
                     parameter=parameter,
+                    method=method,
                     evidence=v.get("evidence", "Sin evidencia textual"),
+                    verification_steps=v.get("verification_steps"),
                     reproducible_command=real_cmd,
                     confidence=v.get("confidence", "MEDIUM"),
                     tools_used=tools_used,
@@ -750,4 +774,3 @@ def build_validate_output_from_dict(args: dict,target_url: str,started_at: str,e
         scan_started_at=started_at,
         scan_finished_at=datetime.now(timezone.utc).isoformat(),
     )
-
