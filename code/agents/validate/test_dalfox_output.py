@@ -262,9 +262,10 @@ class DalfoxOutputTests(unittest.TestCase):
 
         finding = merged["vulnerabilities"][0]
         self.assertEqual(finding["method"], "POST")
-        self.assertIn("parameter `comment`", finding["verification_steps"])
-        self.assertIn("does not establish stored XSS", finding["verification_steps"])
-        self.assertNotIn("<script>", finding["verification_steps"])
+        self.assertIn("parámetro `comment`", finding["verification_steps"])
+        self.assertIn("no lo demuestra", finding["verification_steps"])
+        self.assertIn("<svg onload=alert(1)>", finding["verification_steps"])
+        self.assertIn("vuelve a cargar la vista", finding["verification_steps"])
 
     def test_merging_preserves_same_endpoint_findings_with_different_methods(self):
         normalized = {
@@ -338,7 +339,8 @@ class DalfoxOutputTests(unittest.TestCase):
         finding = merged["vulnerabilities"][0]
         self.assertEqual(finding["method"], "POST")
         self.assertIn("Dalfox marked this proof verified", finding["evidence"])
-        self.assertIn("authorized test environment", finding["verification_steps"])
+        self.assertIn("entorno de pruebas autorizado", finding["verification_steps"])
+        self.assertIn("origen del sitio", finding["verification_steps"])
 
     def test_xss_is_registered_in_the_validation_flow_and_prompt(self):
         self.assertTrue(is_xss_attack("xss"))

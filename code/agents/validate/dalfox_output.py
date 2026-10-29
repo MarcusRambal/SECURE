@@ -456,20 +456,30 @@ def _build_verification_steps(
     context: str | None,
 ) -> str:
     request_method = method or "captured HTTP method"
-    parameter_detail = f" and parameter `{parameter}`" if parameter else ""
-    context_detail = f" in `{context}`" if context else ""
+    parameter_detail = f" en el parámetro `{parameter}`" if parameter else ""
+    context_detail = f" en contexto `{context}`" if context else ""
+    safe_proof = "`<svg onload=alert(1)>`"
+    impact_note = (
+        "Si una víctima abre la página vulnerable, el JavaScript inyectado se "
+        "ejecutaría con el origen del sitio y podría interactuar con los datos y "
+        "acciones disponibles para esa víctima; esta prueba solo demuestra ejecución "
+        "y no lee ni transmite datos."
+    )
     if request_method == "POST":
         return (
-            f"Dalfox marked an XSS proof as verified for the captured POST request"
-            f"{parameter_detail}{context_detail}. In the authorized test environment, "
-            "repeat the captured request and confirm the same behavior in the rendered "
-            "response. A POST result alone does not establish stored XSS; that requires "
-            "a separate readback of the submitted value. The raw HTTP input file used "
-            "by the tool was temporary, so the recorded command cannot be replayed as-is."
+            f"Dalfox confirmó un indicio XSS para la solicitud POST capturada"
+            f"{context_detail}. En un entorno de pruebas autorizado: "
+            f"envía el marcador inocuo {safe_proof}{parameter_detail}, abre la página que "
+            "renderiza la respuesta y confirma el cuadro de prueba en el navegador. "
+            "Para confirmar XSS almacenado, vuelve a cargar la vista que lee el dato "
+            "guardado; una respuesta POST por sí sola no lo demuestra. El archivo HTTP "
+            "temporal de Dalfox no está disponible para repetir el comando guardado. "
+            f"{impact_note}"
         )
     return (
-        f"Dalfox marked an XSS proof as verified for the captured {request_method} "
-        f"request{parameter_detail}{context_detail}. In the authorized test environment, "
-        "repeat the same request and confirm JavaScript execution in the rendered page; "
-        "text reflection alone is not sufficient."
+        f"Dalfox confirmó un indicio XSS para la solicitud {request_method} capturada"
+        f"{context_detail}. En un entorno de pruebas autorizado, "
+        f"envía el marcador inocuo {safe_proof}{parameter_detail} y abre la respuesta en "
+        "un navegador; confirma el cuadro de prueba. Ver el texto reflejado no basta: "
+        f"debe ejecutarse en el navegador. {impact_note}"
     )
