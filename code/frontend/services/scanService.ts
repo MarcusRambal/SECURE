@@ -3,11 +3,7 @@ export interface CreateTaskPayload {
   targetUrl: string;
   category: string;
   attackType: string;
-  agentModels: {
-    scanner: string;
-    attacker: string;
-    reporter: string;
-  };
+  sessionToken?: string;
   // JWT de sesión, solo presente en ataques que lo requieren (jwt).
   token?: string;
 }
@@ -42,7 +38,12 @@ export const scanService = {
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify({
+        target_url: payload.targetUrl,
+        category: payload.category,
+        attack_type: payload.attackType,
+        ...(payload.sessionToken ? { session_token: payload.sessionToken } : {}),
+      }),
     });
 
     if (!response.ok) {
