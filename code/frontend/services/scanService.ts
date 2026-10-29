@@ -3,11 +3,7 @@ export interface CreateTaskPayload {
   targetUrl: string;
   category: string;
   attackType: string;
-  agentModels: {
-    scanner: string;
-    attacker: string;
-    reporter: string;
-  };
+  sessionToken?: string;
 }
 
 export interface TaskResponse {
@@ -33,7 +29,7 @@ export const scanService = {
         target_url: payload.targetUrl,
         category: payload.category,
         attack_type: payload.attackType,
-        agent_models: payload.agentModels,
+        ...(payload.sessionToken ? { session_token: payload.sessionToken } : {}),
       }),
     });
 

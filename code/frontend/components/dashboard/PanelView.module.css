@@ -1,0 +1,97 @@
+.panelContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  font-family: var(--font-geist-sans), Arial, sans-serif;
+}
+
+.taskInfo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.taskId {
+  color: var(--color-purple-300);
+  font-size: 0.8rem;
+  word-break: break-all;
+}
+
+.status {
+  padding: 0.4rem 0.9rem;
+  border-radius: 10px;
+  border: 1px solid var(--color-purple-700);
+  color: var(--color-purple-200);
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.statusIdle {
+  color: var(--color-purple-300);
+  border-color: var(--color-purple-900);
+}
+
+.statusComplete {
+  color: #86efac;
+  border-color: #166534;
+}
+
+.statusError {
+  color: #fca5a5;
+  border-color: #991b1b;
+}
+
+.panelLayout {
+  display: grid;
+  grid-template-columns: minmax(300px, 420px) minmax(0, 1fr);
+  gap: 1.25rem;
+  align-items: start;
+}
+
+.leftColumn {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  min-width: 0;
+}
+
+.block {
+  background: var(--color-purple-950);
+  border: 1px solid var(--color-purple-900);
+  border-radius: 16px;
+  padding: 1.5rem;
+}
+
+.blockTitle {
+  margin-bottom: 1rem;
+  font-family: var(--font-lobster);
+  font-weight: 400;
+  font-size: 1.4rem;
+  letter-spacing: 0.03em;
+  color: var(--color-purple-50);
+}
+
+.reportBlock {
+  min-height: 620px;
+}
+
+.reportText {
+  color: var(--color-purple-200);
+  font-size: 0.9rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.emptyMessage {
+  color: var(--color-purple-300);
+  font-size: 0.85rem;
+}
+
+@media (max-width: 860px) {
+  .panelLayout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

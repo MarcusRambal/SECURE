@@ -2,11 +2,6 @@ export interface ScanConfigPayload {
   targetUrl: string;
   category: string;
   attackType: string;
-  agentModels: {
-    scanner: string;
-    attacker: string;
-    reporter: string;
-  };
 }
 
 export interface ScanInitResponse {
