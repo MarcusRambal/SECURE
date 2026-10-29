@@ -48,7 +48,7 @@ class ValidateOutputGuardTests(unittest.TestCase):
             "dalfox scan http://wackopicko/guestbook.php",
         )
 
-    def test_preserves_findings_for_distinct_parameters(self):
+    def test_consolidates_parameters_for_the_same_endpoint_and_preserves_them(self):
         output = {
             "vulnerabilities": [
                 {
@@ -57,6 +57,7 @@ class ValidateOutputGuardTests(unittest.TestCase):
                     "endpoint": "http://wackopicko/guestbook.php?name=%3Cscript%3E",
                     "parameter": "name",
                     "evidence": "verified POC for name",
+                    "verification_steps": "Verify the name input.",
                     "reproducible_command": "dalfox name",
                     "confidence": "HIGH",
                     "tools_used": ["dalfox"],
@@ -67,7 +68,19 @@ class ValidateOutputGuardTests(unittest.TestCase):
                     "endpoint": "http://wackopicko/guestbook.php?message=%3Cscript%3E",
                     "parameter": "message",
                     "evidence": "verified POC for message",
+                    "verification_steps": "Verify the message input.",
                     "reproducible_command": "dalfox message",
+                    "confidence": "HIGH",
+                    "tools_used": ["dalfox"],
+                },
+                {
+                    "type": "XSS",
+                    "severity": "MEDIUM",
+                    "endpoint": "http://wackopicko/pictures/search.php?query=%3Csvg%3E",
+                    "parameter": "query",
+                    "method": "GET",
+                    "evidence": "verified POC for query",
+                    "verification_steps": "Verify the query input.",
                     "confidence": "HIGH",
                     "tools_used": ["dalfox"],
                 },
@@ -76,10 +89,17 @@ class ValidateOutputGuardTests(unittest.TestCase):
 
         guarded, removed = guard_validate_output(output)
 
-        self.assertEqual(removed, 0)
+        self.assertEqual(removed, 1)
+        self.assertEqual(len(guarded["vulnerabilities"]), 2)
+        guestbook = guarded["vulnerabilities"][0]
         self.assertEqual(
-            [finding["parameter"] for finding in guarded["vulnerabilities"]],
-            ["name", "message"],
+            guestbook["parameter"], "name, message"
+        )
+        self.assertIn("Verify the name input.", guestbook["verification_steps"])
+        self.assertIn("Verify the message input.", guestbook["verification_steps"])
+        self.assertEqual(
+            guarded["vulnerabilities"][1]["endpoint"],
+            "http://wackopicko/pictures/search.php?query=%3Csvg%3E",
         )
 
     def test_preserves_distinct_xss_subtypes_at_the_same_endpoint(self):
@@ -111,7 +131,7 @@ class ValidateOutputGuardTests(unittest.TestCase):
         self.assertEqual(removed, 0)
         self.assertEqual(len(guarded["vulnerabilities"]), 2)
 
-    def test_preserves_same_xss_parameter_across_distinct_methods(self):
+    def test_consolidates_methods_for_the_same_endpoint_and_preserves_them(self):
         output = {
             "vulnerabilities": [
                 {
@@ -139,11 +159,9 @@ class ValidateOutputGuardTests(unittest.TestCase):
 
         guarded, removed = guard_validate_output(output)
 
-        self.assertEqual(removed, 0)
-        self.assertEqual(
-            [finding["method"] for finding in guarded["vulnerabilities"]],
-            ["GET", "POST"],
-        )
+        self.assertEqual(removed, 1)
+        self.assertEqual(len(guarded["vulnerabilities"]), 1)
+        self.assertEqual(guarded["vulnerabilities"][0]["method"], "GET, POST")
 
     def test_rejects_malformed_confirmed_findings_explicitly(self):
         with self.assertRaisesRegex(ValueError, "must have an endpoint"):
