@@ -6,7 +6,9 @@ import time
 import aio_pika
 
 from config import LOG_RPC_PAYLOADS, RABBITMQ_URL, VALIDATE_QUEUE
+from contract_schemas import ValidateOutput
 from main import process_validate_task
+from output_guard import guard_validate_output
 
 logger = logging.getLogger("validate-agent-worker")
 
@@ -83,6 +85,19 @@ async def start_validate_worker():
                                     token=token,
                                     task_id=task_id,
                                 )
+                                guarded_output, duplicates_removed = guard_validate_output(
+                                    validate_data.model_dump()
+                                )
+                                validate_data = ValidateOutput.model_validate(
+                                    guarded_output
+                                )
+                                if duplicates_removed:
+                                    logger.info(
+                                        "[VALIDATE] task_id=%s output_guard "
+                                        "duplicate_findings_removed=%d",
+                                        task_id,
+                                        duplicates_removed,
+                                    )
 
                                 if recovery_mode == "fallback":
                                     status = "PARTIAL"

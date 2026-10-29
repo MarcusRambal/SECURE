@@ -240,17 +240,20 @@ class SqliValidationStrategy(ValidationStrategy):
                     "parameter": job["parameter"],
                     "output": safe_report,
                 }
+                profile = report.get("profile")
+                if report.get("error") or report.get("persistence_error"):
+                    status = "ERROR"
+                elif isinstance(profile, dict) and profile.get("status") == "partial":
+                    status = "PARTIAL"
+                else:
+                    status = "COMPLETED"
                 evidence.executed_commands.append(execution)
                 evidence.pre_executed_context.append(
                     {
                         **execution,
                         "method": job["method"],
                         "location": job["location"],
-                        "status": (
-                            "ERROR"
-                            if report.get("error") or report.get("persistence_error")
-                            else "COMPLETED"
-                        ),
+                        "status": status,
                     }
                 )
 

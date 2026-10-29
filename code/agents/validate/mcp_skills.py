@@ -7,6 +7,9 @@ import aio_pika
 
 from config import SKILLS_QUEUE
 
+# Leave response overhead beyond the SQLMap container's 1800-second hard limit.
+MCP_SKILL_CALL_TIMEOUT_SECONDS = 1900.0
+
 
 async def call_mcp_skill(
     channel: aio_pika.Channel,
@@ -49,7 +52,9 @@ async def call_mcp_skill(
     publish_ms = round((time.perf_counter() - publish_started) * 1000, 2)
 
     try:
-        response = await asyncio.wait_for(future, timeout=1000.0)
+        response = await asyncio.wait_for(
+            future, timeout=MCP_SKILL_CALL_TIMEOUT_SECONDS
+        )
         if timings is not None:
             timings.append(
                 {

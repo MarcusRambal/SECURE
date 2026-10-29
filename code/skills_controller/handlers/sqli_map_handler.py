@@ -14,6 +14,8 @@ IMAGE = "local-sqli-map:latest"
 REQUEST_FILE = "/tmp/sqli-map-request.txt"
 REPORT_MARKER = "SQLI_MAP_REPORT="
 OUTPUT_DIR = Path(__file__).resolve().parents[1] / "tools" / "sqli_map" / "outputs"
+# validate can run detection, database listing, and up to three table listings.
+SQLMAP_CONTAINER_TIMEOUT_SECONDS = 1800
 logger = logging.getLogger(__name__)
 
 
@@ -117,7 +119,7 @@ async def execute_sqli_map(arguments: dict) -> str:
     result = await docker_runner.execute_tool(
         image=IMAGE,
         command=shlex.join(command_args),
-        timeout=3600,
+        timeout=SQLMAP_CONTAINER_TIMEOUT_SECONDS,
         input_files=input_files,
     )
     if result.get("status") != "SUCCESS":
@@ -129,7 +131,7 @@ async def execute_sqli_map(arguments: dict) -> str:
         )
         return _persist_report(
             {
-                "error": "SQLMap detection container failed",
+                "error": "SQLMap container failed",
                 "status": result.get("status", "UNKNOWN"),
                 "diagnostics": diagnostics,
             },

@@ -2,7 +2,11 @@ import json
 import unittest
 from unittest.mock import AsyncMock, patch
 
-from handlers.sqli_map_handler import REPORT_MARKER, execute_sqli_map
+from handlers.sqli_map_handler import (
+    REPORT_MARKER,
+    SQLMAP_CONTAINER_TIMEOUT_SECONDS,
+    execute_sqli_map,
+)
 
 
 class SqliMapHandlerTests(unittest.IsolatedAsyncioTestCase):
@@ -74,6 +78,10 @@ class SqliMapHandlerTests(unittest.IsolatedAsyncioTestCase):
         })
 
         command = execute_tool.call_args.kwargs["command"]
+        self.assertEqual(
+            execute_tool.call_args.kwargs["timeout"],
+            SQLMAP_CONTAINER_TIMEOUT_SECONDS,
+        )
         request_file = execute_tool.call_args.kwargs["input_files"][
             "/tmp/sqli-map-request.txt"
         ]
