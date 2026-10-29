@@ -213,10 +213,12 @@ def write_validate_context_snapshot(
     target_url: str,
     attack_type: str,
     agent_context: dict,
-    sqlmap_executions: list[dict],
+    normalized_tool_contexts: list[dict],
     task_id: str | None = None,
+    tool_timings: list[dict] | None = None,
+    tool_diagnostics: list[dict] | None = None,
 ) -> Path:
-    """Guarda el contexto del agente y las requests de validación ejecutadas."""
+    """Guarda el prompt/contexto exacto y los resultados de herramientas."""
     output_dir = Path(
         os.getenv(
             "VALIDATE_CONTEXT_OUTPUT_DIR",
@@ -239,7 +241,11 @@ def write_validate_context_snapshot(
         "attack_type": attack_type,
         "task_id": task_id,
         "agent_context": agent_context,
-        "sqlmap_executions": sqlmap_executions,
+        "validation_context": agent_context.get("validation_context"),
+        "normalized_tool_contexts": normalized_tool_contexts,
+        "tool_executions": normalized_tool_contexts,
+        "tool_diagnostics": tool_diagnostics or [],
+        "tool_timings": tool_timings or [],
     }
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path.write_text(
@@ -247,6 +253,21 @@ def write_validate_context_snapshot(
         encoding="utf-8",
     )
     return output_path
+
+
+def update_validate_context_snapshot(
+    snapshot_path: Path,
+    llm_output: dict,
+    final_output: dict,
+) -> None:
+    """Append the validator's structured answer and normalized output."""
+    payload = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    payload["llm_output"] = llm_output
+    payload["final_output"] = final_output
+    snapshot_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, default=str) + "\n",
+        encoding="utf-8",
+    )
 
 
 def extract_sqlmap_findings(executions: list[dict]) -> list[dict]:
@@ -668,6 +689,7 @@ def build_validate_output_from_dict(args: dict,target_url: str,started_at: str,e
 
         # Determinar comando reproducible real
         real_cmd = "Comando no verificado"
+        matched_command = None
         if tools_used:
             tool_used = tools_used[0]
             tool_commands = [
@@ -686,6 +708,9 @@ def build_validate_output_from_dict(args: dict,target_url: str,started_at: str,e
             real_cmd = (f"Comando no verificado (sin tools_used) para {v.get('endpoint', target_url)}")
 
         parameter = v.get("parameter", "") or None
+        method = v.get("method") or (
+            matched_command.get("method") if matched_command else None
+        )
 
         try:
             vulnerabilities.append(
@@ -694,7 +719,9 @@ def build_validate_output_from_dict(args: dict,target_url: str,started_at: str,e
                     severity=v.get("severity", "MEDIUM"),
                     endpoint=v.get("endpoint", target_url),
                     parameter=parameter,
+                    method=method,
                     evidence=v.get("evidence", "Sin evidencia textual"),
+                    verification_steps=v.get("verification_steps"),
                     reproducible_command=real_cmd,
                     confidence=v.get("confidence", "MEDIUM"),
                     tools_used=tools_used,
@@ -747,92 +774,6 @@ def build_validate_output_from_dict(args: dict,target_url: str,started_at: str,e
         target_url=target_url,
         vulnerabilities=vulnerabilities,
         unconfirmed_findings=unconfirmed_findings,
-        scan_started_at=started_at,
-        scan_finished_at=datetime.now(timezone.utc).isoformat(),
-    )
-
-
-
-# ============================================================================
-# Fallback parser (heredado de David) — usado por main.py cuando el LLM
-# devuelve basura en el flujo SQLi. Reconstruye hallazgos desde la salida
-# cruda de las herramientas.
-# ============================================================================
-
-def extract_evidence_line(raw_outputs: list[str], pattern: str, max_len: int = 300) -> str:
-    """Extrae la primera línea de evidencia concreta truncada a max_len."""
-    regex = re.compile(pattern, re.IGNORECASE)
-    for output in raw_outputs:
-        for line in output.splitlines():
-            if regex.search(line):
-                return line.strip()[:max_len]
-    return ""
-
-
-def build_fallback_validate_output(
-    target_url: str,
-    raw_tool_outputs: list[str],
-    executed_commands: list[dict],
-    started_at: str,
-) -> ValidateOutput:
-    """Construye un resultado parcial usando evidencia de las herramientas.
-
-    Se usa cuando el LLM estructurado falla y estamos en el flujo SQLi.
-    Aplica patrones regex por herramienta para recuperar hallazgos explícitos.
-    """
-    detections = [
-        ("SQL Injection", "sqlmap", r"sqlmap identified|dbms:|syntax error", "HIGH"),
-        ("Cross-Site Scripting (XSS)", "dalfox", r"\[POC\]|\[V\]|\[FOUND\]|xss payload", "MEDIUM"),
-        (
-            "OS Command Injection",
-            "commix",
-            r"vulnerable to.*command injection|is vulnerable|os command",
-            "CRITICAL",
-        ),
-        ("Template Vulnerability (Nuclei)", "nuclei", r"\[(critical|high|medium|low)\]", "HIGH"),
-    ]
-    vulnerabilities = []
-
-    for vulnerability_type, tool_name, pattern, severity in detections:
-        evidence = extract_evidence_line(raw_tool_outputs, pattern)
-        if not evidence:
-            continue
-        command = next(
-            (item["command"] for item in executed_commands if item["tool"] == tool_name),
-            f"{tool_name} -u '{target_url}'",
-        )
-        if tool_name == "nuclei":
-            evidence_lower = evidence.lower()
-            severity = next(
-                (
-                    level
-                    for level in ("CRITICAL", "HIGH", "MEDIUM", "LOW")
-                    if f"[{level.lower()}]" in evidence_lower
-                ),
-                severity,
-            )
-        vulnerabilities.append(
-            Vulnerability(
-                type=vulnerability_type,
-                severity=severity,
-                endpoint=target_url,
-                evidence=evidence,
-                reproducible_command=command,
-                confidence="HIGH",
-                tools_used=[tool_name],
-            )
-        )
-
-    return ValidateOutput(
-        target_url=target_url,
-        vulnerabilities=vulnerabilities,
-        unconfirmed_findings=[
-            {
-                "fallback_note": (
-                    "Respuesta LLM corrupta. Hallazgos recuperados desde logs crudos."
-                )
-            }
-        ],
         scan_started_at=started_at,
         scan_finished_at=datetime.now(timezone.utc).isoformat(),
     )

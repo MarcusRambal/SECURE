@@ -6,7 +6,7 @@ def build_prompt(attack_type_filter: str) -> str:
         attack_type_filter,
         "Prioriza parámetros GET y campos de formularios o solicitudes POST "
         "controlados por el usuario que puedan reflejarse o persistirse y "
-        "mostrarse después. Devuelve solo endpoints y requests observados, "
-        "recomendando dalfox cuando esté disponible. La superficie observada "
-        "no confirma XSS.",
+        "mostrarse después. Devuelve solo requests observadas con parámetros "
+        "GET o body; recomienda exclusivamente dalfox y nunca sqlmap para este "
+        "filtro. La superficie observada no confirma XSS.",
     )

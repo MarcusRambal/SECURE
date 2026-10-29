@@ -27,7 +27,6 @@ export const scanService = {
       target_url: payload.targetUrl,
       category: payload.category,
       attack_type: payload.attackType,
-      agent_models: payload.agentModels,
     };
     if (payload.token && payload.token.trim()) {
       body.token = payload.token.trim();

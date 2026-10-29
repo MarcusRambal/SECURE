@@ -2,6 +2,10 @@ from handlers.sqlmap_handler import handle_sqlmap_args
 from handlers.sqliManual_handler import execute_sqli_manual
 from handlers.sqli_map_handler import execute_sqli_map
 from handlers.deep_crawler_handler import handle_deep_crawler_args
+from handlers.crawler_reports import (
+    persist_crawler_report,
+    persist_deep_crawler_report,
+)
 from handlers.commix_handler import handle_commix_args
 from handlers.dalfox_handler import handle_dalfox_args
 from tools.jwt_tool_adapter import handle_jwt_tool_args
@@ -9,7 +13,7 @@ from tools.jwt_tool_adapter import handle_jwt_tool_args
 MCP_SKILLS_REGISTRY = {
     "sqli_agent": {
         "mcp_schema": {
-            "name": "sqli_agent",
+            "name": "sqli_manual",
             "description": (
                 "Realiza pruebas SQLi acotadas de error, booleanas y de tiempo "
                 "sobre un parámetro observado. No extrae datos ni ejecuta escrituras."
@@ -136,6 +140,7 @@ MCP_SKILLS_REGISTRY = {
         "command_template": "--target-url {target_url}",
         "timeout": 1800,
         "success_exit_codes": [0],
+        "postprocess_result": persist_crawler_report,
     },
     "deep_crawler": {
         "mcp_schema": {
@@ -157,6 +162,7 @@ MCP_SKILLS_REGISTRY = {
         "timeout": 3600,
         "prepare_args": handle_deep_crawler_args,
         "success_exit_codes": [0],
+        "postprocess_result": persist_deep_crawler_report,
     },
     "sqlmap": {
         "mcp_schema": {
@@ -215,7 +221,7 @@ MCP_SKILLS_REGISTRY = {
         "command_template": '/app/dalfox {target_arg} {extra_flags}',
         "timeout": 1800,
         "prepare_args": handle_dalfox_args,
-        "success_exit_codes": [0, 1, 2],
+        "success_exit_codes": [0, 1],
     },
     "commix": {
         "mcp_schema": {

@@ -39,6 +39,15 @@ export interface PipelineTimings {
     stages?: Record<string, PipelineStageTiming>;
 }
 
+export interface ScanEndpoint {
+    endpoint: string;
+    method: string;
+    targetId?: string;
+    requestId?: string;
+    reason?: string;
+    recommendedTool?: string;
+}
+
 export interface AgentWebSocketEvent {
     taskId: string;
     timestamp: string;
@@ -46,17 +55,23 @@ export interface AgentWebSocketEvent {
     agentName: 'orquestador' | 'scanner' | 'attacker' | 'reporter' | 'recon' | 'validate';
     payload: {
         message: string;
-        details?: Record<string, unknown>;
+        details?: Record<string, unknown> & {
+            endpoints?: ScanEndpoint[];
+        };
         timings?: PipelineTimings;
       finalReport?: string;
       error?: string;
+        endpoints?: ScanEndpoint[];
         vulnerability?: {
             title: string;
             severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' | 'INFO';
             endpoint?: string;
+            parameter?: string;
+            method?: string;
             evidence?: string;
             confidence?: 'HIGH' | 'MEDIUM' | 'LOW';
             toolsUsed?: string[];
+            verificationSteps?: string;
             pocScript?: string;
         }
     }
