@@ -11,6 +11,36 @@ class SqliMapHandlerTests(unittest.IsolatedAsyncioTestCase):
         "handlers.sqli_map_handler.docker_runner.execute_tool",
         new_callable=AsyncMock,
     )
+    async def test_container_failure_keeps_sanitized_diagnostics(
+        self, execute_tool, save_report
+    ):
+        execute_tool.return_value = {
+            "status": "ERROR",
+            "output": (
+                "[ERROR] SQLMap could not connect to "
+                "http://juice-shop:3000/api?token=private\n"
+                "Authorization: Bearer private-token"
+            ),
+        }
+        save_report.return_value = "report.json"
+
+        output = await execute_sqli_map({
+            "action": "detect",
+            "target_url": "http://juice-shop:3000/api",
+            "param": "id",
+        })
+
+        report = json.loads(output)
+        self.assertEqual(report["status"], "ERROR")
+        self.assertIn("SQLMap could not connect", report["diagnostics"][0])
+        self.assertIn("token=%5BREDACTED%5D", report["diagnostics"][0])
+        self.assertNotIn("private", json.dumps(report))
+
+    @patch("handlers.sqli_map_handler.save_skill_report")
+    @patch(
+        "handlers.sqli_map_handler.docker_runner.execute_tool",
+        new_callable=AsyncMock,
+    )
     async def test_validate_routes_request_to_schema_listing(
         self, execute_tool, save_report
     ):

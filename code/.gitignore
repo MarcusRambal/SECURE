@@ -98,6 +98,8 @@ session.json
 # Volúmenes compartidos de agentes
 code/agents/recon/recon_context/
 code/agents/validate/validate_context/
+code/agents/validate/validate_context/
+code/agents/validate/validate_prompts
 code/skills_controller/tools/sqli_map/outputs/
 code/skills_controller/tools/sqli_skill/outputs/
 code/skills_controller/tools/jwt_tool/outputs/
@@ -106,6 +108,7 @@ code/skills_controller/tools/jwt_tool/outputs/
 **/sqli_report.json
 **/sqlmap_report.json
 **/jwt_report.json
+
 
 # ============================================================
 # Logs y temporales

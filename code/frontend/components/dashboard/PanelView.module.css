@@ -1,97 +1,533 @@
 .panelContainer {
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
+  gap: clamp(1.25rem, 2vw, 2rem);
+  width: 100%;
   font-family: var(--font-geist-sans), Arial, sans-serif;
 }
 
-.taskInfo {
+.taskHeader,
+.sectionHeading,
+.reportHeader {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 0.75rem;
+  gap: 1rem;
+}
+
+.taskHeader {
+  align-items: flex-start;
+}
+
+.eyebrow {
+  margin-bottom: 0.35rem;
+  color: var(--color-purple-300);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.pageTitle {
+  margin-bottom: 0.45rem;
+  color: var(--color-purple-50);
+  font-size: clamp(1.5rem, 2.4vw, 2.15rem);
+  font-weight: 650;
+  letter-spacing: -0.035em;
 }
 
 .taskId {
   color: var(--color-purple-300);
   font-size: 0.8rem;
-  word-break: break-all;
+  overflow-wrap: anywhere;
 }
 
 .status {
-  padding: 0.4rem 0.9rem;
-  border-radius: 10px;
-  border: 1px solid var(--color-purple-700);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-shrink: 0;
+  padding: 0.55rem 0.85rem;
+  border: 1px solid var(--color-purple-800);
+  border-radius: 999px;
+  background: rgba(60, 0, 71, 0.35);
   color: var(--color-purple-200);
   font-size: 0.8rem;
-  font-weight: 600;
-  white-space: nowrap;
+  font-weight: 650;
 }
 
-.statusIdle {
-  color: var(--color-purple-300);
-  border-color: var(--color-purple-900);
+.statusIndicator {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 12px currentColor;
+}
+
+.statusPending {
+  color: #f0abfc;
 }
 
 .statusComplete {
+  border-color: rgba(74, 222, 128, 0.45);
   color: #86efac;
-  border-color: #166534;
 }
 
 .statusError {
+  border-color: rgba(248, 113, 113, 0.5);
   color: #fca5a5;
-  border-color: #991b1b;
 }
 
-.panelLayout {
+.stageSection,
+.panelCard {
+  min-width: 0;
+  border: 1px solid rgba(228, 92, 255, 0.2);
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg, rgba(60, 0, 71, 0.28), rgba(21, 0, 26, 0.94)),
+    var(--color-purple-950);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.18);
+}
+
+.stageSection {
+  padding: clamp(1.1rem, 2vw, 1.65rem);
+}
+
+.sectionTitle {
+  color: var(--color-purple-50);
+  font-size: clamp(1.15rem, 1.7vw, 1.45rem);
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.currentStageLabel,
+.reportReady {
+  flex-shrink: 0;
+  padding: 0.45rem 0.75rem;
+  border: 1px solid rgba(228, 92, 255, 0.35);
+  border-radius: 999px;
+  background: rgba(136, 0, 163, 0.18);
+  color: var(--color-purple-100);
+  font-size: 0.76rem;
+  font-weight: 650;
+}
+
+.stageList {
+  position: relative;
   display: grid;
-  grid-template-columns: minmax(300px, 420px) minmax(0, 1fr);
-  gap: 1.25rem;
-  align-items: start;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.9rem;
+  margin-top: 1.15rem;
+  padding: 0;
+  list-style: none;
 }
 
-.leftColumn {
+.stageCard {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.85rem;
+  min-width: 0;
+  min-height: 104px;
+  padding: 1rem;
+  border: 1px solid rgba(136, 0, 163, 0.35);
+  border-radius: 14px;
+  background: rgba(21, 0, 26, 0.68);
+  transition: border-color 180ms ease, background 180ms ease, transform 180ms ease;
+}
+
+.stageCurrent {
+  border-color: var(--color-purple-400);
+  background: linear-gradient(135deg, rgba(136, 0, 163, 0.28), rgba(21, 0, 26, 0.8));
+  box-shadow: inset 0 0 0 1px rgba(213, 0, 255, 0.16);
+}
+
+.stageComplete {
+  border-color: rgba(74, 222, 128, 0.32);
+}
+
+.stageFailed {
+  border-color: rgba(248, 113, 113, 0.55);
+  background: rgba(127, 29, 29, 0.14);
+}
+
+.stageNumber {
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  flex-shrink: 0;
+  place-items: center;
+  border: 1px solid rgba(228, 92, 255, 0.35);
+  border-radius: 50%;
+  color: var(--color-purple-200);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.stageComplete .stageNumber {
+  border-color: rgba(74, 222, 128, 0.55);
+  color: #86efac;
+}
+
+.stageFailed .stageNumber {
+  border-color: rgba(248, 113, 113, 0.65);
+  color: #fca5a5;
+}
+
+.stageCopy {
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
+  gap: 0.35rem;
   min-width: 0;
 }
 
-.block {
-  background: var(--color-purple-950);
-  border: 1px solid var(--color-purple-900);
-  border-radius: 16px;
-  padding: 1.5rem;
-}
-
-.blockTitle {
-  margin-bottom: 1rem;
-  font-family: var(--font-lobster);
-  font-weight: 400;
-  font-size: 1.4rem;
-  letter-spacing: 0.03em;
+.stageName {
   color: var(--color-purple-50);
-}
-
-.reportBlock {
-  min-height: 620px;
-}
-
-.reportText {
-  color: var(--color-purple-200);
   font-size: 0.9rem;
-  line-height: 1.6;
-  white-space: pre-wrap;
+  font-weight: 650;
 }
 
-.emptyMessage {
+.stageMessage,
+.stageDuration {
+  color: var(--color-purple-200);
+  font-size: 0.76rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.stageDuration {
   color: var(--color-purple-300);
-  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
 }
 
-@media (max-width: 860px) {
-  .panelLayout {
+.resultsGrid {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.85fr) minmax(0, 1.4fr);
+  align-items: start;
+  gap: clamp(1rem, 1.6vw, 1.5rem);
+}
+
+.panelCard {
+  padding: clamp(1.1rem, 1.8vw, 1.6rem);
+}
+
+.countBadge {
+  display: grid;
+  min-width: 2.15rem;
+  height: 2.15rem;
+  padding: 0 0.55rem;
+  place-items: center;
+  border: 1px solid rgba(228, 92, 255, 0.34);
+  border-radius: 999px;
+  background: rgba(136, 0, 163, 0.2);
+  color: var(--color-purple-100);
+  font-size: 0.85rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.vulnerabilityCount {
+  border-color: rgba(248, 113, 113, 0.35);
+  background: rgba(127, 29, 29, 0.18);
+  color: #fca5a5;
+}
+
+.endpointList,
+.vulnerabilityList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 1.1rem;
+  padding: 0;
+  list-style: none;
+}
+
+.endpointItem,
+.vulnerabilityItem {
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid rgba(136, 0, 163, 0.3);
+  border-radius: 13px;
+  background: rgba(10, 0, 13, 0.48);
+}
+
+.endpointTopline,
+.vulnerabilityTopline,
+.vulnerabilityFooter {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.55rem;
+}
+
+.methodBadge,
+.endpointState,
+.severityBadge,
+.confidence {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.methodBadge {
+  padding: 0.25rem 0.55rem;
+  background: rgba(213, 0, 255, 0.16);
+  color: var(--color-purple-100);
+}
+
+.endpointState {
+  color: var(--color-purple-300);
+  font-weight: 550;
+  letter-spacing: 0;
+}
+
+.endpointUrl {
+  display: block;
+  margin-top: 0.65rem;
+  color: var(--color-purple-50);
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.endpointMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1rem;
+  margin-top: 0.65rem;
+  color: var(--color-purple-200);
+  font-size: 0.74rem;
+  line-height: 1.45;
+}
+
+.endpointMeta strong {
+  color: var(--color-purple-100);
+  font-weight: 650;
+}
+
+.severitySummary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 1rem;
+}
+
+.severityChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid currentColor;
+  border-radius: 8px;
+  font-size: 0.65rem;
+  font-weight: 650;
+}
+
+.severityCRITICAL {
+  color: #fca5a5;
+}
+
+.severityHIGH {
+  color: #fdba74;
+}
+
+.severityMEDIUM {
+  color: #fde68a;
+}
+
+.severityLOW {
+  color: #86efac;
+}
+
+.severityINFO {
+  color: #93c5fd;
+}
+
+.severityBadge {
+  padding: 0.3rem 0.55rem;
+  border: 1px solid currentColor;
+}
+
+.confidence {
+  color: var(--color-purple-200);
+  letter-spacing: 0;
+  font-weight: 550;
+}
+
+.vulnerabilityTitle {
+  margin: 0.75rem 0 0;
+  color: var(--color-purple-50);
+  font-size: 1rem;
+  font-weight: 650;
+}
+
+.evidence {
+  margin-top: 0.65rem;
+  color: var(--color-purple-200);
+  font-size: 0.82rem;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.vulnerabilityFooter {
+  justify-content: flex-start;
+  margin-top: 0.75rem;
+  color: var(--color-purple-300);
+  font-size: 0.72rem;
+}
+
+.pocDetails {
+  width: 100%;
+  color: var(--color-purple-200);
+}
+
+.pocDetails summary {
+  width: fit-content;
+  cursor: pointer;
+  color: var(--color-purple-100);
+}
+
+.pocDetails pre {
+  max-width: 100%;
+  margin-top: 0.5rem;
+  padding: 0.75rem;
+  overflow-x: auto;
+  border: 1px solid rgba(136, 0, 163, 0.35);
+  border-radius: 8px;
+  background: #08000a;
+  color: var(--color-purple-100);
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.75rem;
+}
+
+.emptyState {
+  margin-top: 1rem;
+  padding: 1.1rem;
+  border: 1px dashed rgba(228, 92, 255, 0.25);
+  border-radius: 12px;
+  color: var(--color-purple-300);
+  font-size: 0.84rem;
+  line-height: 1.55;
+}
+
+.reportCard {
+  padding: clamp(1.2rem, 2.2vw, 2rem);
+}
+
+.reportHeader {
+  padding-bottom: 1rem;
+  border-bottom: 1px solid rgba(136, 0, 163, 0.3);
+}
+
+.reportContent {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  max-width: 1120px;
+  padding-top: 1.2rem;
+  color: var(--color-purple-100);
+  font-size: 0.9rem;
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+}
+
+.reportContent p {
+  color: var(--color-purple-200);
+}
+
+.reportHeading {
+  margin-top: 0.55rem;
+  color: var(--color-purple-50);
+  font-size: 1.1rem;
+  line-height: 1.4;
+}
+
+.reportHeading:first-child {
+  margin-top: 0;
+}
+
+.reportContent strong {
+  color: var(--color-purple-50);
+  font-weight: 700;
+}
+
+.reportContent code {
+  padding: 0.12rem 0.35rem;
+  border: 1px solid rgba(228, 92, 255, 0.18);
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.4);
+  color: #f0abfc;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.82em;
+}
+
+.reportList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding-left: 1.4rem;
+  color: var(--color-purple-200);
+}
+
+.reportList li {
+  padding-left: 0.2rem;
+}
+
+.reportCode {
+  max-width: 100%;
+  padding: 1rem;
+  overflow-x: auto;
+  border: 1px solid rgba(136, 0, 163, 0.35);
+  border-radius: 10px;
+  background: #08000a;
+  color: var(--color-purple-100);
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.8rem;
+  line-height: 1.6;
+  white-space: pre;
+}
+
+.reportRule {
+  width: 100%;
+  border: 0;
+  border-top: 1px solid rgba(136, 0, 163, 0.35);
+}
+
+@media (max-width: 900px) {
+  .resultsGrid {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .taskHeader,
+  .reportHeader {
+    align-items: flex-start;
+  }
+
+  .taskHeader {
+    flex-direction: column;
+  }
+
+  .stageList {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .stageCard {
+    min-height: auto;
+  }
+
+  .currentStageLabel,
+  .reportReady {
+    font-size: 0.68rem;
+  }
+
+  .endpointItem,
+  .vulnerabilityItem {
+    padding: 0.85rem;
   }
 }

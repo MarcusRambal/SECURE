@@ -9,7 +9,7 @@ from tools.jwt_tool_adapter import handle_jwt_tool_args
 MCP_SKILLS_REGISTRY = {
     "sqli_agent": {
         "mcp_schema": {
-            "name": "sqli_agent",
+            "name": "sqli_manual",
             "description": (
                 "Realiza pruebas SQLi acotadas de error, booleanas y de tiempo "
                 "sobre un parámetro observado. No extrae datos ni ejecuta escrituras."

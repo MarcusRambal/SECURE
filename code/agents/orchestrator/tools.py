@@ -5,6 +5,7 @@ import asyncio
 import logging
 import time
 from datetime import datetime, timezone
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 import aio_pika
 from pydantic import BaseModel, Field
 from langchain_core.tools import StructuredTool
@@ -25,6 +26,23 @@ LOG_RPC_PAYLOADS = os.getenv("LOG_RPC_PAYLOADS", "false").strip().lower() in {
 # Estado compartido temporal en memoria durante el pipeline: task_id -> dict
 TASK_STATE: dict[str, dict] = {}
 SCAN_EVENTS_QUEUE = "scan_events_queue"
+
+
+def _sanitize_endpoint_for_event(endpoint: str) -> str:
+    try:
+        parts = urlsplit(endpoint)
+        query = urlencode(
+            [
+                (name, "[REDACTED]")
+                for name, _ in parse_qsl(parts.query, keep_blank_values=True)
+            ]
+        )
+    except ValueError:
+        return "[invalid-url]"
+
+    return urlunsplit(
+        (parts.scheme, parts.netloc.rsplit("@", 1)[-1], parts.path, query, "")
+    )
 
 
 class TaskReferenceInput(BaseModel):
@@ -208,9 +226,38 @@ def create_orchestrator_tools(channel: aio_pika.Channel) -> list[StructuredTool]
         if status == "PARTIAL":
             state["status"] = "PARTIAL"
 
-        endpoints_count = len(
-            recon_data.get("endpoints", [])
-            or recon_data.get("high_priority_targets", [])
+        endpoint_targets = (
+            recon_data.get("high_priority_targets")
+            or recon_data.get("endpoints")
+            or []
+        )
+        endpoint_summaries = []
+        for target in endpoint_targets:
+            if isinstance(target, str):
+                endpoint = target
+                summary = {}
+            elif isinstance(target, dict):
+                endpoint = target.get("endpoint") or target.get("url")
+                summary = target
+            else:
+                continue
+            if not isinstance(endpoint, str) or not endpoint:
+                continue
+            endpoint_summaries.append(
+                {
+                    "endpoint": _sanitize_endpoint_for_event(endpoint),
+                    "method": str(summary.get("method") or "GET").upper(),
+                    "targetId": summary.get("target_id"),
+                    "requestId": summary.get("request_id"),
+                    "reason": summary.get("vulnerability_target"),
+                    "recommendedTool": summary.get("recommended_tool"),
+                }
+            )
+        endpoints_count = len(endpoint_summaries)
+        logger.info(
+            "[ORCHESTRATOR] task_id=%s recon_prioritized_endpoints=%d",
+            task_id,
+            endpoints_count,
         )
         await publish_scan_event(
             channel,
@@ -224,6 +271,7 @@ def create_orchestrator_tools(channel: aio_pika.Channel) -> list[StructuredTool]
                 "endpointsCount": endpoints_count,
                 "timing": state["timings"]["stages"]["recon"],
             },
+            endpoints=endpoint_summaries,
         )
         return (
             f"Reconocimiento completado para '{task_id}'. "
