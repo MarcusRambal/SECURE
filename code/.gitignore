@@ -96,9 +96,8 @@ session.json
 *.http
 
 # Volúmenes compartidos de agentes
-code/agents/recon/recon_context/
-code/agents/validate/validate_context/
-code/agents/validate/validate_context/
+agents/recon/recon_context/
+agents/validate/validate_context/
 code/agents/validate/validate_prompts
 code/skills_controller/tools/sqli_map/outputs/
 code/skills_controller/tools/sqli_skill/outputs/

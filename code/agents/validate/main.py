@@ -126,10 +126,12 @@ async def process_validate_task(
             {
                 "system_prompt": system_prompt.content,
                 "user_message": user_message.content,
+                "validation_context": validation_context,
             },
             evidence.pre_executed_context,
             task_id=trace_id,
             tool_timings=tool_timings,
+            tool_diagnostics=evidence.tool_diagnostics,
         )
         logger.info(
             "[VALIDATE] task_id=%s phase=context_snapshot path=%s",

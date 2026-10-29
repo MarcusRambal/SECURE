@@ -1,14 +1,9 @@
-"""Normalize Dalfox CLI output and build a minimal validator context.
-
-Dalfox's CLI output is not a stable JSON contract. Only its POC lines are
-interpreted; raw stdout, request bodies, headers, and unrelated log lines are
-never included in the validator context.
-"""
+"""Normalize Dalfox CLI output and build validator context and diagnostics."""
 
 import json
 import re
 from dataclasses import dataclass
-from urllib.parse import parse_qsl, urlsplit
+from urllib.parse import parse_qsl, unquote_plus, urlsplit, urlunsplit
 
 from context_utils import sanitize_endpoint_for_context
 
@@ -16,6 +11,110 @@ from context_utils import sanitize_endpoint_for_context
 _ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 _BRACKET_TAG = re.compile(r"\[([^\]]+)\]")
 _URL = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
+_SENSITIVE_NAME = re.compile(
+    r"password|passwd|credential|token|secret|api[_-]?key|"
+    r"authorization|cookie|session|csrf|xsrf",
+    re.IGNORECASE,
+)
+_SENSITIVE_HEADER = re.compile(
+    r"(?im)^(\s*(?:cookie|set-cookie|authorization|proxy-authorization)\s*:\s*).*$"
+)
+_SENSITIVE_JSON_FIELD = re.compile(
+    r'(?i)("(?:[^"]*(?:password|passwd|credential|token|secret|api[_-]?key|'
+    r'authorization|cookie|session|csrf|xsrf)[^"]*)"\s*:\s*)"[^"]*"'
+)
+_SENSITIVE_ASSIGNMENT = re.compile(
+    r"(?i)\b(password|passwd|credential|token|secret|api[_-]?key|"
+    r"authorization|cookie|session|csrf|xsrf)(\s*[:=]\s*)[^&\s,;\"']+"
+)
+MAX_DALFOX_DIAGNOSTIC_CHARS = 50_000
+
+
+def _sanitize_url_in_output(value: str) -> str:
+    trailing = ""
+    while value and value[-1] in ".,);]":
+        trailing = value[-1] + trailing
+        value = value[:-1]
+    try:
+        parts = urlsplit(value)
+    except ValueError:
+        return "[invalid-url]" + trailing
+
+    safe_query = []
+    for pair in parts.query.split("&") if parts.query else []:
+        name, separator, item = pair.partition("=")
+        if _SENSITIVE_NAME.search(unquote_plus(name)):
+            item = "%5BREDACTED%5D"
+        safe_query.append(name + (separator + item if separator else ""))
+    netloc = parts.netloc.rsplit("@", 1)[-1]
+    safe_url = urlunsplit(
+        (parts.scheme, netloc, parts.path, "&".join(safe_query), parts.fragment)
+    )
+    return safe_url + trailing
+
+
+def _sanitize_dalfox_text(value: str) -> str:
+    sanitized = _SENSITIVE_HEADER.sub(r"\1[REDACTED]", value)
+    sanitized = _SENSITIVE_JSON_FIELD.sub(r'\1"[REDACTED]"', sanitized)
+    sanitized = _URL.sub(
+        lambda match: _sanitize_url_in_output(match.group(0)),
+        sanitized,
+    )
+    return _SENSITIVE_ASSIGNMENT.sub(r"\1\2[REDACTED]", sanitized)
+
+
+def _sanitize_dalfox_json(value: object, key: str = "") -> object:
+    if _SENSITIVE_NAME.search(key):
+        return "[REDACTED]"
+    if isinstance(value, dict):
+        return {
+            str(name): _sanitize_dalfox_json(item, str(name))
+            for name, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_sanitize_dalfox_json(item, key) for item in value]
+    if isinstance(value, str):
+        return _sanitize_dalfox_text(value)
+    return value
+
+
+def sanitize_dalfox_output_for_snapshot(raw_output: str) -> tuple[str, bool]:
+    """Keep useful Dalfox evidence while masking secrets and bounding snapshot size."""
+    if not isinstance(raw_output, str):
+        raise TypeError("Dalfox output must be text")
+
+    try:
+        report = json.loads(raw_output)
+    except json.JSONDecodeError:
+        safe_lines = []
+        for line in raw_output.splitlines():
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                safe_lines.append(_sanitize_dalfox_text(line))
+            else:
+                safe_lines.append(
+                    json.dumps(
+                        _sanitize_dalfox_json(record),
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    )
+                )
+        sanitized = "\n".join(safe_lines)
+    else:
+        sanitized = json.dumps(
+            _sanitize_dalfox_json(report),
+            ensure_ascii=False,
+            indent=2,
+        )
+
+    if len(sanitized) <= MAX_DALFOX_DIAGNOSTIC_CHARS:
+        return sanitized, False
+    return (
+        sanitized[:MAX_DALFOX_DIAGNOSTIC_CHARS]
+        + "\n[Dalfox diagnostic truncated]",
+        True,
+    )
 
 
 @dataclass(frozen=True)

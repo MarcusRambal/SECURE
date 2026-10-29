@@ -14,6 +14,7 @@ from dalfox_output import (
     build_dalfox_validator_context,
     merge_verified_dalfox_findings,
     parse_dalfox_output,
+    sanitize_dalfox_output_for_snapshot,
 )
 from helpers import (
     build_validate_sqli_context,
@@ -33,6 +34,7 @@ logger = logging.getLogger("validate-agent-worker")
 class ValidationEvidence:
     executed_commands: list[dict] = field(default_factory=list)
     pre_executed_context: list[dict] = field(default_factory=list)
+    tool_diagnostics: list[dict] = field(default_factory=list)
     structured_result: dict | None = None
     execution_error: str | None = None
 
@@ -332,11 +334,27 @@ class XssValidationStrategy(ValidationStrategy):
                         "verification": finding.verification,
                         "context": finding.context,
                         "payload": finding.payload,
+                        "evidence": finding.evidence,
                     }
                     for finding in result.findings
                 ],
                 "message": result.message,
             }
+            raw_output_snapshot, raw_output_truncated = (
+                sanitize_dalfox_output_for_snapshot(raw_output)
+            )
+            evidence.tool_diagnostics.append(
+                {
+                    "tool": "dalfox",
+                    "target_id": target.get("target_id"),
+                    "request_id": target.get("request_id"),
+                    "endpoint": safe_endpoint,
+                    "method": method,
+                    "raw_output_redacted": raw_output_snapshot,
+                    "raw_output_truncated": raw_output_truncated,
+                    "parsed_output": normalized_output,
+                }
+            )
             body = request.get("body") or ""
             has_body = bool(body)
             if method != "GET" or has_body:

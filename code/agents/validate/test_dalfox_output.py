@@ -6,6 +6,7 @@ from dalfox_output import (
     build_dalfox_validator_context,
     merge_verified_dalfox_findings,
     parse_dalfox_output,
+    sanitize_dalfox_output_for_snapshot,
 )
 from validate_prompts import get_system_prompt
 
@@ -79,6 +80,31 @@ class DalfoxOutputTests(unittest.TestCase):
             [finding.verification for finding in json_lines.findings],
             ["verified", "reflected"],
         )
+
+    def test_snapshot_sanitizer_preserves_poc_but_redacts_credentials(self):
+        raw_output = json.dumps(
+            {
+                "findings": [
+                    {
+                        "type": "V",
+                        "data": (
+                            "http://wackopicko/search.php?"
+                            "query=%3Csvg%3E&token=private"
+                        ),
+                        "payload": "<svg onload=alert(1)>",
+                        "Cookie": "session=private",
+                    }
+                ]
+            }
+        )
+
+        snapshot, truncated = sanitize_dalfox_output_for_snapshot(raw_output)
+
+        self.assertFalse(truncated)
+        self.assertIn("query=%3Csvg%3E", snapshot)
+        self.assertIn("<svg onload=alert(1)>", snapshot)
+        self.assertIn("[REDACTED]", snapshot)
+        self.assertNotIn("private", snapshot)
 
     def test_keeps_findings_from_different_http_methods(self):
         output = json.dumps(

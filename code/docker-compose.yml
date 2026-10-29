@@ -122,7 +122,7 @@ services:
     environment:
       - RECON_CONTEXT_OUTPUT_DIR=/app/recon_context
     volumes:
-      - ./agents/recon/recon_context:/app/recon_context
+      - ./agents/recon/recon_context:/app/recon_context:Z
     networks:
       - sec-net
       - internal-net
@@ -142,7 +142,7 @@ services:
     environment:
       - VALIDATE_CONTEXT_OUTPUT_DIR=/app/validate_context
     volumes:
-      - ./agents/validate/validate_context:/app/validate_context
+      - ./agents/validate/validate_context:/app/validate_context:Z
     networks:
       - sec-net
       - internal-net

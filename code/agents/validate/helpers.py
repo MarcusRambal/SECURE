@@ -213,11 +213,12 @@ def write_validate_context_snapshot(
     target_url: str,
     attack_type: str,
     agent_context: dict,
-    sqlmap_executions: list[dict],
+    normalized_tool_contexts: list[dict],
     task_id: str | None = None,
     tool_timings: list[dict] | None = None,
+    tool_diagnostics: list[dict] | None = None,
 ) -> Path:
-    """Guarda el contexto del agente y las requests de validación ejecutadas."""
+    """Guarda el prompt/contexto exacto y los resultados de herramientas."""
     output_dir = Path(
         os.getenv(
             "VALIDATE_CONTEXT_OUTPUT_DIR",
@@ -240,8 +241,10 @@ def write_validate_context_snapshot(
         "attack_type": attack_type,
         "task_id": task_id,
         "agent_context": agent_context,
-        "sqlmap_executions": sqlmap_executions,
-        "tool_executions": sqlmap_executions,
+        "validation_context": agent_context.get("validation_context"),
+        "normalized_tool_contexts": normalized_tool_contexts,
+        "tool_executions": normalized_tool_contexts,
+        "tool_diagnostics": tool_diagnostics or [],
         "tool_timings": tool_timings or [],
     }
     output_dir.mkdir(parents=True, exist_ok=True)
