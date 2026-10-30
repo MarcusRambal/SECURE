@@ -6,11 +6,130 @@ from dalfox_output import (
     build_dalfox_validator_context,
     merge_verified_dalfox_findings,
     parse_dalfox_output,
+    sanitize_dalfox_output_for_snapshot,
 )
 from validate_prompts import get_system_prompt
 
 
 class DalfoxOutputTests(unittest.TestCase):
+    def test_parses_machine_readable_dalfox_json_and_classifies_finding_tiers(self):
+        result = parse_dalfox_output(
+            json.dumps(
+                {
+                    "findings": [
+                        {
+                            "type": "V",
+                            "data": "https://example.test/search?q=%3Csvg%3E",
+                            "method": "GET",
+                            "param": "q",
+                            "payload": "<svg>",
+                            "inject_type": "inHTML",
+                            "evidence": "Verified payload execution",
+                            "confidence_reason": "DOM verification succeeded",
+                        },
+                        {
+                            "type": "R",
+                            "data": "https://example.test/search?q=%3Csvg%3E",
+                            "method": "GET",
+                            "param": "q",
+                            "inject_type": "inHTML",
+                        },
+                        {
+                            "type": "A",
+                            "data": "https://example.test/search?q=%3Csvg%3E",
+                            "method": "GET",
+                            "param": "q",
+                        },
+                    ]
+                }
+            )
+        )
+
+        self.assertEqual(result.status, "FINDINGS")
+        self.assertEqual(
+            [finding.verification for finding in result.findings],
+            ["verified", "reflected", "ast_detected"],
+        )
+        self.assertEqual(result.findings[0].parameter, "q")
+        self.assertIn("DOM verification succeeded", result.findings[0].evidence)
+
+    def test_parses_single_object_and_json_lines_dalfox_output(self):
+        records = [
+            {
+                "type": "V",
+                "data": "https://example.test/search?q=first",
+                "param": "q",
+                "method": "GET",
+            },
+            {
+                "type": "R",
+                "data": "https://example.test/search?q=second",
+                "param": "q",
+                "method": "GET",
+            },
+        ]
+
+        single = parse_dalfox_output(json.dumps(records[0]))
+        json_lines = parse_dalfox_output(
+            "\n".join(json.dumps(record) for record in records)
+        )
+
+        self.assertEqual(single.status, "FINDINGS")
+        self.assertEqual(single.findings[0].verification, "verified")
+        self.assertEqual(
+            [finding.verification for finding in json_lines.findings],
+            ["verified", "reflected"],
+        )
+
+    def test_snapshot_sanitizer_preserves_poc_but_redacts_credentials(self):
+        raw_output = json.dumps(
+            {
+                "findings": [
+                    {
+                        "type": "V",
+                        "data": (
+                            "http://wackopicko/search.php?"
+                            "query=%3Csvg%3E&token=private"
+                        ),
+                        "payload": "<svg onload=alert(1)>",
+                        "Cookie": "session=private",
+                    }
+                ]
+            }
+        )
+
+        snapshot, truncated = sanitize_dalfox_output_for_snapshot(raw_output)
+
+        self.assertFalse(truncated)
+        self.assertIn("query=%3Csvg%3E", snapshot)
+        self.assertIn("<svg onload=alert(1)>", snapshot)
+        self.assertIn("[REDACTED]", snapshot)
+        self.assertNotIn("private", snapshot)
+
+    def test_keeps_findings_from_different_http_methods(self):
+        output = json.dumps(
+            {
+                "findings": [
+                    {
+                        "type": "V",
+                        "data": "https://example.test/guestbook",
+                        "method": "GET",
+                        "param": "comment",
+                    },
+                    {
+                        "type": "V",
+                        "data": "https://example.test/guestbook",
+                        "method": "POST",
+                        "param": "comment",
+                    },
+                ]
+            }
+        )
+
+        result = parse_dalfox_output(output)
+
+        self.assertEqual([finding.method for finding in result.findings], ["GET", "POST"])
+
     def test_parses_dalfox_verified_and_reflected_poc_lines(self):
         raw_output = """
 [INFO] Using dictionary: /tmp/dalfox.txt
@@ -112,6 +231,116 @@ class DalfoxOutputTests(unittest.TestCase):
         self.assertEqual(finding["type"], "Cross-Site Scripting (XSS)")
         self.assertEqual(finding["parameter"], "q")
         self.assertEqual(finding["tools_used"], ["dalfox"])
+
+    def test_verified_finding_has_method_and_safe_verification_steps(self):
+        normalized = {
+            "status": "FINDINGS",
+            "findings": [
+                {
+                    "endpoint": "http://wackopicko/guestbook.php",
+                    "method": "POST",
+                    "parameter": "comment",
+                    "verification": "verified",
+                    "context": "inHTML",
+                    "evidence": "Dalfox confirmed an executable position",
+                }
+            ],
+        }
+
+        merged = merge_verified_dalfox_findings(
+            {"vulnerabilities": []},
+            [
+                {
+                    "tool": "dalfox",
+                    "endpoint": "http://wackopicko/guestbook.php",
+                    "method": "POST",
+                    "command": '/app/dalfox scan --input-type raw-http "/tmp/dalfox-req.txt"',
+                    "output": json.dumps(normalized),
+                }
+            ],
+        )
+
+        finding = merged["vulnerabilities"][0]
+        self.assertEqual(finding["method"], "POST")
+        self.assertIn("parámetro `comment`", finding["verification_steps"])
+        self.assertIn("no lo demuestra", finding["verification_steps"])
+        self.assertIn("<svg onload=alert(1)>", finding["verification_steps"])
+        self.assertIn("vuelve a cargar la vista", finding["verification_steps"])
+
+    def test_merging_preserves_same_endpoint_findings_with_different_methods(self):
+        normalized = {
+            "status": "FINDINGS",
+            "findings": [
+                {
+                    "endpoint": "http://wackopicko/guestbook.php",
+                    "method": method,
+                    "parameter": "comment",
+                    "verification": "verified",
+                }
+                for method in ("GET", "POST")
+            ],
+        }
+
+        merged = merge_verified_dalfox_findings(
+            {"vulnerabilities": []},
+            [
+                {
+                    "tool": "dalfox",
+                    "endpoint": "http://wackopicko/guestbook.php",
+                    "output": json.dumps(normalized),
+                }
+            ],
+        )
+
+        self.assertEqual(
+            [finding["method"] for finding in merged["vulnerabilities"]],
+            ["GET", "POST"],
+        )
+
+    def test_existing_finding_is_enriched_with_dalfox_verification_details(self):
+        normalized = {
+            "status": "FINDINGS",
+            "findings": [
+                {
+                    "endpoint": "http://wackopicko/guestbook.php",
+                    "method": "POST",
+                    "parameter": "comment",
+                    "verification": "verified",
+                    "context": "inHTML",
+                    "evidence": "Dalfox marked this proof verified",
+                }
+            ],
+        }
+
+        merged = merge_verified_dalfox_findings(
+            {
+                "vulnerabilities": [
+                    {
+                        "type": "Cross-Site Scripting (XSS)",
+                        "severity": "HIGH",
+                        "endpoint": "http://wackopicko/guestbook.php",
+                        "parameter": "comment",
+                        "evidence": "Original model evidence",
+                        "confidence": "HIGH",
+                        "tools_used": ["dalfox"],
+                    }
+                ]
+            },
+            [
+                {
+                    "tool": "dalfox",
+                    "endpoint": "http://wackopicko/guestbook.php",
+                    "output": json.dumps(normalized),
+                }
+            ],
+        )
+
+        self.assertEqual(len(merged["vulnerabilities"]), 1)
+        finding = merged["vulnerabilities"][0]
+        self.assertEqual(finding["method"], "POST")
+        self.assertIn("Dalfox marked this proof verified", finding["evidence"])
+        self.assertIn("entorno de pruebas autorizado", finding["verification_steps"])
+        self.assertIn("origen del sitio", finding["verification_steps"])
 
     def test_xss_is_registered_in_the_validation_flow_and_prompt(self):
         self.assertTrue(is_xss_attack("xss"))

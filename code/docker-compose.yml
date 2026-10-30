@@ -78,8 +78,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock # Acceso al Engine de Docker
       - ./skills_controller/tools/sqli_map/outputs:/app/tools/sqli_map/outputs
       - ./skills_controller/tools/sqli_skill/outputs:/app/tools/sqli_skill/outputs
-    environment:
-      - PYTHONPATH=.
+      - ./skills_controller/tools/crawler/outputs:/app/tools/crawler/outputs
+      - ./skills_controller/tools/deep_crawler/outputs:/app/tools/deep_crawler/outputs
     env_file:
       - .env
     networks:
@@ -89,6 +89,8 @@ services:
       rabbitmq:
         condition: service_healthy
       build-sqli-map:
+        condition: service_completed_successfully
+      build-jwt:
         condition: service_completed_successfully
 
   # 4. Orquestador Principal (LLM Router)
@@ -122,7 +124,7 @@ services:
     environment:
       - RECON_CONTEXT_OUTPUT_DIR=/app/recon_context
     volumes:
-      - ./agents/recon/recon_context:/app/recon_context
+      - ./agents/recon/recon_context:/app/recon_context:Z
     networks:
       - sec-net
       - internal-net
@@ -142,7 +144,7 @@ services:
     environment:
       - VALIDATE_CONTEXT_OUTPUT_DIR=/app/validate_context
     volumes:
-      - ./agents/validate/validate_context:/app/validate_context
+      - ./agents/validate/validate_context:/app/validate_context:Z
     networks:
       - sec-net
       - internal-net
@@ -202,6 +204,13 @@ services:
       context: ./skills_controller
       dockerfile: docker_images/Dockerfile.crypto_inspector
     image: local-crypto-inspector:latest
+     command: ["--help"]
+     
+  build-jwt:
+    build:
+      context: ./skills_controller
+      dockerfile: docker_images/Dockerfile.jwt
+    image: local-jwt-tool:latest
     command: ["--help"]
 
   # 8. Entorno Vulnerable: WebGoat

@@ -73,6 +73,17 @@ async def main():
 
                     mcp_response["id"] = correlation_id
 
+                    mcp_response["timing"] = {
+                        "queueWaitMs": round(
+                            max(0, time.time() - published_at) * 1000, 2
+                        )
+                        if isinstance(published_at, (int, float))
+                        else None,
+                        "processingMs": round(
+                            (time.perf_counter() - processing_started) * 1000, 2
+                        ),
+                    }
+
                     await channel.default_exchange.publish(
                         aio_pika.Message(
                             body=json.dumps(mcp_response).encode("utf-8"),
@@ -90,17 +101,6 @@ async def main():
                 except Exception:
                     logger.exception("Error procesando mensaje en Skills Controller")
                     return
-
-                mcp_response["timing"] = {
-                    "queueWaitMs": round(
-                        max(0, time.time() - published_at) * 1000, 2
-                    )
-                    if isinstance(published_at, (int, float))
-                    else None,
-                    "processingMs": round(
-                        (time.perf_counter() - processing_started) * 1000, 2
-                    ),
-                }
 
         await queue.consume(on_message)
         await asyncio.Future()

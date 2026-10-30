@@ -1,0 +1,26 @@
+.dashboardContainer {
+  min-height: 100vh;
+  background: #000;
+  color: var(--color-purple-50);
+  font-family: var(--font-geist-sans), Arial, sans-serif;
+  padding-bottom: 3rem;
+}
+
+.configSection {
+  width: min(100% - 48px, 640px);
+  margin-left: 30px;
+  margin-top: 40px;
+
+}
+
+.panelSection {
+  width: min(calc(100% - clamp(32px, 5vw, 96px)), 1800px);
+  margin: clamp(24px, 3vw, 40px) auto 0;
+}
+
+@media (max-width: 640px) {
+  .panelSection {
+    width: calc(100% - 32px);
+    margin-top: 24px;
+  }
+}

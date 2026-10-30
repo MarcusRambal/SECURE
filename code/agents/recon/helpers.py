@@ -5,12 +5,13 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlsplit
 
 from contract_schemas import HighPriorityTarget, ReconPlannerOutput, ReconSummary
 from attack_types import is_crypto_attack, is_sqli_attack, is_xss_attack
 
 logger = logging.getLogger("recon-agent-worker")
+MAX_XSS_ENTRY_POINT_TARGETS = 20
 
 
 def log_preview(value: object, limit: int = 500) -> str:
@@ -78,6 +79,99 @@ def extract_urls_from_deep_crawler(deep_crawler_data: dict) -> list[str]:
         if isinstance(request, dict)
     ]
     return deduplicate_urls(endpoint_urls, request_urls)
+
+
+def _has_xss_input(endpoint: str, request: dict) -> bool:
+    try:
+        if "=" in urlsplit(endpoint).query:
+            return True
+    except ValueError:
+        return False
+    body = request.get("body")
+    if isinstance(body, str):
+        return bool(body.strip())
+    return bool(body)
+
+
+def _xss_request_signature(method: str, endpoint: str, request: dict) -> tuple:
+    """Identify a repeated injection surface without depending on sample values."""
+    parts = urlsplit(endpoint)
+    query_names = tuple(
+        sorted(
+            name
+            for name, _ in parse_qsl(parts.query, keep_blank_values=True)
+            if name
+        )
+    )
+    normalized_url = (
+        parts.scheme.casefold(),
+        parts.netloc.casefold(),
+        parts.path or "/",
+    )
+    body = request.get("body")
+    headers = request.get("headers")
+    if isinstance(headers, dict):
+        content_type = next(
+            (
+                str(value).split(";", 1)[0].strip().casefold()
+                for name, value in headers.items()
+                if isinstance(name, str) and name.casefold() == "content-type"
+            ),
+            "",
+        )
+        relevant_headers = tuple(
+            sorted(
+                (str(name).casefold(), str(value))
+                for name, value in headers.items()
+                if isinstance(name, str)
+                and name.casefold()
+                in {"content-type", "authorization", "cookie"}
+            )
+        )
+    else:
+        content_type = ""
+        relevant_headers = ()
+
+    if isinstance(body, dict):
+        body_signature = ("fields", tuple(sorted(_json_field_paths(body))))
+    elif isinstance(body, str) and content_type == "application/x-www-form-urlencoded":
+        body_signature = (
+            "fields",
+            tuple(
+                sorted(
+                    name
+                    for name, _ in parse_qsl(body, keep_blank_values=True)
+                    if name
+                )
+            ),
+        )
+    elif isinstance(body, str) and content_type == "application/json":
+        try:
+            body_data = json.loads(body)
+        except json.JSONDecodeError:
+            body_signature = ("raw", body.strip())
+        else:
+            body_signature = (
+                "fields",
+                tuple(sorted(_json_field_paths(body_data))),
+            )
+    elif body:
+        body_signature = ("raw", str(body).strip())
+    else:
+        body_signature = ("empty",)
+    return method.upper(), normalized_url, query_names, body_signature, relevant_headers
+
+
+def _json_field_paths(value: object, prefix: str = "") -> set[str]:
+    if isinstance(value, dict):
+        paths = set()
+        for name, child in value.items():
+            path = f"{prefix}.{name}" if prefix else str(name)
+            paths.update(_json_field_paths(child, path))
+        return paths
+    if prefix:
+        return {prefix}
+    return set()
 
 # Construye el contexto de reconocimiento específico para ataques SQLi.
 def build_sqli_recon_context(crawler_data: dict, deep_crawler_data: dict | None ,discovered_urls: list[str],available_tools: list[dict]) -> dict:
@@ -266,7 +360,15 @@ def build_xss_recon_context(
 
 
 # Funcion de ayuda para ver el contexto que obtiene el agente
-def write_recon_context_snapshot(target_url: str,attack_type_filter: str,context: dict,) -> Path:
+def write_recon_context_snapshot(
+    target_url: str,
+    attack_type_filter: str,
+    context: dict,
+    *,
+    crawler_report: dict | None = None,
+    deep_crawler_report: dict | None = None,
+    tool_timings: list[dict] | None = None,
+) -> Path:
     """Guarda el contexto compacto enviado al LLM para su inspeccion posterior."""
     output_dir = Path(
         os.getenv("RECON_CONTEXT_OUTPUT_DIR", Path(__file__).with_name("recon_context"))
@@ -281,6 +383,9 @@ def write_recon_context_snapshot(target_url: str,attack_type_filter: str,context
         "target_url": target_url,
         "attack_type_filter": attack_type_filter,
         "context": context,
+        "crawler_report": crawler_report,
+        "deep_crawler_report": deep_crawler_report,
+        "tool_timings": tool_timings or [],
     }
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path.write_text(
@@ -382,6 +487,112 @@ def ensure_sqli_entry_point_coverage(data: dict, deep_crawler_data: dict | None)
     summary["total_targets_identified"] = len(targets)
     output["recon_summary"] = summary
     return output
+
+
+def ensure_xss_entry_point_coverage(
+    data: dict,
+    deep_crawler_data: dict | None,
+    max_targets: int = MAX_XSS_ENTRY_POINT_TARGETS,
+) -> dict:
+    """Include observed XSS-capable requests even when Recon's LLM omits them."""
+    output = dict(data)
+    targets = [
+        target for target in output.get("high_priority_targets", [])
+        if isinstance(target, dict)
+    ]
+    requests = []
+    for request in (deep_crawler_data or {}).get("entry_points", []):
+        if not isinstance(request, dict) or not isinstance(request.get("url"), str):
+            continue
+        if _has_xss_input(request["url"], request):
+            requests.append(request)
+
+    covered_request_ids = {
+        request_id
+        for target in targets
+        for request_id in (
+            target.get("request_id"),
+            (target.get("request") or {}).get("id")
+            if isinstance(target.get("request"), dict)
+            else None,
+        )
+        if request_id
+    }
+    covered_signatures = set()
+    for target in targets:
+        captured_request = _find_matching_captured_request(target, deep_crawler_data)
+        target_request = target.get("request")
+        target_request = target_request if isinstance(target_request, dict) else {}
+        request = (
+            _build_request_from_capture(captured_request)
+            if captured_request
+            else target_request
+        )
+        endpoint = (
+            request.get("url")
+            or target.get("endpoint")
+            or target.get("url")
+        )
+        if not isinstance(endpoint, str) or not endpoint:
+            continue
+        method = str(request.get("method") or target.get("method") or "GET").upper()
+        if _has_xss_input(endpoint, request):
+            covered_signatures.add(_xss_request_signature(method, endpoint, request))
+
+    for request in requests:
+        if len(covered_signatures) >= max_targets:
+            break
+        request_id = request.get("id")
+        method = str(request.get("method") or "GET").upper()
+        signature = _xss_request_signature(method, request["url"], request)
+        if (
+            (request_id and request_id in covered_request_ids)
+            or signature in covered_signatures
+        ):
+            continue
+        targets.append(
+            {
+                "target_id": f"target_xss_{len(targets) + 1:03d}",
+                "request_id": request_id or "",
+                "vulnerability_target": (
+                    "Solicitud observada con parámetro o body; validar posible XSS"
+                ),
+                "endpoint": request["url"],
+                "method": method,
+                "request": {
+                    key: request.get(key)
+                    for key in ("id", "method", "url", "headers", "body")
+                },
+                "recommended_tool": "dalfox",
+            }
+        )
+        covered_signatures.add(signature)
+        if request_id:
+            covered_request_ids.add(request_id)
+
+    output["high_priority_targets"] = targets
+    summary = dict(output.get("recon_summary", {}))
+    summary["total_targets_identified"] = len(targets)
+    summary["total_requests_captured"] = len(
+        (deep_crawler_data or {}).get("entry_points", [])
+    )
+    output["recon_summary"] = summary
+    return output
+
+
+def update_recon_context_snapshot(
+    snapshot_path: Path,
+    llm_output: dict,
+    final_output: dict,
+) -> None:
+    """Append the Recon decision and normalized output to its saved context."""
+    payload = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    payload["llm_output"] = llm_output
+    payload["final_output"] = final_output
+    snapshot_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, default=str) + "\n",
+        encoding="utf-8",
+    )
 
 
 
@@ -579,6 +790,7 @@ def build_recon_output_from_dict(data: dict,target_url: str,attack_type_filter: 
         total_requests_captured=summary_data.get("total_requests_captured", 0),
     )
     targets: List[HighPriorityTarget] = []
+    seen_xss_requests = set()
     for index, target in enumerate(targets_data, start=1):
         if not isinstance(target, dict):
             continue
@@ -593,6 +805,27 @@ def build_recon_output_from_dict(data: dict,target_url: str,attack_type_filter: 
             request_id = captured_request.get("id") or request_id
             request = _build_request_from_capture(captured_request)
             method = captured_request.get("method") or method
+        request = request if isinstance(request, dict) else {}
+        method = str(request.get("method") or method or "GET").upper()
+        endpoint = request.get("url") or target.get("endpoint", target_url)
+        is_xss = attack_type_filter.casefold() == "xss"
+        if is_xss:
+            if not isinstance(endpoint, str) or not _has_xss_input(endpoint, request):
+                logger.info(
+                    "Recon omite target XSS sin query inyectable ni body method=%s endpoint=%s",
+                    method,
+                    endpoint,
+                )
+                continue
+            signature = _xss_request_signature(method, endpoint, request)
+            if signature in seen_xss_requests:
+                logger.info(
+                    "Recon elimina target XSS duplicado method=%s endpoint=%s",
+                    method,
+                    endpoint,
+                )
+                continue
+            seen_xss_requests.add(signature)
 
         targets.append(
             HighPriorityTarget(
@@ -601,12 +834,17 @@ def build_recon_output_from_dict(data: dict,target_url: str,attack_type_filter: 
                 vulnerability_target=target.get(
                     "vulnerability_target", f"{attack_type_filter} Vulnerability"
                 ),
-                endpoint=target.get("endpoint", target_url),
-                method=str(method or "GET").upper(),
+                endpoint=endpoint,
+                method=method,
                 request=request,
-                recommended_tool=target.get("recommended_tool", default_tool),
+                recommended_tool=(
+                    "dalfox"
+                    if is_xss
+                    else target.get("recommended_tool", default_tool)
+                ),
             )
         )
+    summary.total_targets_identified = len(targets)
     output = ReconPlannerOutput(
         recon_summary=summary,
         high_priority_targets=targets,

@@ -11,11 +11,18 @@ from tools.testssl_handler import prepare_args as handle_testssl_args
 from tools.hydra_handler import prepare_args as handle_hydra_args
 from tools.ffuf_handler import prepare_args as handle_ffuf_args
 
+from handlers.crawler_reports import (
+    persist_crawler_report,
+    persist_deep_crawler_report,
+)
+from handlers.commix_handler import handle_commix_args
+from handlers.dalfox_handler import handle_dalfox_args
+from tools.jwt_tool_adapter import handle_jwt_tool_args
 
 MCP_SKILLS_REGISTRY = {
     "sqli_agent": {
         "mcp_schema": {
-            "name": "sqli_agent",
+            "name": "sqli_manual",
             "description": (
                 "Realiza pruebas SQLi acotadas de error, booleanas y de tiempo "
                 "sobre un parámetro observado. No extrae datos ni ejecuta escrituras."
@@ -85,7 +92,7 @@ MCP_SKILLS_REGISTRY = {
     "katana_full": {
         "mcp_schema": {
             "name": "katana_full",
-            "description": ("Escaneo profundo de la Web, ideal para ataques"),
+            "description": "Escaneo profundo de la Web, ideal para ataques",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -102,9 +109,6 @@ MCP_SKILLS_REGISTRY = {
         "timeout": 3600,
         "success_exit_codes": [0],
     },
-    # =========================================================================
-    # 4. SPA Crawler - Descubrimiento de rutas de aplicaciones JavaScript
-    # =========================================================================
     "spa_crawler": {
         "mcp_schema": {
             "name": "spa_crawler",
@@ -145,6 +149,7 @@ MCP_SKILLS_REGISTRY = {
         "command_template": "--target-url {target_url}",
         "timeout": 1800,
         "success_exit_codes": [0],
+        "postprocess_result": persist_crawler_report,
     },
     "deep_crawler": {
         "mcp_schema": {
@@ -166,21 +171,15 @@ MCP_SKILLS_REGISTRY = {
         "timeout": 3600,
         "prepare_args": handle_deep_crawler_args,
         "success_exit_codes": [0],
+        "postprocess_result": persist_deep_crawler_report,
     },
-    # =========================================================================
-    # 5. SQLMap - Validación de Inyección SQL
-    # =========================================================================
     "sqlmap": {
         "mcp_schema": {
             "name": "sqlmap",
             "description": (
                 "Evaluación y explotación automática de inyecciones SQL (SQLi). USAR EN FASE DE VALIDACIÓN "
-                "CUANDO existan endpoints con parámetros o campos vulnerables a base de datos (ej: formulación "
-                "de login, búsquedas, IDs). NO usar como escáner general sobre la raíz del sitio. "
-                "Input esperado: preferiblemente 'request' con la petición HTTP estructurada "
-                "generada por el crawler. El servidor crea un archivo temporal interno para SQLMap. "
-                "Alternativa: 'target_url' para una URL simple. "
-                "Devuelve: Confirmación del vector SQLi, tipo de BD y payloads funcionales."
+                "CUANDO existan endpoints con parámetros o campos vulnerables a base de datos. "
+                "Input esperado: 'request' estructurada o 'target_url'."
             ),
             "inputSchema": {
                 "type": "object",
@@ -203,55 +202,42 @@ MCP_SKILLS_REGISTRY = {
         "prepare_args": handle_sqlmap_args,
         "success_exit_codes": [0],
     },
-    # =========================================================================
-    # 6. DalFox - Escáner de Cross-Site Scripting (XSS)
-    # =========================================================================
-"dalfox": {
-    "mcp_schema": {
-        "name": "dalfox",
-        "description": (
-            "Análisis especializado en Cross-Site Scripting (XSS reflejado y DOM). "
-            "Para GET: requiere URL con parámetros en la query string (?q=test). "
-            "Para POST: acepta 'request' estructurada con body y headers. "
-            "El modo POST analiza la request capturada, pero no implementa por sí solo "
-            "la secuencia almacenado escritura-lectura de XSS almacenado. "
-            "USAR EN FASE DE VALIDACIÓN sobre endpoints de búsqueda, filtros o formularios. "
-            "Devuelve: confirmación de XSS y PoC con payload ejecutable."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "target_url": {
-                    "type": "string",
-                    "description": "URL con parámetros GET (ej: http://target/search?q=test)",
+
+    "dalfox": {
+        "mcp_schema": {
+            "name": "dalfox",
+            "description": (
+                "Análisis especializado en Cross-Site Scripting (XSS reflejado y DOM). "
+                "Para GET: requiere URL con parámetros en la query string (?q=test). "
+                "Para POST: acepta 'request' estructurada con body y headers."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "target_url": {
+                        "type": "string",
+                        "description": "URL con parámetros GET (ej: http://target/search?q=test)",
+                    },
+                    "request": {
+                        "type": "object",
+                        "description": "Petición estructurada con method, url, headers y body",
+                    },
                 },
-                "request": {
-                    "type": "object",
-                    "description": "Petición estructurada con method, url, headers y body",
-                },
+                "required": [],
             },
-            "required": [],
         },
+        "image": "hahwul/dalfox:latest",
+        "command_template": '/app/dalfox {target_arg} {extra_flags}',
+        "timeout": 1800,
+        "prepare_args": handle_dalfox_args,
+        "success_exit_codes": [0, 1],
     },
-    "image": "hahwul/dalfox:latest",
-    "command_template": '/app/dalfox {target_arg} {extra_flags}',
-    "timeout": 1800,
-    "prepare_args": handle_dalfox_args,
-    "success_exit_codes": [0, 1],
-},
-    # =========================================================================
-    # 7. Commix - Inyección de Comandos del SO (Command Injection)
-    # =========================================================================
     "commix": {
         "mcp_schema": {
             "name": "commix",
             "description": (
-                "Detección y explotación de inyección de comandos en el sistema operativo (OS Command Injection). "
-                "USAR EN FASE DE VALIDACIÓN sobre endpoints con parámetros sospechosos de interactuar con el sistema "
-                "(ej: campos de IP, ping, subida de archivos, utilidades del sistema). "
-                "Soporta POST JSON, form-urlencoded y GET con query params. "
-                "Input esperado: 'request' con la petición HTTP estructurada (method, url, headers, body) "
-                "o 'target_url' para una URL simple. Devuelve: confirmación de RCE con payload y técnica detectada."
+                "Detección y explotación de inyección de comandos en el sistema operativo "
+                "(OS Command Injection). Soporta POST JSON, form-urlencoded y GET con query params."
             ),
             "inputSchema": {
                 "type": "object",
@@ -274,17 +260,12 @@ MCP_SKILLS_REGISTRY = {
         "prepare_args": handle_commix_args,
         "success_exit_codes": [0],
     },
-    # =========================================================================
-    # 8. Nuclei - Escaneo Multivectorial por Plantillas
-    # =========================================================================
     "nuclei": {
         "mcp_schema": {
             "name": "nuclei",
             "description": (
                 "Escáner multivectorial rápido basado en plantillas predefinidas. USAR PARA VALIDACIÓN GENERAL "
-                "de múltiples vulnerabilidades (XSS, Auth Bypass, SQLi, Misconfigurations) en un solo paso. "
-                "Ideal como escaneo de cobertura amplia tras el reconocimiento. Input esperado: URL objetivo "
-                "y tags opcionales (ej: 'xss,rce,sqli,auth'). Devuelve: Vulnerabilidades detectadas categorizadas por severidad."
+                "de múltiples vulnerabilidades (XSS, Auth Bypass, SQLi, Misconfigurations)."
             ),
             "inputSchema": {
                 "type": "object",
@@ -307,112 +288,7 @@ MCP_SKILLS_REGISTRY = {
         "timeout": 3600,
         "success_exit_codes": [0],
     },
-    # =========================================================================
-    # 9. FFuF - Fuzzing Web y Descubrimiento Oculto
-    # =========================================================================
-    "ffuf": {
-        "mcp_schema": {
-            "name": "ffuf",
-            "description": (
-                "Fuzzer de URLs y parámetros mediante diccionarios. LA URL DEBE INCLUIR OBLIGATORIAMENTE LA "
-                "PALABRA CLAVE 'FUZZ' (ej: http://target/FUZZ o http://target/api?user=FUZZ). NO USAR si la "
-                "URL no contiene la palabra FUZZ. USAR PARA descubrir archivos ocultos, rutas no enlazadas o "
-                "fuerza bruta de parámetros. Input esperado: URL formateada con 'FUZZ'. Devuelve: Códigos de respuesta "
-                "HTTP relevantes (200, 301, 401, 403)."
-            ),
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "target_url": {
-                        "type": "string",
-                        "description": "URL que DEBE incluir la palabra 'FUZZ' (ej: http://juice-shop-target:3000/FUZZ)",
-                    }
-                },
-                "required": ["target_url"],
-            },
-        },
-        "image": "local-ffuf:latest",
-        "command_template": '-u "{target_url}" -w /wordlists/common.txt -s',
-        "timeout": 1800,
-        "success_exit_codes": [0],
-    },
-
-    # =========================================================================
-    # testssl - Evaluación de fallos criptográficos (TLS/SSL)
-    # =========================================================================
-    "testssl": {
-        "mcp_schema": {
-            "name": "testssl",
-            "description": (
-                "Análisis pasivo y activo de configuraciones TLS/SSL, certificados, cifer de cifrado "
-                "obsoletos y vulnerabilidades del protocolo (OWASP Cryptographic Failures). "
-                "Input esperado: target_url (ej: http://juice-shop-target:3000 o hostname:puerto)."
-            ),
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "target_url": {
-                        "type": "string",
-                        "description": "URL u host:puerto objetivo a auditar a nivel SSL/TLS",
-                    },
-                    "fast_mode": {
-                        "type": "boolean",
-                        "description": "Ejecutar en modo rápido omitiendo pruebas exhaustivas",
-                        "default": True,
-                    },
-                },
-                "required": ["target_url"],
-            },
-        },
-        "image": "drwetter/testssl.sh:latest",
-        "command_template": "{args}",
-        "timeout": 600,
-        "prepare_args": handle_testssl_args,
-        "success_exit_codes": [0, 1],
-    },
-
-    # =========================================================================
-    # hydra - Pruebas de credenciales por defecto / Fuerza Bruta
-    # =========================================================================
-    "hydra": {
-        "mcp_schema": {
-            "name": "hydra",
-            "description": (
-                "Evaluación de mecanismos de autenticación contra credenciales por defecto y ataques "
-                "de diccionario pequeños (OWASP Identification and Authentication Failures)."
-            ),
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "target": {
-                        "type": "string",
-                        "description": "Host u IP objetivo (ej: juice-shop-target)",
-                    },
-                    "form_path": {
-                        "type": "string",
-                        "description": "Ruta del formulario y parámetros (ej: /rest/user/login:email=^USER^&password=^PASS^:Invalid)",
-                    },
-                    "method": {
-                        "type": "string",
-                        "description": "Protocolo/método a evaluar (ej: http-post-form)",
-                        "default": "http-post-form",
-                    },
-                },
-                "required": ["target", "form_path"],
-            },
-        },
-        "image": "local-hydra:latest",
-        "command_template": "{args}",
-        "timeout": 900,
-        "prepare_args": handle_hydra_args,
-        "success_exit_codes": [0],
-    },
-
-        # =========================================================================
-    # ffuf - Fuzzing web
-    # =========================================================================
-
-    "ffuf": {
+     "ffuf": {
         "mcp_schema": {
             "name": "ffuf",
             "description": (
@@ -449,8 +325,118 @@ MCP_SKILLS_REGISTRY = {
         "prepare_args": handle_ffuf_args,
         "success_exit_codes": [0],
     },
-
-# =========================================================================
+    # =========================================================================
+    # 10. JWT Tool — Análisis y ataques de autenticación JWT (A07:2025)
+    # =========================================================================
+    "jwt_tool": {
+        "mcp_schema": {
+            "name": "jwt_tool",
+            "description": (
+                "Analiza un JSON Web Token y ejecuta tres ataques de autenticación con validación "
+                "de 3 baselines (no_auth / customer / forged) para evitar falsos positivos: "
+                "(1) alg:none bypass, (2) key confusion RS256→HS256, (3) weak HMAC secret. "
+                "Además realiza análisis estático: algoritmo, claims faltantes (exp/nbf/iss/aud), "
+                "rol en payload y datos sensibles. USAR EN FASE DE VALIDACIÓN sobre ataques de "
+                "autenticación (A07). REQUIERE un JWT válido de un usuario de prueba del objetivo."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "target_url": {
+                        "type": "string",
+                        "description": "URL raíz del objetivo (ej: http://juice-shop-target:3000)",
+                    },
+                    "token": {
+                        "type": "string",
+                        "description": "JWT válido de un usuario de prueba (header.payload.signature)",
+                    },
+                    "test_endpoint": {
+                        "type": "string",
+                        "description": "Path del endpoint protegido (opcional; autodescubre si se omite)",
+                    },
+                },
+                "required": ["target_url", "token"],
+            },
+        },
+        "image": "local-jwt-tool:latest",
+        "command_template": "{target_arg} {token_arg} {test_endpoint_arg}",
+        "timeout": 600,
+        "prepare_args": handle_jwt_tool_args,
+        "success_exit_codes": [0, 2],
+    },
+  
+  # =========================================================================
+    # testssl - Evaluación de fallos criptográficos (TLS/SSL)
+    # =========================================================================
+    "testssl": {
+        "mcp_schema": {
+            "name": "testssl",
+            "description": (
+                "Análisis pasivo y activo de configuraciones TLS/SSL, certificados, cifer de cifrado "
+                "obsoletos y vulnerabilidades del protocolo (OWASP Cryptographic Failures). "
+                "Input esperado: target_url (ej: http://juice-shop-target:3000 o hostname:puerto)."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "target_url": {
+                        "type": "string",
+                        "description": "URL u host:puerto objetivo a auditar a nivel SSL/TLS",
+                    },
+                    "fast_mode": {
+                        "type": "boolean",
+                        "description": "Ejecutar en modo rápido omitiendo pruebas exhaustivas",
+                        "default": True,
+                    },
+                },
+                "required": ["target_url"],
+            },
+        },
+        "image": "drwetter/testssl.sh:latest",
+        "command_template": "{args}",
+        "timeout": 600,
+        "prepare_args": handle_testssl_args,
+        "success_exit_codes": [0, 1],
+    },
+  
+  # =========================================================================
+    # hydra - Pruebas de credenciales por defecto / Fuerza Bruta
+    # =========================================================================
+    "hydra": {
+        "mcp_schema": {
+            "name": "hydra",
+            "description": (
+                "Evaluación de mecanismos de autenticación contra credenciales por defecto y ataques "
+                "de diccionario pequeños (OWASP Identification and Authentication Failures)."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "target": {
+                        "type": "string",
+                        "description": "Host u IP objetivo (ej: juice-shop-target)",
+                    },
+                    "form_path": {
+                        "type": "string",
+                        "description": "Ruta del formulario y parámetros (ej: /rest/user/login:email=^USER^&password=^PASS^:Invalid)",
+                    },
+                    "method": {
+                        "type": "string",
+                        "description": "Protocolo/método a evaluar (ej: http-post-form)",
+                        "default": "http-post-form",
+                    },
+                },
+                "required": ["target", "form_path"],
+            },
+        },
+        "image": "local-hydra:latest",
+        "command_template": "{args}",
+        "timeout": 900,
+        "prepare_args": handle_hydra_args,
+        "success_exit_codes": [0],
+    },
+  
+  # =========================================================================
     # crypto_inspector - Análisis de seguridad de JWT y algoritmos de hashing
     "crypto_inspector": {
         "mcp_schema": {
@@ -480,4 +466,6 @@ MCP_SKILLS_REGISTRY = {
         "prepare_args": handle_crypto_inspector_args,
         "success_exit_codes": [0],
     },
+  
+  
 }

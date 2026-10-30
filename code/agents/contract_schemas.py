@@ -57,9 +57,16 @@ class Vulnerability(BaseModel):
     parameter: Optional[str] = Field(
         None, description="Parámetro o campo vulnerable en la petición"
     )
+    method: Optional[str] = Field(
+        None, description="Método HTTP observado para validar el hallazgo"
+    )
     evidence: str = Field(
         ...,
         description="Fragmento de respuesta anómala, error SQL o comportamiento que confirma el hallazgo",
+    )
+    verification_steps: Optional[str] = Field(
+        None,
+        description="Pasos de comprobación derivados de evidencia observada, sin payloads inventados",
     )
     reproducible_command: str = Field(
         ...,
@@ -117,7 +124,6 @@ class ValidateOutput(BaseModel):
     scan_finished_at: Optional[str] = Field(
         default=None, description="Fecha y hora UTC de finalización de la validación"
     )
-
 
 class ValidateFindingSubmission(BaseModel):
     type: str = Field(..., description="Tipo de vulnerabilidad confirmada")
