@@ -566,11 +566,26 @@ def run_jwt_attack(target, token, test_endpoint=None):
     else:
         disc = discover_test_endpoint(target, token)
         if not disc:
+            findings = consolidate_findings(analysis, {}, {})
+            severities = [finding["severity"] for finding in findings]
+            risk = ("CRITICAL" if "CRITICAL" in severities else
+                    "HIGH" if "HIGH" in severities else
+                    "MEDIUM" if "MEDIUM" in severities else "LOW")
             return {
                 "tool": "jwt_tool_handler", "target": target,
                 "error": "no_test_endpoint_found",
                 "hint": "Provide --test-endpoint or ensure target has a 401-protected path",
                 "jwt_analysis": analysis,
+                "findings": findings,
+                "summary": {
+                    "total_findings": len(findings),
+                    "critical": severities.count("CRITICAL"),
+                    "high": severities.count("HIGH"),
+                    "medium": severities.count("MEDIUM"),
+                    "low": severities.count("LOW"),
+                    "risk_level": risk,
+                    "attacks_succeeded": 0,
+                },
             }
         discovery = {"url": disc["url"], "path": disc["path"],
                      "source": "auto_discovered"}

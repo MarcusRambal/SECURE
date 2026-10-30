@@ -2,7 +2,12 @@ import json
 import unittest
 from unittest.mock import AsyncMock, patch
 
-from attack_validators import JwtValidationStrategy, get_validation_strategy
+from attack_validators import (
+    JwtValidationStrategy,
+    ValidationEvidence,
+    get_validation_strategy,
+)
+from main import process_validate_task
 
 
 class JwtValidationStrategyTests(unittest.IsolatedAsyncioTestCase):
@@ -65,6 +70,70 @@ class JwtValidationStrategyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.vulnerabilities[0].severity, "HIGH")
         self.assertEqual(result.vulnerabilities[0].tools_used, ["jwt_tool"])
         self.assertEqual(result.unconfirmed_findings[0]["attacks_summary"], report["summary"])
+
+    async def test_jwt_tool_error_with_findings_is_marked_unconfirmed(self):
+        report = {
+            "error": "no_test_endpoint_found",
+            "findings": [
+                {
+                    "title": "JWT has no 'exp' claim",
+                    "severity": "HIGH",
+                    "description": "The token does not expire.",
+                }
+            ],
+        }
+        strategy = get_validation_strategy("jwt")
+
+        with patch(
+            "attack_validators.call_mcp_skill",
+            new=AsyncMock(return_value=json.dumps(report)),
+        ):
+            evidence = await strategy.execute(
+                None,
+                "https://example.test",
+                [],
+                "task-1",
+                [],
+                token="jwt-token",
+            )
+
+        result = strategy.build_deterministic_output(
+            evidence,
+            "https://example.test",
+            "2026-01-01T00:00:00+00:00",
+        )
+
+        self.assertEqual(len(result.vulnerabilities), 1)
+        self.assertIn(
+            "no_test_endpoint_found",
+            result.unconfirmed_findings[0]["reason"],
+        )
+
+    async def test_jwt_tool_error_returns_partial_recovery_mode(self):
+        strategy = get_validation_strategy("jwt")
+
+        with patch(
+            "main.get_validation_strategy",
+            return_value=strategy,
+        ), patch.object(
+            strategy,
+            "execute",
+            new=AsyncMock(
+                return_value=ValidationEvidence(
+                    execution_error="jwt_tool error: no_test_endpoint_found",
+                ),
+            ),
+        ):
+            _, recovery_mode, _ = await process_validate_task(
+                None,
+                "https://example.test",
+                "jwt",
+                [],
+                token="jwt-token",
+                task_id="task-1",
+            )
+
+        self.assertEqual(recovery_mode, "fallback")
 
 
 if __name__ == "__main__":

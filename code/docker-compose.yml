@@ -199,8 +199,8 @@ services:
 
   build-jwt:
     build:
-      context: ./skills_controller/tools
-      dockerfile: Dockerfile.jwt
+      context: ./skills_controller
+      dockerfile: docker_images/Dockerfile.jwt
     image: local-jwt-tool:latest
     command: ["--help"]
 
