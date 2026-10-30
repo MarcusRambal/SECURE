@@ -204,7 +204,7 @@ services:
       context: ./skills_controller
       dockerfile: docker_images/Dockerfile.crypto_inspector
     image: local-crypto-inspector:latest
-     command: ["--help"]
+    command: ["--help"]
      
   build-jwt:
     build:

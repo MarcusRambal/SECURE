@@ -30,7 +30,9 @@ export const scanService = {
     };
     const token =
       payload.token?.trim() ||
-      (payload.attackType === 'jwt' ? payload.sessionToken?.trim() : undefined);
+      (payload.attackType === 'jwt' || payload.attackType === 'crypto_inspector'
+        ? payload.sessionToken?.trim()
+        : undefined);
     if (token) {
       body.token = token;
     }

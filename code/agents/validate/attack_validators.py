@@ -499,6 +499,8 @@ class XssValidationStrategy(ValidationStrategy):
 class CryptoValidationStrategy(ValidationStrategy):
     """Ejecuta crypto_inspector sobre el objetivo y compila la evidencia criptográfica."""
 
+    requires_targets = False
+
     async def execute(
         self,
         channel: aio_pika.Channel,
@@ -506,6 +508,7 @@ class CryptoValidationStrategy(ValidationStrategy):
         targets: list[dict],
         task_id: str,
         tool_timings: list[dict],
+        token: str | None = None,
     ) -> ValidationEvidence:
         logger.info(
             "[VALIDATE] task_id=%s Ejecutando crypto_inspector sobre %s",
@@ -514,7 +517,7 @@ class CryptoValidationStrategy(ValidationStrategy):
         )
         evidence = ValidationEvidence()
 
-        for target in targets:
+        for target in targets or [{"url": target_url, "endpoint": target_url}]:
             request = target.get("request") or {}
             raw_endpoint = str(request.get("url") or target.get("url") or target.get("endpoint") or target_url)
             target_parts = urlsplit(target_url)
@@ -571,6 +574,35 @@ class CryptoValidationStrategy(ValidationStrategy):
                 "output": safe_report,
             }
 
+            evidence.executed_commands.append(execution)
+            evidence.pre_executed_context.append(
+                {
+                    **execution,
+                    "status": "ERROR" if report.get("error") else "COMPLETED",
+                }
+            )
+
+        if token:
+            output = await call_mcp_skill(
+                channel,
+                "crypto_inspector",
+                {"jwt_token": token},
+                tool_timings,
+            )
+            try:
+                report = json.loads(output)
+            except (TypeError, json.JSONDecodeError):
+                report = {"error": "Respuesta no válida de crypto_inspector", "raw": str(output)}
+
+            safe_report = json.dumps(report, ensure_ascii=False)
+            execution = {
+                "tool": "crypto_inspector",
+                "command": "MCP crypto_inspector --jwt <JWT>",
+                "target_id": None,
+                "request_id": None,
+                "endpoint": sanitize_endpoint_for_context(target_url),
+                "output": safe_report,
+            }
             evidence.executed_commands.append(execution)
             evidence.pre_executed_context.append(
                 {

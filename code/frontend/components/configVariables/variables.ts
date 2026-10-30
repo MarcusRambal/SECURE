@@ -8,8 +8,8 @@ export const ATTACK_CATEGORIES = {
     ],
   },
   crypto_failure: {
-    label: "Fallos criptograficos",
-    attacks: [{ id: "crypto_default", label: "Proximamente / General" }],
+    label: "Fallos criptográficos",
+    attacks: [{ id: "crypto_inspector", label: "Crypto Inspector" }],
   },
   broken_access: {
     label: "Acceso Roto",
