@@ -142,5 +142,21 @@ ollama_data/
 *.gguf
 *.bin
 
+<<<<<<< HEAD
+# ==========================================
+# Archivos ffuf
+# ==========================================
+ffuf-results/
+
+# ==========================================
+# Archivos del crawler
+# ==========================================
+*.crawler_output.json
+*.deep_output.json
+/skills_controller/tools/crawler/
+/skills_controller/tools/deep_crawler/
+/frontend/tsconfig.tsbuildinfo
+=======
 attacks.txt
 salidasdlafox.txt
+>>>>>>> origin/main

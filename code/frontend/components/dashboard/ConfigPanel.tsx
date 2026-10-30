@@ -24,6 +24,8 @@ export const ConfigPanel = ({ onTaskCreated }: ConfigPanelProps) => {
 
   const isAuthFailure = selectedCategory === "auth_failure";
   const needsToken = selectedAttack === "jwt" || isAuthFailure;
+  const isCryptoInspector = selectedAttack === "crypto_inspector";
+  const canPasteToken = needsToken || isCryptoInspector;
 
   const handleCategoryChange = (key: string) => {
     setSelectedCategory(key);
@@ -76,6 +78,9 @@ export const ConfigPanel = ({ onTaskCreated }: ConfigPanelProps) => {
         setTokenError("Este ataque requiere un token de sesión válido.");
         return;
       }
+    }
+
+    if ((needsToken || isCryptoInspector) && sessionToken.trim()) {
       if (sessionToken.trim().split(".").length !== 3) {
         setTokenError(
           "El token no tiene el formato esperado (header.payload.signature)."
@@ -88,7 +93,9 @@ export const ConfigPanel = ({ onTaskCreated }: ConfigPanelProps) => {
       targetUrl,
       category: selectedCategory,
       attackType: selectedAttack,
-      ...(needsToken && sessionToken ? { sessionToken: sessionToken.trim() } : {}),
+      ...(canPasteToken && sessionToken.trim()
+        ? { sessionToken: sessionToken.trim() }
+        : {}),
     };
 
     startTransition(async () => {
@@ -178,7 +185,7 @@ export const ConfigPanel = ({ onTaskCreated }: ConfigPanelProps) => {
             type="button"
             onClick={handlePasteToken}
             className={styles.pasteButton}
-            disabled={!needsToken}
+            disabled={!canPasteToken}
           >
             Pegar desde Portapapeles
           </button>
@@ -186,13 +193,17 @@ export const ConfigPanel = ({ onTaskCreated }: ConfigPanelProps) => {
         <input
           id="sessionToken"
           type="text"
-          placeholder="Ingrese Token de sesión"
+          placeholder={
+            isCryptoInspector
+              ? "Opcional: pegue un token JWT para analizar"
+              : "Ingrese Token de sesión"
+          }
           value={sessionToken}
           onChange={(e) => setSessionToken(e.target.value)}
           className={`${styles.inputUrl} ${
-            !needsToken ? styles.inputDisabled : ""
+            !canPasteToken ? styles.inputDisabled : ""
           }`}
-          disabled={!needsToken}
+          disabled={!canPasteToken}
         />
         {tokenError && <p className={styles.error}>{tokenError}</p>}
       </div>

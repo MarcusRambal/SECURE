@@ -6,7 +6,7 @@ from handlers.sqliManual_handler import execute_sqli_manual
 from handlers.sqli_map_handler import execute_sqli_map
 from handlers.deep_crawler_handler import handle_deep_crawler_args
 
-from tools.crypto_inspector_handler import prepare_args as handle_crypto_inspector_args
+from handlers.crypto_inspector_handler import prepare_args as handle_crypto_inspector_args
 from tools.testssl_handler import prepare_args as handle_testssl_args
 from tools.hydra_handler import prepare_args as handle_hydra_args
 from tools.ffuf_handler import prepare_args as handle_ffuf_args
