@@ -5,9 +5,10 @@ FROM alpine:latest
 RUN apk add --no-cache ca-certificates curl
 COPY --from=builder /go/bin/ffuf /usr/local/bin/ffuf
 
-# Crear directorio y descargar wordlist estándar
+# Crear directorio y descargar / crear wordlists estándar
 RUN mkdir -p /wordlists && \
     curl -sL https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/Web-Content/common.txt \
-    -o /wordlists/common.txt
+    -o /wordlists/common.txt && \
+    printf "admin@juice-sh.op\nadmin\nuser@juice-sh.op\ntest\n" > /wordlists/users_small.txt
 
 ENTRYPOINT ["ffuf"]

@@ -1,7 +1,16 @@
+
+from handlers.commix_handler import handle_commix_args
+from handlers.dalfox_handler import handle_dalfox_args
 from handlers.sqlmap_handler import handle_sqlmap_args
 from handlers.sqliManual_handler import execute_sqli_manual
 from handlers.sqli_map_handler import execute_sqli_map
 from handlers.deep_crawler_handler import handle_deep_crawler_args
+
+from tools.crypto_inspector_handler import prepare_args as handle_crypto_inspector_args
+from tools.testssl_handler import prepare_args as handle_testssl_args
+from tools.hydra_handler import prepare_args as handle_hydra_args
+from tools.ffuf_handler import prepare_args as handle_ffuf_args
+
 from handlers.crawler_reports import (
     persist_crawler_report,
     persist_deep_crawler_report,
@@ -279,27 +288,41 @@ MCP_SKILLS_REGISTRY = {
         "timeout": 3600,
         "success_exit_codes": [0],
     },
-    "ffuf": {
+     "ffuf": {
         "mcp_schema": {
             "name": "ffuf",
             "description": (
-                "Fuzzer de URLs y parámetros mediante diccionarios. LA URL DEBE INCLUIR OBLIGATORIAMENTE LA "
-                "PALABRA CLAVE 'FUZZ' (ej: http://target/FUZZ)."
+                "Fuzzer web de URLs, parámetros y payloads JSON. Permite enviar peticiones GET/POST "
+                "con cabeceras personalizadas. REQUIERE que la URL o el payload contenga la palabra clave 'FUZZ'."
             ),
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "target_url": {
                         "type": "string",
-                        "description": "URL que DEBE incluir la palabra 'FUZZ'",
+                        "description": "URL que contiene 'FUZZ' (ej: http://juice-shop-target:3000/rest/user/FUZZ)",
+                    },
+                    "method": {
+                        "type": "string",
+                        "description": "Método HTTP (GET, POST)",
+                        "default": "GET"
+                    },
+                    "data": {
+                        "type": "string",
+                        "description": "Cuerpo de la petición JSON o form con el marcador 'FUZZ' (ej: '{\"email\":\"FUZZ\",\"password\":\"test\"}')",
+                    },
+                    "headers": {
+                        "type": "object",
+                        "description": "Diccionario de cabeceras (ej: {\"Content-Type\": \"application/json\"})",
                     }
                 },
                 "required": ["target_url"],
             },
         },
         "image": "local-ffuf:latest",
-        "command_template": '-u "{target_url}" -w /wordlists/common.txt -s',
+        "command_template": "{args}",
         "timeout": 1800,
+        "prepare_args": handle_ffuf_args,
         "success_exit_codes": [0],
     },
     # =========================================================================
@@ -341,4 +364,108 @@ MCP_SKILLS_REGISTRY = {
         "prepare_args": handle_jwt_tool_args,
         "success_exit_codes": [0, 2],
     },
+  
+  # =========================================================================
+    # testssl - Evaluación de fallos criptográficos (TLS/SSL)
+    # =========================================================================
+    "testssl": {
+        "mcp_schema": {
+            "name": "testssl",
+            "description": (
+                "Análisis pasivo y activo de configuraciones TLS/SSL, certificados, cifer de cifrado "
+                "obsoletos y vulnerabilidades del protocolo (OWASP Cryptographic Failures). "
+                "Input esperado: target_url (ej: http://juice-shop-target:3000 o hostname:puerto)."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "target_url": {
+                        "type": "string",
+                        "description": "URL u host:puerto objetivo a auditar a nivel SSL/TLS",
+                    },
+                    "fast_mode": {
+                        "type": "boolean",
+                        "description": "Ejecutar en modo rápido omitiendo pruebas exhaustivas",
+                        "default": True,
+                    },
+                },
+                "required": ["target_url"],
+            },
+        },
+        "image": "drwetter/testssl.sh:latest",
+        "command_template": "{args}",
+        "timeout": 600,
+        "prepare_args": handle_testssl_args,
+        "success_exit_codes": [0, 1],
+    },
+  
+  # =========================================================================
+    # hydra - Pruebas de credenciales por defecto / Fuerza Bruta
+    # =========================================================================
+    "hydra": {
+        "mcp_schema": {
+            "name": "hydra",
+            "description": (
+                "Evaluación de mecanismos de autenticación contra credenciales por defecto y ataques "
+                "de diccionario pequeños (OWASP Identification and Authentication Failures)."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "target": {
+                        "type": "string",
+                        "description": "Host u IP objetivo (ej: juice-shop-target)",
+                    },
+                    "form_path": {
+                        "type": "string",
+                        "description": "Ruta del formulario y parámetros (ej: /rest/user/login:email=^USER^&password=^PASS^:Invalid)",
+                    },
+                    "method": {
+                        "type": "string",
+                        "description": "Protocolo/método a evaluar (ej: http-post-form)",
+                        "default": "http-post-form",
+                    },
+                },
+                "required": ["target", "form_path"],
+            },
+        },
+        "image": "local-hydra:latest",
+        "command_template": "{args}",
+        "timeout": 900,
+        "prepare_args": handle_hydra_args,
+        "success_exit_codes": [0],
+    },
+  
+  # =========================================================================
+    # crypto_inspector - Análisis de seguridad de JWT y algoritmos de hashing
+    "crypto_inspector": {
+        "mcp_schema": {
+            "name": "crypto_inspector",
+            "description": (
+                "Análisis pasivo de respuestas JSON de API REST y tokens JWT. "
+                "Detecta algoritmos de hashing obsoletos (MD5, SHA1), claves expuestas y JWTs inseguros."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "jwt_token": {
+                        "type": "string",
+                        "description": "Token JWT a analizar",
+                    },
+                    "target_url": {
+                        "type": "string",
+                        "description": "URL u endpoint a evaluar",
+                    },
+                },
+                "required": [],
+            },
+        },
+        "image": "local-crypto-inspector:latest",
+        "command_template": "{args}",
+        "timeout": 300,
+        "prepare_args": handle_crypto_inspector_args,
+        "success_exit_codes": [0],
+    },
+  
+  
 }

@@ -3,6 +3,8 @@ import json
 from contract_schemas import ReporterInput
 from config import REPORTER_MAX_ENDPOINTS, REPORTER_MAX_EVIDENCE_CHARS
 
+SEVERITY_ORDER = ("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO")
+
 
 def _limit_items(items: list, limit: int) -> list:
     return items if limit <= 0 else items[:limit]
@@ -12,11 +14,32 @@ def _limit_text(text: str, limit: int) -> str:
     return text if limit <= 0 or len(text) <= limit else text[:limit] + "..."
 
 
+def _sort_by_severity(vulnerabilities: list) -> list:
+    """CRITICAL primero; el resto en orden descendente de severidad."""
+    return sorted(
+        vulnerabilities,
+        key=lambda vulnerability: (
+            SEVERITY_ORDER.index(vulnerability.severity)
+            if vulnerability.severity in SEVERITY_ORDER
+            else len(SEVERITY_ORDER)
+        ),
+    )
+
+
+def _severity_counts(vulnerabilities: list) -> dict:
+    counts = {severity: 0 for severity in SEVERITY_ORDER}
+    for vulnerability in vulnerabilities:
+        if vulnerability.severity in counts:
+            counts[vulnerability.severity] += 1
+    return counts
+
+
 def build_fallback_markdown_report(reporter_input: ReporterInput, raw_error: str) -> str:
     """Construye un informe Markdown de respaldo sin depender del LLM."""
-    vulnerabilities = reporter_input.validation_data.vulnerabilities
+    vulnerabilities = _sort_by_severity(list(reporter_input.validation_data.vulnerabilities))
     targets = reporter_input.recon_data.high_priority_targets
     unconfirmed = reporter_input.validation_data.unconfirmed_findings
+    counts = _severity_counts(vulnerabilities)
 
     parts = [
         "# Informe de Auditoria de Ciberseguridad\n",
@@ -39,21 +62,44 @@ def build_fallback_markdown_report(reporter_input: ReporterInput, raw_error: str
 
     parts.append("## Resumen Ejecutivo\n")
     parts.append(f"* **Objetivos Prioritarios Identificados:** {len(targets)}")
-    parts.append(f"* **Vulnerabilidades Confirmadas:** {len(vulnerabilities)}")
+    parts.append(f"* **Hallazgos Confirmados:** {len(vulnerabilities)}")
+    parts.append(
+        "* **Hallazgos por Severidad:** "
+        + ", ".join(f"{severity}={count}" for severity, count in counts.items())
+    )
     parts.append(f"* **Pruebas Sin Confirmacion:** {len(unconfirmed)}\n")
 
     parts.append("## Detalle de Hallazgos\n")
     if not vulnerabilities:
         parts.append("*No se confirmaron vulnerabilidades explotables durante esta auditoria de seguridad.*\n")
     else:
-        for vulnerability in vulnerabilities:
-            parts.append(f"### [{vulnerability.severity}] {vulnerability.type}")
+        for index, vulnerability in enumerate(vulnerabilities, start=1):
+            parts.append(f"### {index}. [{vulnerability.severity}] {vulnerability.type}")
+            parts.append(f"- **ID del Hallazgo:** `{vulnerability.finding_id or 'N/A'}`")
             parts.append(f"- **Endpoint:** `{vulnerability.endpoint}`")
             parts.append(f"- **Parametro:** `{vulnerability.parameter or 'N/A'}`")
             if vulnerability.method:
                 parts.append(f"- **Método HTTP:** `{vulnerability.method}`")
             parts.append(f"- **Certeza:** `{vulnerability.confidence}`")
+            parts.append(
+                f"- **Mapeo Estandar:** CWE=`{vulnerability.cwe or 'No reportado por la herramienta'}` | "
+                f"OWASP=`{vulnerability.owasp or 'No reportado por la herramienta'}`"
+            )
+            parts.append(f"- **Rol del Contexto:** `{vulnerability.context_role or 'N/A'}`")
             parts.append(f"- **Evidencia:** `{vulnerability.evidence}`")
+            if vulnerability.attack_demonstrated:
+                parts.append(f"- **Ataque Demostrado:** `{vulnerability.attack_demonstrated}`")
+            if vulnerability.attack_result:
+                parts.append(
+                    f"- **Contrasena Recuperada:** `{vulnerability.attack_result}`"
+                    if str(vulnerability.attack_demonstrated).casefold() == "dictionary_attack"
+                    else f"- **Resultado del Ataque:** `{vulnerability.attack_result}`"
+                )
+            if vulnerability.attack_chain:
+                parts.append("- **Cadena de Ataque:**")
+                for step in vulnerability.attack_chain:
+                    parts.append(f"  {step}")
+            parts.append("- **Comando Reproducible:**")
             if vulnerability.verification_steps:
                 parts.append(
                     f"- **Cómo verificar:** {vulnerability.verification_steps}"
@@ -84,6 +130,7 @@ def build_reporter_context(reporter_input: ReporterInput) -> str:
     """Genera un resumen JSON compacto del contrato actual de Recon y Validate."""
     recon_summary = reporter_input.recon_data.recon_summary
     targets = reporter_input.recon_data.high_priority_targets
+    findings = _sort_by_severity(list(reporter_input.validation_data.vulnerabilities))
     context = {
         "task_id": reporter_input.task_id,
         "target_url": reporter_input.target_url,
@@ -107,14 +154,24 @@ def build_reporter_context(reporter_input: ReporterInput) -> str:
             ],
         },
         "validation_summary": {
-            "vulnerabilities": [
+            "total_findings": len(findings),
+            "severity_summary": _severity_counts(findings),
+            "findings_order": list(SEVERITY_ORDER),
+            "findings": [
                 {
+                    "finding_id": vulnerability.finding_id,
                     "type": vulnerability.type,
                     "severity": vulnerability.severity,
                     "endpoint": vulnerability.endpoint,
                     "parameter": vulnerability.parameter,
                     "method": vulnerability.method,
                     "confidence": vulnerability.confidence,
+                    "cwe": vulnerability.cwe,
+                    "owasp": vulnerability.owasp,
+                    "context_role": vulnerability.context_role,
+                    "attack_demonstrated": vulnerability.attack_demonstrated,
+                    "attack_result": vulnerability.attack_result,
+                    "attack_chain": vulnerability.attack_chain,
                     "evidence": _limit_text(
                         vulnerability.evidence, REPORTER_MAX_EVIDENCE_CHARS
                     ),
@@ -122,7 +179,7 @@ def build_reporter_context(reporter_input: ReporterInput) -> str:
                     "reproducible_command": vulnerability.reproducible_command,
                     "tools_used": vulnerability.tools_used,
                 }
-                for vulnerability in reporter_input.validation_data.vulnerabilities
+                for vulnerability in findings
             ],
             "unconfirmed_count": len(reporter_input.validation_data.unconfirmed_findings),
             "scan_started_at": reporter_input.validation_data.scan_started_at,

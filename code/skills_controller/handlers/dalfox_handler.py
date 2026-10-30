@@ -16,8 +16,7 @@ from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urlsplit
 
 from ._common import is_static_asset
-from .sqlmap_handler import build_raw_request
-
+from handlers.sqlmap_handler import build_raw_request
 logger = logging.getLogger("dalfox_handler")
 
 

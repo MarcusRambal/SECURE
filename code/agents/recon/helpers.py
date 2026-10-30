@@ -8,6 +8,7 @@ from typing import List
 from urllib.parse import parse_qsl, urlsplit
 
 from contract_schemas import HighPriorityTarget, ReconPlannerOutput, ReconSummary
+from attack_types import is_crypto_attack, is_sqli_attack, is_xss_attack
 
 logger = logging.getLogger("recon-agent-worker")
 MAX_XSS_ENTRY_POINT_TARGETS = 20
@@ -202,6 +203,66 @@ def build_sqli_recon_context(crawler_data: dict, deep_crawler_data: dict | None 
             "sqli_input_entry_points": sql_inputs,
             "available_validation_tools": available_tools,
         }
+
+
+def build_crypto_recon_context(
+    crawler_data: dict,
+    deep_crawler_data: dict | None,
+    discovered_urls: list[str],
+    available_tools: list[dict],
+) -> dict:
+    """Prepara el contexto de reconocimiento para inspeccion criptografica."""
+    entry_points = []
+    for request in (deep_crawler_data or {}).get("entry_points", [])[:50]:
+        if not isinstance(request, dict):
+            continue
+        headers = request.get("headers")
+        headers = headers if isinstance(headers, dict) else {}
+        entry_points.append(
+            {
+                "id": request.get("id"),
+                "method": request.get("method"),
+                "url": request.get("url"),
+                "path": request.get("path"),
+                "resource_type": request.get("resource_type"),
+                "headers": {
+                    name: value
+                    for name, value in headers.items()
+                    if isinstance(name, str)
+                    and name.casefold() in {
+                        "authorization", "content-type", "accept", "cookie", "x-auth-token"
+                    }
+                },
+                "body": request.get("body"),
+                "response_status": (request.get("response") or {}).get("status"),
+            }
+        )
+
+    endpoints = [
+        {
+            "template": endpoint.get("template"),
+            "sample_urls": endpoint.get("sample_urls", []),
+            "methods": endpoint.get("methods", []),
+        }
+        for endpoint in crawler_data.get("navigation", {}).get("endpoints", [])[:50]
+        if isinstance(endpoint, dict)
+    ]
+
+    interesting_urls = [
+        url for url in discovered_urls
+        if any(keyword in url.lower() for keyword in [
+            "config", "admin", "api", "rest", "auth", "login", "token", "user", "secret", "crypto"
+        ])
+    ][:50]
+
+    return {
+        "attack_type_filter": "crypto_inspector",
+        "crawler_endpoints": endpoints,
+        "interesting_urls": interesting_urls,
+        "captured_entry_points": entry_points,
+        "deduplicated_urls": discovered_urls[:100],
+        "available_validation_tools": available_tools,
+    }
 
     crawler_endpoints = [
         {
@@ -535,6 +596,130 @@ def update_recon_context_snapshot(
 
 
 
+
+
+
+def build_crypto_fallback_output(
+    target_url: str,
+    deep_crawler_data: dict | None,
+    discovered_urls: list[str] | None = None,
+) -> dict:
+    """Construye un plan criptografico minimo con endpoints observados si el LLM no devuelve JSON."""
+    targets = []
+    requests = (deep_crawler_data or {}).get("entry_points", [])
+    priority_keywords = [
+        "config", "admin", "login", "auth", "token", "user", "api", "rest", "crypto"
+    ]
+    seen_urls = set()
+
+    for request in requests:
+        if not isinstance(request, dict) or not request.get("url"):
+            continue
+        req_url = request["url"]
+        if req_url in seen_urls:
+            continue
+        if any(kw in req_url.lower() for kw in priority_keywords):
+            seen_urls.add(req_url)
+            targets.append({
+                "target_id": f"target_{len(targets) + 1:03d}",
+                "request_id": request.get("id") or "",
+                "vulnerability_target": "Posible fallo criptográfico / configuración expuesta",
+                "endpoint": req_url,
+                "method": request.get("method", "GET"),
+                "request": {
+                    key: request.get(key)
+                    for key in ("id", "method", "url", "headers", "body")
+                },
+                "recommended_tool": "crypto_inspector",
+            })
+            if len(targets) >= 10:
+                break
+
+    if not targets:
+        for request in requests[:5]:
+            if not isinstance(request, dict) or not request.get("url"):
+                continue
+            req_url = request["url"]
+            if req_url in seen_urls:
+                continue
+            seen_urls.add(req_url)
+            targets.append({
+                "target_id": f"target_{len(targets) + 1:03d}",
+                "request_id": request.get("id") or "",
+                "vulnerability_target": "Solicitud observada; inspeccionar datos y tokens criptográficos",
+                "endpoint": req_url,
+                "method": request.get("method", "GET"),
+                "request": {
+                    key: request.get(key)
+                    for key in ("id", "method", "url", "headers", "body")
+                },
+                "recommended_tool": "crypto_inspector",
+            })
+
+    if not targets and discovered_urls:
+        for url in discovered_urls:
+            if any(kw in url.lower() for kw in priority_keywords) and url not in seen_urls:
+                seen_urls.add(url)
+                targets.append({
+                    "target_id": f"target_{len(targets) + 1:03d}",
+                    "request_id": "",
+                    "vulnerability_target": "Endpoint observado relevante para análisis criptográfico",
+                    "endpoint": url,
+                    "method": "GET",
+                    "request": {"method": "GET", "url": url},
+                    "recommended_tool": "crypto_inspector",
+                })
+                if len(targets) >= 5:
+                    break
+
+    if not targets:
+        targets.append({
+            "target_id": "target_001",
+            "request_id": "",
+            "vulnerability_target": "Inspección criptográfica general del objetivo",
+            "endpoint": target_url,
+            "method": "GET",
+            "request": {"method": "GET", "url": target_url},
+            "recommended_tool": "crypto_inspector",
+        })
+
+    return {
+        "recon_summary": {
+            "target_url": target_url,
+            "attack_type_filter": "crypto_inspector",
+            "total_targets_identified": len(targets),
+            "total_requests_captured": len(requests),
+        },
+        "high_priority_targets": targets,
+    }
+
+
+def ensure_crypto_entry_point_coverage(
+    data: dict,
+    deep_crawler_data: dict | None,
+    target_url: str,
+    discovered_urls: list[str] | None = None,
+) -> dict:
+    """Asegura que existan objetivos criptograficos observados para validar si el LLM omitio targets."""
+    output = dict(data)
+    targets = [
+        target for target in output.get("high_priority_targets", [])
+        if isinstance(target, dict)
+    ]
+    if targets:
+        return output
+
+    logger.info(
+        "[RECON] El LLM devolvió 0 targets para crypto; aplicando cobertura automática con peticiones observadas."
+    )
+    fallback = build_crypto_fallback_output(target_url, deep_crawler_data, discovered_urls)
+    output["high_priority_targets"] = fallback["high_priority_targets"]
+    summary = dict(output.get("recon_summary", {}))
+    summary["total_targets_identified"] = len(output["high_priority_targets"])
+    output["recon_summary"] = summary
+    return output
+
+
 def _normalize_request_path(value: str) -> str:
     value = value.strip()
     parts = value.split(maxsplit=1)
@@ -610,16 +795,12 @@ def build_recon_output_from_dict(data: dict,target_url: str,attack_type_filter: 
         if not isinstance(target, dict):
             continue
         captured_request = (
-            _find_matching_captured_request(target, deep_crawler_data)
-            if attack_type_filter.casefold() in {"sqli", "xss"}
-            else None
+            _find_matching_captured_request(target, deep_crawler_data) if (is_sqli_attack(attack_type_filter) or is_xss_attack(attack_type_filter) or is_crypto_attack(attack_type_filter)) else None
         )
         request_id = target.get("request_id") or ""
         request = target.get("request") or {}
         method = target.get("method", "GET")
-        default_tool = (
-            "dalfox" if attack_type_filter.casefold() == "xss" else "sqlmap"
-        )
+        default_tool = ("crypto_inspector" if is_crypto_attack(attack_type_filter) else ("dalfox" if is_xss_attack(attack_type_filter) else "sqlmap"))
         if captured_request:
             request_id = captured_request.get("id") or request_id
             request = _build_request_from_capture(captured_request)

@@ -8,13 +8,16 @@ from pydantic import ValidationError
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.exceptions import OutputParserException
 
-from attack_types import is_sqli_attack, is_xss_attack, is_jwt_attack
+from attack_types import is_sqli_attack, is_xss_attack, is_crypto_attack,  is_jwt_attack
 from contract_schemas import ReconPlannerOutput, ReconSummary, HighPriorityTarget
 from helpers import (
     build_recon_output_from_dict,
     build_sqli_recon_context,
     build_sqli_fallback_output,
     build_xss_recon_context,
+    build_crypto_recon_context,
+    build_crypto_fallback_output,
+    ensure_crypto_entry_point_coverage,
     deduplicate_urls,
     ensure_sqli_entry_point_coverage,
     extract_urls_from_crawler,
@@ -44,6 +47,7 @@ async def process_recon_task(channel: aio_pika.Channel,target_url: str, attack_t
     started_at = datetime.now(timezone.utc).isoformat()
     is_sqli = is_sqli_attack(attack_type_filter)
     is_xss = is_xss_attack(attack_type_filter)
+    is_crypto = is_crypto_attack(attack_type_filter)
     tool_timings: list[dict] = []
 
     is_jwt = is_jwt_attack(attack_type_filter)
@@ -108,7 +112,7 @@ async def process_recon_task(channel: aio_pika.Channel,target_url: str, attack_t
         if tool.get("name") not in {"crawler", "deep_crawler"}
     ]
 
-    if is_sqli or is_xss:
+    if is_sqli or is_xss or is_crypto:
         logger.info(
             "[RECON] %s: ejecutando deep_crawler con la salida efímera de crawler",
             attack_type_filter,
@@ -138,6 +142,10 @@ async def process_recon_task(channel: aio_pika.Channel,target_url: str, attack_t
         )
     elif is_xss:
         recon_sources = build_xss_recon_context(
+            crawler_data, deep_crawler_data, discovered_urls, available_tools
+        )
+    elif is_crypto:
+        recon_sources = build_crypto_recon_context(
             crawler_data, deep_crawler_data, discovered_urls, available_tools
         )
     else:
@@ -182,6 +190,16 @@ async def process_recon_task(channel: aio_pika.Channel,target_url: str, attack_t
         structured_output = await structured_llm.ainvoke([system_prompt, user_message])
 
     except (OutputParserException, ValidationError) as error:
+        if not (is_sqli or is_crypto):
+            raise
+        logger.warning(
+            "[RECON] El LLM no devolvio una salida compatible con ReconPlannerOutput (%s); usando plan de respaldo con peticiones observadas.",
+            error,
+        )
+        if is_sqli:
+            parsed_dict = build_sqli_fallback_output(target_url, deep_crawler_data)
+        else:
+            parsed_dict = build_crypto_fallback_output(target_url, deep_crawler_data, discovered_urls)
         if not (is_sqli or is_xss):
             raise
         logger.warning(
@@ -211,6 +229,8 @@ async def process_recon_task(channel: aio_pika.Channel,target_url: str, attack_t
 
     if is_sqli:
         parsed_dict = ensure_sqli_entry_point_coverage(parsed_dict, deep_crawler_data)
+    elif is_crypto:
+        parsed_dict = ensure_crypto_entry_point_coverage(parsed_dict, deep_crawler_data, target_url, discovered_urls)
     elif is_xss:
         parsed_dict = ensure_xss_entry_point_coverage(parsed_dict, deep_crawler_data)
 
@@ -218,7 +238,7 @@ async def process_recon_task(channel: aio_pika.Channel,target_url: str, attack_t
         parsed_dict,
         target_url,
         attack_type_filter,
-        deep_crawler_data if is_sqli or is_xss else None,
+        deep_crawler_data if (is_sqli or is_xss or is_crypto) else None,
     )
     logger.info("[RECON] Plan JSON validado targets=%d ", len(recon_output.high_priority_targets),)
 

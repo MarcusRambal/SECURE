@@ -100,6 +100,8 @@ services:
       dockerfile: orchestrator/Dockerfile.orchestrator
     ports:
       - "8001:8001"
+    environment:
+      - PYTHONPATH=.
     restart: unless-stopped
     env_file:
       - .env
@@ -197,6 +199,13 @@ services:
     image: local-sqli-map:latest
     command: ["--help"]
 
+  build-crypto-inspector:
+    build:
+      context: ./skills_controller
+      dockerfile: docker_images/Dockerfile.crypto_inspector
+    image: local-crypto-inspector:latest
+     command: ["--help"]
+     
   build-jwt:
     build:
       context: ./skills_controller
@@ -254,3 +263,4 @@ services:
       - "127.0.0.1:3003:80"
     networks:
       - sec-net
+
