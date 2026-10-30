@@ -474,7 +474,7 @@ class JwtValidationStrategy(ValidationStrategy):
             return evidence
 
         evidence.structured_result = report
-        if report.get("error") and not report.get("findings"):
+        if report.get("error"):
             evidence.execution_error = f"jwt_tool error: {report.get('error')}"
             evidence.pre_executed_context.append(
                 {
@@ -491,21 +491,6 @@ class JwtValidationStrategy(ValidationStrategy):
         started_at: str,
     ) -> ValidateOutput:
         now = datetime.now(timezone.utc).isoformat()
-        if evidence.execution_error:
-            return ValidateOutput(
-                target_url=target_url,
-                vulnerabilities=[],
-                unconfirmed_findings=[
-                    {
-                        "reason": evidence.execution_error,
-                        **(evidence.pre_executed_context[0]
-                           if evidence.pre_executed_context else {}),
-                    }
-                ],
-                scan_started_at=started_at,
-                scan_finished_at=now,
-            )
-
         report = evidence.structured_result or {}
         reproducible = f"python jwt_tool_handler.py --target {target_url} --token <JWT>"
         vulnerabilities: list[Vulnerability] = []
@@ -557,6 +542,13 @@ class JwtValidationStrategy(ValidationStrategy):
             "attacks_summary": report.get("summary", {}),
             "discovery": report.get("discovery", {}),
         }
+        if evidence.execution_error:
+            context = {
+                "reason": evidence.execution_error,
+                **(evidence.pre_executed_context[0]
+                   if evidence.pre_executed_context else {}),
+                **context,
+            }
         return ValidateOutput(
             target_url=target_url,
             vulnerabilities=vulnerabilities,

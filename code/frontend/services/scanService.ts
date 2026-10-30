@@ -28,8 +28,14 @@ export const scanService = {
       category: payload.category,
       attack_type: payload.attackType,
     };
-    if (payload.token && payload.token.trim()) {
-      body.token = payload.token.trim();
+    const token =
+      payload.token?.trim() ||
+      (payload.attackType === 'jwt' ? payload.sessionToken?.trim() : undefined);
+    if (token) {
+      body.token = token;
+    }
+    if (payload.attackType !== 'jwt' && payload.sessionToken?.trim()) {
+      body.session_token = payload.sessionToken.trim();
     }
 
     const response = await fetch(`${API_BASE_URL}/api/task`, {
@@ -37,12 +43,7 @@ export const scanService = {
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        target_url: payload.targetUrl,
-        category: payload.category,
-        attack_type: payload.attackType,
-        ...(payload.sessionToken ? { session_token: payload.sessionToken } : {}),
-      }),
+      body: JSON.stringify(body),
     });
 
     if (!response.ok) {

@@ -103,7 +103,8 @@ async def process_validate_task(
             len(deterministic_output.vulnerabilities),
             len(deterministic_output.unconfirmed_findings),
         )
-        return deterministic_output, "clean", tool_timings
+        recovery_mode = "fallback" if evidence.execution_error else "clean"
+        return deterministic_output, recovery_mode, tool_timings
 
     system_prompt = SystemMessage(content=get_system_prompt(attack_type))
     validation_context = strategy.build_validation_context(evidence)
