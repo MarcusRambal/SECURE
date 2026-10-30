@@ -1,0 +1,12 @@
+POST /rest/user/login HTTP/1.1
+Host: localhost:3000
+sec-ch-ua-platform: "Windows"
+referer: http://localhost:3000/
+user-agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151.0.7922.34 Safari/537.36
+accept: application/json, text/plain, */*
+sec-ch-ua: "Not=A?Brand";v="99", "HeadlessChrome";v="151", "Chromium";v="151"
+content-type: application/json
+sec-ch-ua-mobile: ?0
+Content-Length: 54
+
+{"email":"admin@juice-sh.op","password":"password123"}

@@ -57,9 +57,16 @@ class Vulnerability(BaseModel):
     parameter: Optional[str] = Field(
         None, description="Parámetro o campo vulnerable en la petición"
     )
+    method: Optional[str] = Field(
+        None, description="Método HTTP observado para validar el hallazgo"
+    )
     evidence: str = Field(
         ...,
         description="Fragmento de respuesta anómala, error SQL o comportamiento que confirma el hallazgo",
+    )
+    verification_steps: Optional[str] = Field(
+        None,
+        description="Pasos de comprobación derivados de evidencia observada, sin payloads inventados",
     )
     reproducible_command: str = Field(
         ...,
@@ -70,6 +77,36 @@ class Vulnerability(BaseModel):
     )
     tools_used: List[str] = Field(
         default_factory=list, description="Herramientas MCP utilizadas para la confirmación"
+    )
+    # --- Campos opcionales que viajan desde la herramienta (crypto_inspector) ---
+    # Se mantienen sin transformar para que el Reporter no tenga que inventar nada.
+    finding_id: Optional[str] = Field(
+        default=None, description="ID del hallazgo original reportado por la herramienta"
+    )
+    cwe: Optional[str] = Field(
+        default=None, description="CWE exacto reportado por la herramienta (no inferir)"
+    )
+    owasp: Optional[str] = Field(
+        default=None, description="Categoría OWASP exacta reportada por la herramienta (no inferir)"
+    )
+    attack_demonstrated: Optional[str] = Field(
+        default=None,
+        description="Técnica de ataque demostrada (ej: dictionary_attack, none)",
+    )
+    attack_result: Optional[str] = Field(
+        default=None,
+        description="Resultado del ataque demostrado (ej: contraseña recuperada 'admin123')",
+    )
+    attack_chain: List[str] = Field(
+        default_factory=list,
+        description="Pasos de explotación documentados por la herramienta",
+    )
+    context_role: Optional[str] = Field(
+        default=None,
+        description=(
+            "Rol del dato en el contexto de seguridad (ej: authentication_material, "
+            "static_checksum, transport_security)"
+        ),
     )
 
 
@@ -87,7 +124,6 @@ class ValidateOutput(BaseModel):
     scan_finished_at: Optional[str] = Field(
         default=None, description="Fecha y hora UTC de finalización de la validación"
     )
-
 
 class ValidateFindingSubmission(BaseModel):
     type: str = Field(..., description="Tipo de vulnerabilidad confirmada")

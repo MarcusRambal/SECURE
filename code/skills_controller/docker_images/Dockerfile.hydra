@@ -1,0 +1,11 @@
+FROM alpine:latest
+
+RUN apk add --no-cache hydra
+
+# Crear directorio de wordlists e inyectar usuarios y contraseñas por defecto
+RUN mkdir -p /wordlists
+
+RUN printf "admin@juice-sh.op\nadmin\nuser@juice-sh.op\n" > /wordlists/users_small.txt && \
+    printf "admin123\npassword\nadmin\nValidPass123!\n5551234567\n" > /wordlists/pass_small.txt
+
+ENTRYPOINT ["hydra"]

@@ -1,4 +1,5 @@
 import json
+from ._common import is_static_asset
 
 
 def handle_deep_crawler_args(arguments: dict) -> tuple[dict, dict[str, str]]:

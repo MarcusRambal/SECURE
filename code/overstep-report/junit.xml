@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="overstep" tests="4" failures="2">
+  <testcase classname="get_basket" name="GET /rest/basket/1 [alice/self]"/>
+  <testcase classname="get_basket" name="GET /rest/basket/2 [alice/other]">
+    <failure type="BOLA" message="BOLA: alice (user) read another subject's object via GET /rest/basket/2 and got 200; the matrix only allows owners here (no content marker configured to confirm the leak).">alice (user) read another subject's object via GET /rest/basket/2 and got 200; the matrix only allows owners here (no content marker configured to confirm the leak).</failure>
+  </testcase>
+  <testcase classname="get_basket" name="GET /rest/basket/2 [bob/self]"/>
+  <testcase classname="get_basket" name="GET /rest/basket/1 [bob/other]">
+    <failure type="BOLA" message="BOLA: bob (user) read another subject's object via GET /rest/basket/1 and got 200; the matrix only allows owners here (no content marker configured to confirm the leak).">bob (user) read another subject's object via GET /rest/basket/1 and got 200; the matrix only allows owners here (no content marker configured to confirm the leak).</failure>
+  </testcase>
+</testsuite>

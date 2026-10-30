@@ -1,16 +1,61 @@
-# ==========================================
-# Dependencias
-# ==========================================
+# ============================================================
+# Python
+# ============================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtualenvs
+.venv/
+venv/
+ENV/
+env/
+.python-version
+
+# Pytest
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.hypothesis/
+
+# ============================================================
+# Node / Next.js / pnpm
+# ============================================================
 node_modules/
-.pnpm-store/
+.pnp
+.pnp.js
 .yarn/
 .npm/
-
+tsconfig.tsbuildinfo*
 # ==========================================
 # Archivos de Construcción y Caché (Builds)
 # ==========================================
 dist/
 build/
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+.pnpm-store/
 out/
 .next/
 .nuxt/
@@ -20,103 +65,84 @@ out/
 .turbo/
 .cache/
 .parcel-cache/
-test_analysis_skills.py
+next-env.d.ts.timestamp-*
 
-# ==========================================
-# Logs y Monitoreo
-# ==========================================
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
-*.log
-
-# ==========================================
-# Variables de Entorno y Secretos
-# ==========================================
+# ============================================================
+# Variables de entorno y secretos
+# ============================================================
 .env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
-.env.*.local
+.env.*
 !.env.example
-!.env.template
+!**/.env.example
+*.env.local
+*.env.production
+secrets/
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+jwtconf.ini
+*.ini
 
-# ==========================================
-# IDEs y Editores de Código
-# ==========================================
-.vscode/*
-!.vscode/extensions.json
-!.vscode/settings.json
-.idea/
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
+# ============================================================
+# Estado de sesión / artefactos de pentesting
+# ============================================================
+*.session.json
+*_session.json
+.crawler_auth_state.*
+session.json
+*.req
+*.http
+
+# Volúmenes compartidos de agentes
+agents/recon/recon_context/
+agents/validate/validate_context/
+code/agents/validate/validate_prompts
+code/skills_controller/tools/sqli_map/outputs/
+code/skills_controller/tools/sqli_skill/outputs/
+code/skills_controller/tools/jwt_tool/outputs/
+**/crawler_report.json
+**/deep_crawler_report.json
+**/sqli_report.json
+**/sqlmap_report.json
+**/jwt_report.json
+
+
+# ============================================================
+# Logs y temporales
+# ============================================================
+*.log
+logs/
+tmp/
+temp/
+*.tmp
 *.swp
 *.swo
-
-# ==========================================
-# Pruebas y Cobertura (Testing)
-# ==========================================
-coverage/
-.nyc_output/
-cypress/videos/
-cypress/screenshots/
-playwright-report/
-test-results/
-requests
-.crawler_auth_state.json
-.crawler_auth_state.*.json
-crawler_report.json
-deep_crawler_report.json
-crawler_report.json
-recon_context
-validate_context/
-# ==========================================
-# Archivos Temporales e Historias de SO
-# ==========================================
-.DS_Store
-.DS_Store?
-Thumbs.db
-Desktop.ini
-*.bak
-*.tmp
-
-# ==========================================
-# Paquetes y Empaquetado
-# ==========================================
-*.tgz
-*.tar.gz
+*~
 .DS_Store
 Thumbs.db
-Desktop.ini
 
-# ==========================================
-# Caches de herramientas Python
-# ==========================================
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-*.egg-info/
-build/
-dist/
-__pycache__
-
-# ==========================================
-# Archivos de respaldo
-# ==========================================
-*.bak
-*.orig
-*.rej
+# ============================================================
+# IDE / OS
+# ============================================================
+.idea/
+.vscode/
+*.code-workspace
 
 # ==========================================
 # Historial local de VS Code
 # ==========================================
 .history/
+*outputs
+# ============================================================
+# Ollama / modelos locales
+# ============================================================
+ollama_data/
+*.gguf
+*.bin
 
+<<<<<<< HEAD
 # ==========================================
 # Archivos ffuf
 # ==========================================
@@ -130,3 +156,7 @@ ffuf-results/
 /skills_controller/tools/crawler/
 /skills_controller/tools/deep_crawler/
 /frontend/tsconfig.tsbuildinfo
+=======
+attacks.txt
+salidasdlafox.txt
+>>>>>>> origin/main

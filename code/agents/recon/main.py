@@ -8,17 +8,22 @@ from pydantic import ValidationError
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.exceptions import OutputParserException
 
-from attack_types import is_sqli_attack, is_xss_attack
-from contract_schemas import ReconPlannerOutput
+from attack_types import is_sqli_attack, is_xss_attack, is_crypto_attack,  is_jwt_attack
+from contract_schemas import ReconPlannerOutput, ReconSummary, HighPriorityTarget
 from helpers import (
     build_recon_output_from_dict,
     build_sqli_recon_context,
     build_sqli_fallback_output,
     build_xss_recon_context,
+    build_crypto_recon_context,
+    build_crypto_fallback_output,
+    ensure_crypto_entry_point_coverage,
     deduplicate_urls,
     ensure_sqli_entry_point_coverage,
     extract_urls_from_crawler,
     extract_urls_from_deep_crawler,
+    ensure_xss_entry_point_coverage,
+    update_recon_context_snapshot,
     write_recon_context_snapshot,
 )
 from mcp_skills import call_mcp_skill, get_mcp_catalog
@@ -42,7 +47,39 @@ async def process_recon_task(channel: aio_pika.Channel,target_url: str, attack_t
     started_at = datetime.now(timezone.utc).isoformat()
     is_sqli = is_sqli_attack(attack_type_filter)
     is_xss = is_xss_attack(attack_type_filter)
+    is_crypto = is_crypto_attack(attack_type_filter)
     tool_timings: list[dict] = []
+
+    is_jwt = is_jwt_attack(attack_type_filter)
+
+    if is_jwt:
+        # JWT no requiere crawling: jwt_tool autodescubre el endpoint protegido.
+        # Devolvemos un único target apuntando a la raíz para no romper el contrato
+        # ReconPlannerOutput que espera el orquestador.
+        logger.info("[RECON] JWT fast-path: skipping crawl for %s", target_url)
+        return (
+            ReconPlannerOutput(
+                recon_summary=ReconSummary(
+                    target_url=target_url,
+                    attack_type_filter=attack_type_filter,
+                    total_targets_identified=1,
+                    total_requests_captured=0,
+                ),
+                high_priority_targets=[
+                    HighPriorityTarget(
+                        target_id="target_001",
+                        request_id="",
+                        vulnerability_target="JWT authentication analysis (A07)",
+                        endpoint=target_url,
+                        method="GET",
+                        request=None,
+                        recommended_tool="jwt_tool",
+                    )
+                ],
+            ),
+            "clean",
+            [],
+        )
 
     logger.info("🟡 [RECON] Inicio target=%s attack_type=%s started_at=%s",target_url,attack_type_filter,started_at)
 
@@ -75,7 +112,7 @@ async def process_recon_task(channel: aio_pika.Channel,target_url: str, attack_t
         if tool.get("name") not in {"crawler", "deep_crawler"}
     ]
 
-    if is_sqli or is_xss:
+    if is_sqli or is_xss or is_crypto:
         logger.info(
             "[RECON] %s: ejecutando deep_crawler con la salida efímera de crawler",
             attack_type_filter,
@@ -107,6 +144,10 @@ async def process_recon_task(channel: aio_pika.Channel,target_url: str, attack_t
         recon_sources = build_xss_recon_context(
             crawler_data, deep_crawler_data, discovered_urls, available_tools
         )
+    elif is_crypto:
+        recon_sources = build_crypto_recon_context(
+            crawler_data, deep_crawler_data, discovered_urls, available_tools
+        )
     else:
         recon_sources = {
             "crawler_endpoints": crawler_data.get("navigation", {}).get("endpoints", [])[:50],
@@ -114,8 +155,16 @@ async def process_recon_task(channel: aio_pika.Channel,target_url: str, attack_t
             "available_validation_tools": available_tools,
         }
 
+    context_path = None
     try:
-        context_path = write_recon_context_snapshot(target_url, attack_type_filter, recon_sources)
+        context_path = write_recon_context_snapshot(
+            target_url,
+            attack_type_filter,
+            recon_sources,
+            crawler_report=crawler_data,
+            deep_crawler_report=deep_crawler_data,
+            tool_timings=tool_timings,
+        )
 
         logger.info("[RECON] Contexto LLM guardado en %s", context_path)
     except OSError:
@@ -135,15 +184,40 @@ async def process_recon_task(channel: aio_pika.Channel,target_url: str, attack_t
 
     logger.info("[RECON] Contexto compacto para LLM chars=%d",len(json.dumps(recon_sources, ensure_ascii=False)),)
 
+    llm_output = {}
     try:
         # Salida estructurada del LLM
         structured_output = await structured_llm.ainvoke([system_prompt, user_message])
 
     except (OutputParserException, ValidationError) as error:
-        if not is_sqli:
+        if not (is_sqli or is_crypto):
             raise
-        logger.warning("[RECON] El LLM no devolvio una salida compatible con ReconPlannerOutput (%s); ""usando peticiones observadas de deep_crawler.",error,)
-        parsed_dict = build_sqli_fallback_output(target_url, deep_crawler_data)
+        logger.warning(
+            "[RECON] El LLM no devolvio una salida compatible con ReconPlannerOutput (%s); usando plan de respaldo con peticiones observadas.",
+            error,
+        )
+        if is_sqli:
+            parsed_dict = build_sqli_fallback_output(target_url, deep_crawler_data)
+        else:
+            parsed_dict = build_crypto_fallback_output(target_url, deep_crawler_data, discovered_urls)
+        if not (is_sqli or is_xss):
+            raise
+        logger.warning(
+            "[RECON] El LLM no devolvio una salida compatible con "
+            "ReconPlannerOutput (%s); usando peticiones observadas.",
+            error,
+        )
+        llm_output = {"error": str(error), "fallback": "deep_crawler_coverage"}
+        if is_sqli:
+            parsed_dict = build_sqli_fallback_output(target_url, deep_crawler_data)
+        else:
+            parsed_dict = {
+                "recon_summary": {
+                    "target_url": target_url,
+                    "attack_type_filter": attack_type_filter,
+                },
+                "high_priority_targets": [],
+            }
     else:
         if not isinstance(structured_output, ReconPlannerOutput):
             raise TypeError("El LLM estructurado no devolvió una instancia de ReconPlannerOutput")
@@ -151,16 +225,31 @@ async def process_recon_task(channel: aio_pika.Channel,target_url: str, attack_t
         logger.info("[RECON] Salida original del agente antes del procesamiento:\n%s",structured_output.model_dump_json(indent=2),)
         
         parsed_dict = structured_output.model_dump()
+        llm_output = parsed_dict
 
     if is_sqli:
         parsed_dict = ensure_sqli_entry_point_coverage(parsed_dict, deep_crawler_data)
+    elif is_crypto:
+        parsed_dict = ensure_crypto_entry_point_coverage(parsed_dict, deep_crawler_data, target_url, discovered_urls)
+    elif is_xss:
+        parsed_dict = ensure_xss_entry_point_coverage(parsed_dict, deep_crawler_data)
 
     recon_output = build_recon_output_from_dict(
         parsed_dict,
         target_url,
         attack_type_filter,
-        deep_crawler_data if is_sqli or is_xss else None,
+        deep_crawler_data if (is_sqli or is_xss or is_crypto) else None,
     )
     logger.info("[RECON] Plan JSON validado targets=%d ", len(recon_output.high_priority_targets),)
+
+    if context_path is not None:
+        try:
+            update_recon_context_snapshot(
+                context_path,
+                llm_output,
+                recon_output.model_dump(),
+            )
+        except OSError:
+            logger.exception("[RECON] No se pudo completar el contexto guardado")
 
     return recon_output, "clean", tool_timings

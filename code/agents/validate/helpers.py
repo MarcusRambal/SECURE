@@ -213,10 +213,12 @@ def write_validate_context_snapshot(
     target_url: str,
     attack_type: str,
     agent_context: dict,
-    sqlmap_executions: list[dict],
+    normalized_tool_contexts: list[dict],
     task_id: str | None = None,
+    tool_timings: list[dict] | None = None,
+    tool_diagnostics: list[dict] | None = None,
 ) -> Path:
-    """Guarda el contexto del agente y las requests de validación ejecutadas."""
+    """Guarda el prompt/contexto exacto y los resultados de herramientas."""
     output_dir = Path(
         os.getenv(
             "VALIDATE_CONTEXT_OUTPUT_DIR",
@@ -239,7 +241,11 @@ def write_validate_context_snapshot(
         "attack_type": attack_type,
         "task_id": task_id,
         "agent_context": agent_context,
-        "sqlmap_executions": sqlmap_executions,
+        "validation_context": agent_context.get("validation_context"),
+        "normalized_tool_contexts": normalized_tool_contexts,
+        "tool_executions": normalized_tool_contexts,
+        "tool_diagnostics": tool_diagnostics or [],
+        "tool_timings": tool_timings or [],
     }
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path.write_text(
@@ -247,6 +253,21 @@ def write_validate_context_snapshot(
         encoding="utf-8",
     )
     return output_path
+
+
+def update_validate_context_snapshot(
+    snapshot_path: Path,
+    llm_output: dict,
+    final_output: dict,
+) -> None:
+    """Append the validator's structured answer and normalized output."""
+    payload = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    payload["llm_output"] = llm_output
+    payload["final_output"] = final_output
+    snapshot_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, default=str) + "\n",
+        encoding="utf-8",
+    )
 
 
 def extract_sqlmap_findings(executions: list[dict]) -> list[dict]:
@@ -668,6 +689,7 @@ def build_validate_output_from_dict(args: dict,target_url: str,started_at: str,e
 
         # Determinar comando reproducible real
         real_cmd = "Comando no verificado"
+        matched_command = None
         if tools_used:
             tool_used = tools_used[0]
             tool_commands = [
@@ -686,6 +708,17 @@ def build_validate_output_from_dict(args: dict,target_url: str,started_at: str,e
             real_cmd = (f"Comando no verificado (sin tools_used) para {v.get('endpoint', target_url)}")
 
         parameter = v.get("parameter", "") or None
+        method = v.get("method") or (
+            matched_command.get("method") if matched_command else None
+        )
+
+        # Propagamos los campos que la herramienta ya calculó (crypto_inspector).
+        context_role = v.get("context_role")
+        if not context_role and isinstance(v.get("context"), dict):
+            context_role = v["context"].get("role")
+        attack_chain = v.get("attack_chain") or []
+        if isinstance(attack_chain, str):
+            attack_chain = [attack_chain]
 
         try:
             vulnerabilities.append(
@@ -694,10 +727,19 @@ def build_validate_output_from_dict(args: dict,target_url: str,started_at: str,e
                     severity=v.get("severity", "MEDIUM"),
                     endpoint=v.get("endpoint", target_url),
                     parameter=parameter,
+                    method=method,
                     evidence=v.get("evidence", "Sin evidencia textual"),
+                    verification_steps=v.get("verification_steps"),
                     reproducible_command=real_cmd,
                     confidence=v.get("confidence", "MEDIUM"),
                     tools_used=tools_used,
+                    finding_id=v.get("finding_id") or v.get("id"),
+                    cwe=v.get("cwe") or None,
+                    owasp=v.get("owasp") or None,
+                    attack_demonstrated=v.get("attack_demonstrated") or None,
+                    attack_result=v.get("attack_result") or None,
+                    attack_chain=[str(step) for step in attack_chain if step],
+                    context_role=context_role or None,
                 )
             )
         except ValidationError as e:

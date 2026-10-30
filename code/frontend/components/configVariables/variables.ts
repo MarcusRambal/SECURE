@@ -1,36 +1,25 @@
 // Opciones de categorías de ataque y sus ataques específicos asociados
 export const ATTACK_CATEGORIES = {
   injection: {
-    label: "Injection",
+    label: "Injeccion",
     attacks: [
-      { id: "sqli", label: "SQL Injection" },
-      { id: "xss", label: "Cross-Site Scripting (XSS)" },
+      { id: "sqli", label: "Inyeccion SQL" },
+      { id: "xss", label: "XSS" },
     ],
   },
+  crypto_failure: {
+    label: "Fallos criptograficos",
+    attacks: [{ id: "crypto_default", label: "Proximamente / General" }],
+  },
   broken_access: {
-    label: "Broken Access Control",
+    label: "Acceso Roto",
     attacks: [{ id: "bac_default", label: "Proximamente / General" }],
   },
   auth_failure: {
     label: "Authentication Failure",
-    attacks: [{ id: "auth_default", label: "Proximamente / General" }],
-  },
-  crypto_failure: {
-    label: "Cryptographic Failures",
-    attacks: [{ id: "crypto_default", label: "Proximamente / General" }],
+    attacks: [
+      { id: "jwt", label: "JWT Analysis" },
+      { id: "auth_default", label: "Proximamente / General" },
+    ],
   },
 };
-
-// Modelos LLM disponibles para la selección
-export const AVAILABLE_LLM_MODELS = [
-  "GPT-4o (OpenAI)",
-  "GPT-4o-mini (OpenAI)",
-  "Claude 3.5 Sonnet (Anthropic)",
-  "Llama 3.3 70B (Ollama / Local)",
-  "Qwen 2.5 7B (Ollama / Local)",
-  "DeepSeek-R1",
-];
-
-export const DEFAULT_AGENT_MODELS = [
-  
-]

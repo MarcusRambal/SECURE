@@ -1,0 +1,11 @@
+{
+  "config": {
+    "challenges": {
+      "csafHashValue": "19c01cb7157e4645e9e2c863062a85a8cbfbdcda",
+      "showCryptoExtraScore": "abc123"
+    },
+    "server": {
+      "port": 3000
+    }
+  }
+}
