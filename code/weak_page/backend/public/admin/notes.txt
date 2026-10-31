@@ -1,0 +1,13 @@
+NOTAS INTERNAS — NO COMPARTIR
+==============================
+Credenciales temporales:
+  admin@dulcenube.com / admin123
+  (cambiar antes del lanzamiento, pendiente desde 2024-01-01)
+
+TODOs:
+  - Quitar ?debug=true del frontend
+  - Rotar el JWT_SECRET (actualmente 'secret')
+  - Revisar si /backup.sql sigue en el servidor
+  - Migrar contraseñas de MD5 a bcrypt
+
+Contacto sysadmin: sysadmin@dulcenube.lab

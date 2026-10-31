@@ -2,8 +2,12 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from handlers.crawler_reports import _persist_json_report
+from handlers.crawler_reports import (
+    _persist_json_report,
+    persist_weak_page_crawler_report,
+)
 
 
 class CrawlerReportPersistenceTests(unittest.TestCase):
@@ -51,6 +55,40 @@ class CrawlerReportPersistenceTests(unittest.TestCase):
                 "deep_crawler did not return valid JSON",
             )
             self.assertTrue((Path(temp_dir) / Path(result["saved_report"]).name).exists())
+
+    def test_persists_weak_page_crawl_report_with_sensitive_headers_redacted(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch(
+                "handlers.crawler_reports.WEAK_PAGE_CRAWLER_OUTPUT_DIR",
+                Path(temp_dir),
+            ):
+                result = persist_weak_page_crawler_report(
+                    {
+                        "status": "SUCCESS",
+                        "output": json.dumps(
+                            {
+                                "tool": "weakPageCrawler",
+                                "requests": [
+                                    {
+                                        "request_headers": {
+                                            "Authorization": "Bearer private"
+                                        }
+                                    }
+                                ],
+                            }
+                        ),
+                    },
+                    {},
+                )
+
+            self.assertEqual(result["status"], "SUCCESS")
+            saved_path = Path(temp_dir) / Path(result["saved_report"]).name
+            persisted = json.loads(saved_path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                persisted["requests"][0]["request_headers"]["Authorization"],
+                "[REDACTED]",
+            )
+            self.assertNotIn("private", saved_path.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

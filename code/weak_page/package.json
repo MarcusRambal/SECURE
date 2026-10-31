@@ -1,0 +1,14 @@
+{
+  "name": "weak_page",
+  "version": "1.0.0",
+  "description": "SPA de una pastelería artesanal hecha con HTML, CSS y JavaScript vanilla con ES Modules. No necesita backend, base de datos, compilación ni dependencias. Los datos se simulan en el navegador y se guardan en `localStorage`.",
+  "main": "index.js",
+  "scripts": {
+    "start": "python3 -m http.server 3008",
+    "dev": "python3 -m http.server 3008",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}
