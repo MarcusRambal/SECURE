@@ -670,18 +670,31 @@ def build_validate_output_from_dict(args: dict,target_url: str,started_at: str,e
         real_cmd = "Comando no verificado"
         if tools_used:
             tool_used = tools_used[0]
-            tool_commands = [
-                command
-                for command in executed_commands
-                if command.get("tool") == tool_used and command.get("command")
-            ]
-            matched_command = _match_executed_command(v, tool_commands)
-            real_cmd = (
-                matched_command["command"]
-                if matched_command
-                else v.get("reproducible_command")
-                or f"Comando no verificado en ejecución real ({tool_used})"
-            )
+            existing_command = str(v.get("reproducible_command") or "")
+            endpoint_path = urlsplit(str(v.get("endpoint") or "")).path.rstrip("/")
+            # Las herramientas deterministas ya construyen el comando exacto del
+            # hallazgo (p. ej. un archivo expuesto distinto del endpoint probado).
+            # Se respeta si referencia el endpoint del propio hallazgo.
+            if (
+                tool_used in {"access_control_prober", "crypto_inspector"}
+                and existing_command
+                and endpoint_path
+                and endpoint_path in existing_command
+            ):
+                real_cmd = existing_command
+            else:
+                tool_commands = [
+                    command
+                    for command in executed_commands
+                    if command.get("tool") == tool_used and command.get("command")
+                ]
+                matched_command = _match_executed_command(v, tool_commands)
+                real_cmd = (
+                    matched_command["command"]
+                    if matched_command
+                    else existing_command
+                    or f"Comando no verificado en ejecución real ({tool_used})"
+                )
         else:
             real_cmd = (f"Comando no verificado (sin tools_used) para {v.get('endpoint', target_url)}")
 

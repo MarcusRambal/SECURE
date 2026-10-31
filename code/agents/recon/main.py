@@ -8,7 +8,12 @@ from pydantic import ValidationError
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.exceptions import OutputParserException
 
-from attack_types import is_sqli_attack, is_xss_attack, is_crypto_attack
+from attack_types import (
+    is_access_control_attack,
+    is_crypto_attack,
+    is_sqli_attack,
+    is_xss_attack,
+)
 from contract_schemas import ReconPlannerOutput
 from helpers import (
     build_recon_output_from_dict,
@@ -18,11 +23,13 @@ from helpers import (
     build_crypto_recon_context,
     build_crypto_fallback_output,
     ensure_crypto_entry_point_coverage,
+    ensure_access_control_target_coverage,
     deduplicate_urls,
     ensure_sqli_entry_point_coverage,
     extract_urls_from_crawler,
     extract_urls_from_deep_crawler,
     write_recon_context_snapshot,
+    build_access_control_recon_context,
 )
 from mcp_skills import call_mcp_skill, get_mcp_catalog
 from recon_prompts import get_system_prompt
@@ -46,6 +53,7 @@ async def process_recon_task(channel: aio_pika.Channel,target_url: str, attack_t
     is_sqli = is_sqli_attack(attack_type_filter)
     is_xss = is_xss_attack(attack_type_filter)
     is_crypto = is_crypto_attack(attack_type_filter)
+    is_access_control = is_access_control_attack(attack_type_filter)
     tool_timings: list[dict] = []
 
     logger.info("🟡 [RECON] Inicio target=%s attack_type=%s started_at=%s",target_url,attack_type_filter,started_at)
@@ -79,7 +87,7 @@ async def process_recon_task(channel: aio_pika.Channel,target_url: str, attack_t
         if tool.get("name") not in {"crawler", "deep_crawler"}
     ]
 
-    if is_sqli or is_xss or is_crypto:
+    if is_sqli or is_xss or is_crypto or is_access_control:
         logger.info(
             "[RECON] %s: ejecutando deep_crawler con la salida efímera de crawler",
             attack_type_filter,
@@ -113,6 +121,10 @@ async def process_recon_task(channel: aio_pika.Channel,target_url: str, attack_t
         )
     elif is_crypto:
         recon_sources = build_crypto_recon_context(
+            crawler_data, deep_crawler_data, discovered_urls, available_tools
+        )
+    elif is_access_control:
+        recon_sources = build_access_control_recon_context(
             crawler_data, deep_crawler_data, discovered_urls, available_tools
         )
     else:
@@ -170,12 +182,18 @@ async def process_recon_task(channel: aio_pika.Channel,target_url: str, attack_t
         parsed_dict = ensure_sqli_entry_point_coverage(parsed_dict, deep_crawler_data)
     elif is_crypto:
         parsed_dict = ensure_crypto_entry_point_coverage(parsed_dict, deep_crawler_data, target_url, discovered_urls)
+    elif is_access_control:
+        parsed_dict = ensure_access_control_target_coverage(
+            parsed_dict, deep_crawler_data, target_url, discovered_urls
+        )
 
     recon_output = build_recon_output_from_dict(
         parsed_dict,
         target_url,
         attack_type_filter,
-        deep_crawler_data if (is_sqli or is_xss or is_crypto) else None,
+        deep_crawler_data
+        if (is_sqli or is_xss or is_crypto or is_access_control)
+        else None,
     )
     logger.info("[RECON] Plan JSON validado targets=%d ", len(recon_output.high_priority_targets),)
 

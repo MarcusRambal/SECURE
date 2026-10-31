@@ -90,6 +90,8 @@ services:
         condition: service_healthy
       build-sqli-map:
         condition: service_completed_successfully
+      build-access-control-prober:
+        condition: service_completed_successfully
 
   # 4. Orquestador Principal (LLM Router)
   orchestrator:
@@ -202,6 +204,13 @@ services:
       context: ./skills_controller
       dockerfile: docker_images/Dockerfile.crypto_inspector
     image: local-crypto-inspector:latest
+    command: ["--help"]
+
+  build-access-control-prober:
+    build:
+      context: ./skills_controller
+      dockerfile: docker_images/Dockerfile.access_control_prober
+    image: local-access-control-prober:latest
     command: ["--help"]
 
   # 8. Entorno Vulnerable: WebGoat
