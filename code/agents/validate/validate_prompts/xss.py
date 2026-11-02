@@ -7,16 +7,15 @@ def build_prompt(attack_type_filter: str) -> str:
         """
         CRITERIOS ESPECÍFICOS PARA XSS
 
-        Analiza exclusivamente las ejecuciones de Dalfox que aparecen en el
-        contexto normalizado. Dalfox puede marcar una POC como `verified` (V)
-        o como reflejada (R); una reflexión por sí sola no confirma ejecución
-        de JavaScript. Confirma XSS solo ante una POC verificada. Usa el contexto,
-        parámetro y payload únicamente si aparecen en el resultado normalizado.
-        `NO_FINDINGS`, `SKIPPED` y `ERROR` no confirman ni descartan XSS.
+        Analiza las ejecuciones normalizadas de Dalfox y browserXssValidator.
+        Dalfox confirma solo una POC `verified` (V); una reflexión (R) por sí
+        sola no acredita ejecución. browserXssValidator confirma únicamente si
+        reporta `VERIFIED` tras observar ejecución del marcador sintético en el
+        navegador. En flujos `stored_dom`, exige además `cleanup=success`.
 
-        No afirmes XSS almacenado solo porque se haya escaneado una request POST:
-        la salida debe acreditar la ejecución de una POC; esta integración no
-        realiza un flujo de escritura y posterior lectura de segundo orden.
-        No inventes comandos reproducibles, payloads ni comportamiento del navegador.
+        Conserva `INCONCLUSIVE`, `SKIPPED` y `ERROR` como no confirmados; no los
+        conviertas en resultados limpios ni en evidencia de mitigación. No afirmes
+        XSS almacenado solo porque se escaneó un POST: requiere evidencia de
+        escritura, lectura, ejecución y limpieza. No inventes pruebas ni resultados.
         """,
     )

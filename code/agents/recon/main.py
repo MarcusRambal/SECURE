@@ -235,26 +235,17 @@ async def process_recon_task(channel: aio_pika.Channel,target_url: str, attack_t
         structured_output = await structured_llm.ainvoke([system_prompt, user_message])
 
     except (OutputParserException, ValidationError) as error:
-        if not (is_sqli or is_crypto):
+        if not (is_sqli or is_crypto or is_xss):
             raise
         logger.warning(
-            "[RECON] El LLM no devolvio una salida compatible con ReconPlannerOutput (%s); usando plan de respaldo con peticiones observadas.",
+            "[RECON] El LLM no devolvio una salida compatible con ReconPlannerOutput "
+            "(%s); usando cobertura basada en peticiones observadas.",
             error,
         )
         if is_sqli:
             parsed_dict = build_sqli_fallback_output(target_url, deep_crawler_data)
-        else:
+        elif is_crypto:
             parsed_dict = build_crypto_fallback_output(target_url, deep_crawler_data, discovered_urls)
-        if not (is_sqli or is_xss):
-            raise
-        logger.warning(
-            "[RECON] El LLM no devolvio una salida compatible con "
-            "ReconPlannerOutput (%s); usando peticiones observadas.",
-            error,
-        )
-        llm_output = {"error": str(error), "fallback": "deep_crawler_coverage"}
-        if is_sqli:
-            parsed_dict = build_sqli_fallback_output(target_url, deep_crawler_data)
         else:
             parsed_dict = {
                 "recon_summary": {
@@ -263,6 +254,7 @@ async def process_recon_task(channel: aio_pika.Channel,target_url: str, attack_t
                 },
                 "high_priority_targets": [],
             }
+        llm_output = {"error": str(error), "fallback": "deep_crawler_coverage"}
     else:
         if not isinstance(structured_output, ReconPlannerOutput):
             raise TypeError("El LLM estructurado no devolvió una instancia de ReconPlannerOutput")

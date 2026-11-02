@@ -13,6 +13,26 @@ export function save({ name, email, subject = "", message }) {
   return db.prepare("SELECT * FROM contact_messages WHERE id = ?").get(info.lastInsertRowid);
 }
 
+export function deleteValidationProbe(id, marker) {
+  return db.prepare(
+    "DELETE FROM contact_messages WHERE id = ? AND instr(message, ?) > 0"
+  ).run(id, marker).changes;
+}
+
+export function getValidationProbe(id, marker, req) {
+  const row = db.prepare(
+    "SELECT * FROM contact_messages WHERE id = ? AND instr(message, ?) > 0"
+  ).get(id, marker);
+  if (!row || isVulnerable("XSS_STORED_CONTACT", req)) return row;
+  return {
+    ...row,
+    name: escapeHtml(row.name || ""),
+    email: escapeHtml(row.email || ""),
+    subject: escapeHtml(row.subject || ""),
+    message: escapeHtml(row.message || "")
+  };
+}
+
 /**
  * Reto I5 — XSS almacenado.
  *   vulnerable: devuelve el mensaje tal cual (el frontend lo inyectará con innerHTML)

@@ -15,6 +15,7 @@ import * as productDetail from "./pages/productDetail.js";
 import * as checkout from "./pages/checkout.js";
 import * as orderConfirmation from "./pages/orderConfirmation.js";
 import * as contact from "./pages/contact.js";
+import * as contactInbox from "./pages/contactInbox.js";
 import * as about from "./pages/about.js";
 import * as scoreboard from "./pages/scoreBoard.js";
 
@@ -22,7 +23,7 @@ import { emptyState } from "./components/emptyState.js";
 
 const app = document.querySelector("#app");
 let renderId = 0;
-const pageModules = { home, login, register, catalog, productDetail, checkout, orderConfirmation, contact, about, scoreboard };
+const pageModules = { home, login, register, catalog, productDetail, checkout, orderConfirmation, contact, contactInbox, about, scoreboard };
 
 function renderShell() {
   const header = document.querySelector("#site-header");

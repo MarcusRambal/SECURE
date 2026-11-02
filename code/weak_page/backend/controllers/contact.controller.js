@@ -30,3 +30,48 @@ export function sendContact(req, res, next) {
 export function listContacts(req, res) {
   res.json({ items: contactService.listAll(req) });
 }
+
+export function getValidationProbe(req, res) {
+  if (
+    process.env.NODE_ENV === "production" ||
+    req.get("x-weak-page-xss-validation") !== "stored-contact"
+  ) {
+    return res.status(404).json({ message: "Recurso no encontrado" });
+  }
+  const id = Number(req.params.id);
+  const marker = req.query.marker;
+  if (
+    !Number.isSafeInteger(id) ||
+    id < 1 ||
+    typeof marker !== "string" ||
+    !/^weakpage-xss-probe-[a-f0-9]{12}$/.test(marker)
+  ) {
+    return res.status(400).json({ message: "Identificador de prueba inválido" });
+  }
+  const item = contactService.getValidationProbe(id, marker, req);
+  if (!item) return res.status(404).json({ message: "Registro de prueba no encontrado" });
+  res.json({ item });
+}
+
+export function deleteValidationProbe(req, res) {
+  if (
+    process.env.NODE_ENV === "production" ||
+    req.get("x-weak-page-xss-validation") !== "stored-contact"
+  ) {
+    return res.status(404).json({ message: "Recurso no encontrado" });
+  }
+  const id = Number(req.params.id);
+  const marker = req.body?.marker;
+  if (
+    !Number.isSafeInteger(id) ||
+    id < 1 ||
+    typeof marker !== "string" ||
+    !/^weakpage-xss-probe-[a-f0-9]{12}$/.test(marker)
+  ) {
+    return res.status(400).json({ message: "Identificador de prueba inválido" });
+  }
+  if (!contactService.deleteValidationProbe(id, marker)) {
+    return res.status(404).json({ message: "Registro de prueba no encontrado" });
+  }
+  res.status(204).end();
+}

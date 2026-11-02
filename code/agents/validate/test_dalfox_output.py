@@ -346,7 +346,7 @@ class DalfoxOutputTests(unittest.TestCase):
         self.assertTrue(is_xss_attack("xss"))
         self.assertIn("CRITERIOS ESPECÍFICOS PARA XSS", get_system_prompt("xss"))
         self.assertIn(
-            "realiza un flujo de escritura y posterior lectura",
+            "escritura, lectura, ejecución y limpieza",
             get_system_prompt("xss"),
         )
 

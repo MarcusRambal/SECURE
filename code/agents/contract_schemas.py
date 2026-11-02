@@ -33,6 +33,10 @@ class HighPriorityTarget(BaseModel):
     request: Optional[Dict[str, Any]] = Field(
         default=None, description="Detalles de la solicitud capturada, si existen"
     )
+    validation_plan: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Plan de validación declarativo derivado del reconocimiento, si aplica",
+    )
     recommended_tool: str = Field(
         ..., description="Herramienta disponible recomendada para futura validación"
     )

@@ -8,13 +8,13 @@ from typing import List
 from urllib.parse import parse_qsl, urlsplit
 
 from contract_schemas import HighPriorityTarget, ReconPlannerOutput, ReconSummary
-from attack_types import (
-    is_access_control_attack,
-    is_crypto_attack,
-    is_sqli_attack,
-    is_xss_attack,
+from attack_types import is_crypto_attack, is_sqli_attack, is_xss_attack, is_access_control_attack,
+from weak_page_xss import (
+    classify_weak_page_xss_surface,
+    is_weak_page_origin,
+    is_weak_page_target,
 )
-
+  
 logger = logging.getLogger("recon-agent-worker")
 MAX_XSS_ENTRY_POINT_TARGETS = 20
 
@@ -79,6 +79,44 @@ def normalize_weak_page_crawler_report(
     if not isinstance(requests, list):
         raise ValueError("weakPageCrawler devolvió una lista de peticiones inválida")
 
+    frontend = report.get("frontend_routes", {})
+    frontend = frontend if isinstance(frontend, dict) else {}
+    visited_routes = frontend.get("visited", [])
+    visited_routes = visited_routes if isinstance(visited_routes, list) else []
+    route_urls = {}
+    for route in visited_routes:
+        if (
+            isinstance(route, dict)
+            and isinstance(route.get("path"), str)
+            and isinstance(route.get("url"), str)
+        ):
+            route_key = route["path"].rstrip("/").casefold() or "/"
+            route_urls[route_key] = route["url"]
+    declared_routes = frontend.get("declared", [])
+    for route in declared_routes if isinstance(declared_routes, list) else []:
+        if (
+            isinstance(route, dict)
+            and route.get("visited") is True
+            and isinstance(route.get("template"), str)
+        ):
+            route_key = route["template"].rstrip("/").casefold() or "/"
+            route_urls[route_key] = f"{target_url.rstrip('/')}/#{route['template']}"
+
+    interaction_sources: dict[str, list[str]] = {}
+    interactions = report.get("interactions", [])
+    for interaction in interactions if isinstance(interactions, list) else []:
+        if not isinstance(interaction, dict):
+            continue
+        route = interaction.get("route")
+        route_key = route.rstrip("/").casefold() or "/" if isinstance(route, str) else ""
+        source_url = route_urls.get(route_key)
+        request_ids = interaction.get("request_ids")
+        if not source_url or not isinstance(request_ids, list):
+            continue
+        for request_id in request_ids:
+            if isinstance(request_id, str):
+                interaction_sources.setdefault(request_id, []).append(source_url)
+
     captured_requests = []
     entry_points = []
     for request in requests:
@@ -110,6 +148,20 @@ def normalize_weak_page_crawler_report(
             if isinstance(headers, dict)
             else {}
         )
+        observed_on = request.get("observed_on")
+        observed_on = observed_on if isinstance(observed_on, list) else []
+        observed_on = list(
+            dict.fromkeys(
+                [
+                    *interaction_sources.get(str(request.get("id") or ""), []),
+                    *[
+                        source
+                        for source in observed_on
+                        if isinstance(source, str) and source
+                    ],
+                ]
+            )
+        )
         normalized_request = {
             "id": request.get("id") or f"weak_page_{len(entry_points) + 1:04d}",
             "method": str(request.get("method") or "GET").upper(),
@@ -120,6 +172,7 @@ def normalize_weak_page_crawler_report(
             "resource_type": request.get("resource_type"),
             "headers": headers,
             "body": body,
+            "observed_on": observed_on,
             "response": request.get("response"),
         }
         entry_points.append(normalized_request)
@@ -167,9 +220,6 @@ def normalize_weak_page_crawler_report(
         if isinstance(method, str) and method not in normalized_endpoint["methods"]:
             normalized_endpoint["methods"].append(method)
 
-    frontend = report.get("frontend_routes", {})
-    declared_routes = frontend.get("declared", []) if isinstance(frontend, dict) else []
-    visited_routes = frontend.get("visited", []) if isinstance(frontend, dict) else []
     states = [
         {"url": route["url"], "path": route.get("path")}
         for route in visited_routes
@@ -498,10 +548,23 @@ def build_xss_recon_context(
     available_tools: list[dict],
 ) -> dict:
     """Keep captured query/form inputs and relevant endpoints for XSS planning."""
+    is_weak_page = is_weak_page_target(
+        str((deep_crawler_data or {}).get("target") or "")
+    )
     entry_points = []
-    for request in (deep_crawler_data or {}).get("entry_points", [])[:40]:
+    seen_weak_page_surfaces = set()
+    requests = (deep_crawler_data or {}).get("entry_points", [])
+    for request in requests if isinstance(requests, list) else []:
         if not isinstance(request, dict):
             continue
+        if is_weak_page:
+            surface = classify_weak_page_xss_surface(
+                str(request.get("url") or ""),
+                request,
+            )
+            if not surface or surface in seen_weak_page_surfaces:
+                continue
+            seen_weak_page_surfaces.add(surface)
         headers = request.get("headers")
         headers = headers if isinstance(headers, dict) else {}
         entry_points.append(
@@ -517,9 +580,12 @@ def build_xss_recon_context(
                     and name.casefold() in {"content-type", "accept"}
                 },
                 "body": request.get("body"),
+                "observed_on": request.get("observed_on", []),
                 "response_status": (request.get("response") or {}).get("status"),
             }
         )
+        if len(entry_points) >= 40:
+            break
 
     endpoints = [
         {
@@ -530,13 +596,25 @@ def build_xss_recon_context(
         for endpoint in crawler_data.get("navigation", {}).get("endpoints", [])[:50]
         if isinstance(endpoint, dict)
     ]
-    return {
+    context = {
         "attack_type_filter": "xss",
         "crawler_endpoints": endpoints,
         "deduplicated_urls": discovered_urls[:100],
         "captured_entry_points": entry_points,
         "available_validation_tools": available_tools,
     }
+    if is_weak_page:
+        return {
+            **context,
+            "crawler_endpoints": [],
+            "deduplicated_urls": [],
+            "validation_capability": (
+                "Para targets con contexto de página observado, propone un validation_plan "
+                "declarativo basado solo en requests/rutas/formularios capturados. "
+                "Validate ejecutará el plan con el validador de navegador genérico."
+            ),
+        }
+    return context
 
 
 # Funcion de ayuda para ver el contexto que obtiene el agente
@@ -686,14 +764,48 @@ def ensure_xss_entry_point_coverage(
 ) -> dict:
     """Include observed XSS-capable requests even when Recon's LLM omits them."""
     output = dict(data)
+    is_weak_page = is_weak_page_target(
+        str((deep_crawler_data or {}).get("target") or "")
+    )
     targets = [
         target for target in output.get("high_priority_targets", [])
         if isinstance(target, dict)
     ]
+    if is_weak_page:
+        scoped_targets = []
+        seen_surfaces = set()
+        for target in targets:
+            target_request = target.get("request")
+            target_request = (
+                target_request if isinstance(target_request, dict) else {}
+            )
+            endpoint = (
+                target_request.get("url")
+                or target.get("endpoint")
+                or target.get("url")
+                or ""
+            )
+            if not isinstance(endpoint, str) or not is_weak_page_origin(endpoint):
+                continue
+            request = {
+                **target_request,
+                "method": target_request.get("method") or target.get("method"),
+            }
+            surface = classify_weak_page_xss_surface(endpoint, request)
+            if surface and surface not in seen_surfaces:
+                scoped_targets.append(target)
+                seen_surfaces.add(surface)
+        targets = scoped_targets
     requests = []
+    seen_weak_page_surfaces = set()
     for request in (deep_crawler_data or {}).get("entry_points", []):
         if not isinstance(request, dict) or not isinstance(request.get("url"), str):
             continue
+        if is_weak_page:
+            surface = classify_weak_page_xss_surface(request["url"], request)
+            if not surface or surface in seen_weak_page_surfaces:
+                continue
+            seen_weak_page_surfaces.add(surface)
         if _has_xss_input(request["url"], request):
             requests.append(request)
 
@@ -734,6 +846,13 @@ def ensure_xss_entry_point_coverage(
             break
         request_id = request.get("id")
         method = str(request.get("method") or "GET").upper()
+        surface = (
+            classify_weak_page_xss_surface(request["url"], request)
+            if is_weak_page
+            else None
+        )
+        if surface and surface in seen_surfaces:
+            continue
         signature = _xss_request_signature(method, request["url"], request)
         if (
             (request_id and request_id in covered_request_ids)
@@ -751,12 +870,26 @@ def ensure_xss_entry_point_coverage(
                 "method": method,
                 "request": {
                     key: request.get(key)
-                    for key in ("id", "method", "url", "headers", "body")
+                    for key in (
+                        "id",
+                        "method",
+                        "url",
+                        "headers",
+                        "body",
+                        "observed_on",
+                    )
                 },
                 "recommended_tool": "dalfox",
             }
         )
+        if surface:
+            targets[-1]["validation_plan"] = _build_weak_page_browser_plan(
+                surface,
+                request,
+            )
         covered_signatures.add(signature)
+        if surface:
+            seen_surfaces.add(surface)
         if request_id:
             covered_request_ids.add(request_id)
 
@@ -1172,8 +1305,76 @@ def _find_matching_captured_request(
 def _build_request_from_capture(captured_request: dict) -> dict:
     return {
         key: captured_request.get(key)
-        for key in ("method", "url", "headers", "body")
+        for key in ("method", "url", "headers", "body", "observed_on")
     }
+
+
+def _build_weak_page_browser_plan(surface: str, request: dict) -> dict | None:
+    observed_on = request.get("observed_on")
+    source_url = next(
+        (
+            value
+            for value in (observed_on if isinstance(observed_on, list) else [])
+            if isinstance(value, str) and value
+        ),
+        None,
+    )
+    if not source_url:
+        return None
+
+    endpoint = str(request.get("url") or "")
+    endpoint_parts = urlsplit(endpoint)
+    if surface == "dom_reflected_search":
+        return {
+            "mode": "reflected_dom",
+            "source_url": source_url,
+            "parameter": "q",
+            "input_selector": '[name="q"], #catalog-search, input[type="search"]',
+            "trigger": "fill",
+            "request": {
+                "method": "GET",
+                "path": endpoint_parts.path,
+                "query_parameter": "q",
+            },
+        }
+    if surface == "stored_contact":
+        body = request.get("body")
+        fields = sorted(body) if isinstance(body, dict) else []
+        return {
+            "mode": "stored_dom",
+            "source_url": source_url,
+            "parameter": "message",
+            "marker_prefix": "weakpage-xss-probe-",
+            "form_selector": "form",
+            "form_fields": fields,
+            "submit_selector": 'button[type="submit"], input[type="submit"]',
+            "request_headers": {
+                "x-weak-page-xss-validation": "stored-contact",
+            },
+            "request": {
+                "method": "POST",
+                "path": endpoint_parts.path,
+            },
+            "verification_url_template": (
+                "/#/contact-inbox?probeId={id}&marker={marker}"
+            ),
+            "verification_request": {
+                "method": "GET",
+                "path_template": f"{endpoint_parts.path}/xss-inbox/{{id}}",
+                "headers": {"x-weak-page-xss-validation": "stored-contact"},
+            },
+            "verification_selector": "#contact-inbox-items",
+            "cleanup": {
+                "method": "DELETE",
+                "path_template": f"{endpoint_parts.path}/{{id}}",
+                "body": {"marker": "{marker}"},
+                "headers": {
+                    "content-type": "application/json",
+                    "x-weak-page-xss-validation": "stored-contact",
+                },
+            },
+        }
+    return None
 
 
 def build_recon_output_from_dict(data: dict,target_url: str,attack_type_filter: str,deep_crawler_data: dict | None = None,) -> ReconPlannerOutput:
@@ -1223,9 +1424,26 @@ def build_recon_output_from_dict(data: dict,target_url: str,attack_type_filter: 
             request = _build_request_from_capture(captured_request)
             method = captured_request.get("method") or method
         request = request if isinstance(request, dict) else {}
+        if captured_request:
+            request["observed_on"] = captured_request.get("observed_on", [])
         method = str(request.get("method") or method or "GET").upper()
         endpoint = request.get("url") or target.get("endpoint", target_url)
         is_xss = attack_type_filter.casefold() == "xss"
+        validation_plan = target.get("validation_plan")
+        if not validation_plan and is_xss:
+            surface = classify_weak_page_xss_surface(
+                endpoint,
+                {**request, "method": method},
+            )
+            if surface:
+                validation_plan = _build_weak_page_browser_plan(
+                    surface,
+                    {
+                        **request,
+                        "url": endpoint,
+                        "observed_on": request.get("observed_on", []),
+                    },
+                )
         if is_xss:
             if not isinstance(endpoint, str) or not _has_xss_input(endpoint, request):
                 logger.info(
@@ -1254,8 +1472,12 @@ def build_recon_output_from_dict(data: dict,target_url: str,attack_type_filter: 
                 endpoint=endpoint,
                 method=method,
                 request=request,
+                validation_plan=validation_plan,
                 recommended_tool=(
-                    default_tool
+                    "browserXssValidator"
+                    if is_xss and validation_plan
+                    else "dalfox"
+                    if is_xss
                     if is_access_control_attack(attack_type_filter)
                     else target.get("recommended_tool", default_tool)
                 ),

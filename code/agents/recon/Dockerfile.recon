@@ -19,5 +19,6 @@ COPY recon/mcp_skills.py .
 COPY recon/recon_prompts/ recon_prompts/
 COPY recon/worker.py .
 COPY attack_types.py .
+COPY weak_page_xss.py .
 
 CMD ["python", "worker.py"]

@@ -57,6 +57,7 @@ async def process_validate_task(
             "request_id": target.get("request_id"),
             "recommended_tool": target.get("recommended_tool"),
             "request": target.get("request", {}),
+            "validation_plan": target.get("validation_plan"),
         }
         for target in targets
         if isinstance(target, dict) and target.get("endpoint")
@@ -96,6 +97,32 @@ async def process_validate_task(
         started_at,
     )
     if deterministic_output is not None:
+        validation_context = strategy.build_validation_context(evidence)
+        snapshot_path = None
+        try:
+            snapshot_path = write_validate_context_snapshot(
+                target_url,
+                attack_type,
+                {
+                    "system_prompt": get_system_prompt(attack_type),
+                    "user_message": (
+                        "La superficie XSS no puede validarse con la herramienta "
+                        "HTTP disponible; se conserva como no concluyente."
+                    ),
+                    "validation_context": validation_context,
+                },
+                evidence.pre_executed_context,
+                task_id=trace_id,
+                tool_timings=tool_timings,
+                tool_diagnostics=evidence.tool_diagnostics,
+            )
+            update_validate_context_snapshot(
+                snapshot_path,
+                {"decision_source": "deterministic_preflight"},
+                deterministic_output.model_dump(),
+            )
+        except OSError:
+            logger.exception("[VALIDATE] No se pudo guardar el contexto determinístico")
         logger.info(
             "[VALIDATE] task_id=%s phase=complete vulnerabilities=%d "
             "unconfirmed=%d",
@@ -103,7 +130,16 @@ async def process_validate_task(
             len(deterministic_output.vulnerabilities),
             len(deterministic_output.unconfirmed_findings),
         )
-        recovery_mode = "fallback" if evidence.execution_error else "clean"
+        has_inconclusive_xss = any(
+            item.get("tool") in {"xss_validation", "browserXssValidator"}
+            and item.get("status") == "INCONCLUSIVE"
+            for item in evidence.pre_executed_context
+        )
+        recovery_mode = (
+            "fallback"
+            if evidence.execution_error or has_inconclusive_xss
+            else "clean"
+        )
         return deterministic_output, recovery_mode, tool_timings
 
     system_prompt = SystemMessage(content=get_system_prompt(attack_type))
