@@ -1,0 +1,8 @@
+User-agent: *
+Disallow: /admin/
+Disallow: /logs/
+Disallow: /backup.sql
+Disallow: /.env
+Disallow: /database.sqlite
+
+Sitemap: /sitemap.xml

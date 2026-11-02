@@ -5,8 +5,9 @@ from handlers.sqlmap_handler import handle_sqlmap_args
 from handlers.sqliManual_handler import execute_sqli_manual
 from handlers.sqli_map_handler import execute_sqli_map
 from handlers.deep_crawler_handler import handle_deep_crawler_args
+from handlers.crypto_inspector_handler import prepare_args as handle_crypto_inspector_args
 
-from tools.crypto_inspector_handler import prepare_args as handle_crypto_inspector_args
+
 from tools.access_control_prober_handler import prepare_args as handle_access_control_prober_args
 from tools.testssl_handler import prepare_args as handle_testssl_args
 from tools.hydra_handler import prepare_args as handle_hydra_args
@@ -15,6 +16,7 @@ from tools.ffuf_handler import prepare_args as handle_ffuf_args
 from handlers.crawler_reports import (
     persist_crawler_report,
     persist_deep_crawler_report,
+    persist_weak_page_crawler_report,
 )
 from handlers.commix_handler import handle_commix_args
 from handlers.dalfox_handler import handle_dalfox_args
@@ -173,6 +175,31 @@ MCP_SKILLS_REGISTRY = {
         "prepare_args": handle_deep_crawler_args,
         "success_exit_codes": [0],
         "postprocess_result": persist_deep_crawler_report,
+    },
+    "weakPageCrawler": {
+        "mcp_schema": {
+            "name": "weakPageCrawler",
+            "description": (
+                "Crawler activo con datos exclusivamente sintéticos, limitado a la app "
+                "propia weak_page en "
+                "http://weak-page:3009. Enumera desde el código fuente las rutas SPA "
+                "y endpoints Express, visita rutas del mismo origen, completa todos "
+                "los formularios visibles y registra las peticiones y respuestas. "
+                "Las escrituras llevan una marca de prueba: el backend las rechaza "
+                "con HTTP 422 antes de persistirlas; el login usa credenciales "
+                "sintéticas inválidas. Redacta campos sensibles y no acepta otros hosts."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+        },
+        "image": "local-weak-page-crawler:latest",
+        "command_template": "--target-url http://weak-page:3009",
+        "timeout": 300,
+        "success_exit_codes": [0],
+        "postprocess_result": persist_weak_page_crawler_report,
     },
     "sqlmap": {
         "mcp_schema": {

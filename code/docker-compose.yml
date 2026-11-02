@@ -80,6 +80,7 @@ services:
       - ./skills_controller/tools/sqli_skill/outputs:/app/tools/sqli_skill/outputs
       - ./skills_controller/tools/crawler/outputs:/app/tools/crawler/outputs
       - ./skills_controller/tools/deep_crawler/outputs:/app/tools/deep_crawler/outputs
+      - ./skills_controller/tools/weak_page_crawler/outputs:/app/tools/weak_page_crawler/outputs
     env_file:
       - .env
     networks:
@@ -94,6 +95,9 @@ services:
         condition: service_completed_successfully
       build-jwt:
         condition: service_completed_successfully
+      build-weak-page-crawler:
+        condition: service_completed_successfully
+
   # 4. Orquestador Principal (LLM Router)
   orchestrator:
     build:
@@ -193,6 +197,13 @@ services:
     image: local-deep-crawler:latest
     command: ["--help"]
 
+  build-weak-page-crawler:
+    build:
+      context: ./weak_page
+      dockerfile: Dockerfile.weakPageCrawler
+    image: local-weak-page-crawler:latest
+    command: ["--help"]
+
   build-sqli-map:
     build:
       context: ./skills_controller
@@ -205,7 +216,7 @@ services:
       context: ./skills_controller
       dockerfile: docker_images/Dockerfile.crypto_inspector
     image: local-crypto-inspector:latest
-     command: ["--help"]
+    command: ["--help"]
      
   build-jwt:
     build:
@@ -272,3 +283,20 @@ services:
     networks:
       - sec-net
 
+  weak-page:
+    build:
+      context: ./weak_page
+      dockerfile: Dockerfile
+    container_name: weak-page-lab
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "127.0.0.1:3009:3009"
+    volumes:
+      - weak-page-db:/app/backend/db
+    networks:
+      - sec-net
+
+volumes:
+  weak-page-db:
