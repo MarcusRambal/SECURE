@@ -151,13 +151,14 @@ def create_orchestrator_tools(channel: aio_pika.Channel) -> list[StructuredTool]
             f"Iniciando reconocimiento de {target_url}.",
         )
 
+        recon_payload = {
+            "target_url": target_url,
+            "attack_type": state.get("attack_type", "full"),
+        }
+        if state.get("scraping_report") is not None:
+            recon_payload["scraping_report"] = state["scraping_report"]
         rpc_response = await _send_rpc_request(
-            channel,
-            RECON_QUEUE,
-            {
-                "target_url": target_url,
-                "attack_type": state.get("attack_type", "full"),
-            },
+            channel, RECON_QUEUE, recon_payload
         )
         stage_duration_ms = round((time.perf_counter() - stage_started) * 1000, 2)
         rpc_timing = rpc_response.get("_rpc_timing", {})

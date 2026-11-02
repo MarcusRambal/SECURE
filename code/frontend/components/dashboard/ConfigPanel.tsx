@@ -1,11 +1,17 @@
 // components/dashboard/ConfigPanel.tsx
 "use client";
 
-import { useState, useTransition, type FormEvent } from "react";
+import {
+  useState,
+  useTransition,
+  type ChangeEvent,
+  type FormEvent,
+} from "react";
 import styles from "./ConfigPanel.module.css";
 
 import { submitScanConfigAction } from "../../actions/scanActions";
 import { ATTACK_CATEGORIES } from "../configVariables/variables";
+import type { ScrapingReport } from "@/types/scan";
 
 interface ConfigPanelProps {
   onTaskCreated: (taskId: string) => void;
@@ -18,6 +24,10 @@ export const ConfigPanel = ({ onTaskCreated }: ConfigPanelProps) => {
     ATTACK_CATEGORIES.injection.attacks[0].id
   );
   const [sessionToken, setSessionToken] = useState<string>("");
+  const [scrapingReport, setScrapingReport] = useState<ScrapingReport | null>(
+    null
+  );
+  const [scrapingFileName, setScrapingFileName] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [tokenError, setTokenError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -42,7 +52,7 @@ export const ConfigPanel = ({ onTaskCreated }: ConfigPanelProps) => {
         setTokenError("El portapapeles está vacío.");
         return;
       }
-      
+
       let clean = clip.trim().replace(/^["']|["']$/g, "");
       if (clean.toLowerCase().startsWith("bearer ")) {
         clean = clean.slice(7).trim();
@@ -64,6 +74,40 @@ export const ConfigPanel = ({ onTaskCreated }: ConfigPanelProps) => {
     }
   };
 
+  const handleScrapingFileChange = async (
+    event: ChangeEvent<HTMLInputElement>
+  ) => {
+    const input = event.currentTarget;
+    const file = input.files?.[0];
+    setError(null);
+    setScrapingReport(null);
+    setScrapingFileName("");
+
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith(".json")) {
+      setError("Selecciona un archivo con extensión .json.");
+      input.value = "";
+      return;
+    }
+
+    try {
+      const parsed: unknown = JSON.parse(await file.text());
+      if (!isScrapingReport(parsed)) {
+        setError(
+          "El JSON debe incluir target, observed_endpoints y requests con el formato esperado."
+        );
+        input.value = "";
+        return;
+      }
+
+      setScrapingReport(parsed);
+      setScrapingFileName(file.name);
+    } catch {
+      setError("No se pudo leer el JSON. Comprueba que el archivo sea válido.");
+      input.value = "";
+    }
+  };
+
   const currentAttacks =
     ATTACK_CATEGORIES[selectedCategory as keyof typeof ATTACK_CATEGORIES]
       ?.attacks || [];
@@ -72,6 +116,11 @@ export const ConfigPanel = ({ onTaskCreated }: ConfigPanelProps) => {
     e.preventDefault();
     setError(null);
     setTokenError(null);
+
+    if (!scrapingReport) {
+      setError("Selecciona un informe JSON de scraping antes de continuar.");
+      return;
+    }
 
     if (needsToken) {
       if (!sessionToken.trim()) {
@@ -93,6 +142,7 @@ export const ConfigPanel = ({ onTaskCreated }: ConfigPanelProps) => {
       targetUrl,
       category: selectedCategory,
       attackType: selectedAttack,
+      scrapingReport,
       ...(canPasteToken && sessionToken.trim()
         ? { sessionToken: sessionToken.trim() }
         : {}),
@@ -129,6 +179,25 @@ export const ConfigPanel = ({ onTaskCreated }: ConfigPanelProps) => {
           className={styles.inputUrl}
           required
         />
+      </div>
+
+      <div className={styles.fieldGroup}>
+        <label htmlFor="scrapingReport" className={styles.label}>
+          Informe de scraping (.json)
+        </label>
+        <input
+          id="scrapingReport"
+          type="file"
+          accept=".json,application/json"
+          aria-label="Informe JSON de scraping"
+          onChange={handleScrapingFileChange}
+          className={styles.fileInput}
+          disabled={isPending}
+          required
+        />
+        {scrapingFileName && (
+          <p className={styles.fileHint}>Archivo cargado: {scrapingFileName}</p>
+        )}
       </div>
 
       <hr className={styles.divider} />
@@ -226,3 +295,64 @@ export const ConfigPanel = ({ onTaskCreated }: ConfigPanelProps) => {
     </form>
   );
 };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function isScrapingReport(value: unknown): value is ScrapingReport {
+  if (
+    !isRecord(value) ||
+    typeof value.target !== "string" ||
+    !value.target.trim() ||
+    !Array.isArray(value.observed_endpoints) ||
+    !Array.isArray(value.requests)
+  ) {
+    return false;
+  }
+
+  const validEndpoints = value.observed_endpoints.every(
+    (endpoint) =>
+      isRecord(endpoint) &&
+      typeof endpoint.method === "string" &&
+      typeof endpoint.path === "string" &&
+      isStringArray(endpoint.query_parameters)
+  );
+  const validRequests = value.requests.every((request) => {
+    if (
+      !isRecord(request) ||
+      typeof request.id !== "string" ||
+      typeof request.method !== "string" ||
+      typeof request.url !== "string" ||
+      typeof request.path !== "string" ||
+      typeof request.request_line !== "string" ||
+      typeof request.resource_type !== "string" ||
+      !isStringArray(request.query_parameters) ||
+      !isRecord(request.query_values) ||
+      !isRecord(request.request_headers) ||
+      (request.request_body !== null && !isRecord(request.request_body)) ||
+      !isStringArray(request.observed_on) ||
+      !isRecord(request.response)
+    ) {
+      return false;
+    }
+
+    const response = request.response;
+    const responseBody = response.body;
+    return (
+      (typeof response.status === "number" || response.status === null) &&
+      typeof response.status_text === "string" &&
+      isRecord(response.headers) &&
+      isRecord(responseBody) &&
+      typeof responseBody.captured === "boolean" &&
+      typeof responseBody.content_type === "string" &&
+      "data" in responseBody
+    );
+  });
+
+  return validEndpoints && validRequests;
+}

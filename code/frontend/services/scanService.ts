@@ -1,8 +1,11 @@
+import type { ScrapingReport } from '@/types/scan';
+
 // Define el contrato de datos del payload
 export interface CreateTaskPayload {
   targetUrl: string;
   category: string;
   attackType: string;
+  scrapingReport: ScrapingReport;
   sessionToken?: string;
   // JWT de sesión, solo presente en ataques que lo requieren (jwt).
   token?: string;
@@ -27,6 +30,7 @@ export const scanService = {
       target_url: payload.targetUrl,
       category: payload.category,
       attack_type: payload.attackType,
+      scraping_report: payload.scrapingReport,
     };
     const token =
       payload.token?.trim() ||

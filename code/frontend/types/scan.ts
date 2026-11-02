@@ -4,6 +4,45 @@ export interface ScanConfigPayload {
   attackType: string;
 }
 
+export interface ScrapingEndpoint {
+  method: string;
+  path: string;
+  query_parameters: string[];
+  [key: string]: unknown;
+}
+
+export interface ScrapingRequest {
+  id: string;
+  method: string;
+  url: string;
+  path: string;
+  request_line: string;
+  query_parameters: string[];
+  query_values: Record<string, unknown>;
+  resource_type: string;
+  request_headers: Record<string, unknown>;
+  request_body: Record<string, unknown> | null;
+  response: {
+    status: number | null;
+    status_text: string;
+    headers: Record<string, unknown>;
+    body: {
+      captured: boolean;
+      content_type: string;
+      data: unknown;
+    };
+  };
+  observed_on: string[];
+  [key: string]: unknown;
+}
+
+export interface ScrapingReport {
+  target: string;
+  observed_endpoints: ScrapingEndpoint[];
+  requests: ScrapingRequest[];
+  [key: string]: unknown;
+}
+
 export interface ScanInitResponse {
     taskId: string;
   status: string;

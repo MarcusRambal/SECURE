@@ -8,7 +8,12 @@ from typing import List
 from urllib.parse import parse_qsl, urlsplit
 
 from contract_schemas import HighPriorityTarget, ReconPlannerOutput, ReconSummary
-from attack_types import is_crypto_attack, is_sqli_attack, is_xss_attack, is_access_control_attack,
+from attack_types import (
+    is_access_control_attack,
+    is_crypto_attack,
+    is_sqli_attack,
+    is_xss_attack,
+)
 from weak_page_xss import (
     classify_weak_page_xss_surface,
     is_weak_page_origin,
@@ -25,259 +30,207 @@ def log_preview(value: object, limit: int = 500) -> str:
     return text if len(text) <= limit else f"{text[:limit]}... [{len(text)} chars]"
 
 
-def deduplicate_urls(*url_groups: list[str]) -> list[str]:
-    """Combina descubrimientos manteniendo el primer origen de cada URL."""
-    unique_urls: list[str] = []
-    seen: set[str] = set()
-    for group in url_groups:
-        for url in group:
-            normalized_url = url.strip().rstrip(".,);]")
-            if normalized_url and normalized_url not in seen:
-                seen.add(normalized_url)
-                unique_urls.append(normalized_url)
-    return unique_urls
+def clean_scraping_report(scraping_report: dict | None) -> dict:
+    """Valida el contrato externo de scraping y elimina registros duplicados."""
+    if not isinstance(scraping_report, dict):
+        raise ValueError("scraping_report debe ser un objeto JSON")
 
+    target = scraping_report.get("target")
+    if not isinstance(target, str) or not target.strip():
+        raise ValueError("scraping_report.target debe ser una URL o endpoint")
 
-def extract_urls_from_katana(raw_output: str) -> list[str]:
-    """Extrae URLs tanto de la salida plana como de líneas JSON de Katana."""
-    return deduplicate_urls(
-        re.findall(r"https?://[^\s\"<>]+", raw_output or "")
-    )
-
-
-def extract_urls_from_crawler(crawler_data: dict) -> list[str]:
-    """Obtiene URLs descubiertas desde el contrato JSON del crawler."""
-    request_urls = [
-        request.get("url", "")
-        for request in crawler_data.get("captured_requests", [])
-        if isinstance(request, dict)
-    ]
-    route_urls = [
-        route.get("route_url", "")
-        for route in crawler_data.get("discovered_forms_structure", [])
-        if isinstance(route, dict)
-    ]
-    endpoint_urls = [
-        sample_url
-        for endpoint in crawler_data.get("navigation", {}).get("endpoints", [])
-        if isinstance(endpoint, dict)
-        for sample_url in endpoint.get("sample_urls", [])
-    ]
-    state_urls = [
-        state.get("url", "")
-        for state in crawler_data.get("navigation", {}).get("states", [])
-        if isinstance(state, dict)
-    ]
-    return deduplicate_urls(request_urls, route_urls, endpoint_urls, state_urls)
-
-
-def normalize_weak_page_crawler_report(
-    report: dict, target_url: str
-) -> tuple[dict, dict]:
-    """Adapta el informe del laboratorio a los contratos crawler/deep_crawler de Recon."""
-    requests = report.get("requests", [])
+    observed_endpoints = scraping_report.get("observed_endpoints")
+    requests = scraping_report.get("requests")
+    if not isinstance(observed_endpoints, list):
+        raise ValueError("scraping_report.observed_endpoints debe ser una lista")
     if not isinstance(requests, list):
-        raise ValueError("weakPageCrawler devolvió una lista de peticiones inválida")
+        raise ValueError("scraping_report.requests debe ser una lista")
 
-    frontend = report.get("frontend_routes", {})
-    frontend = frontend if isinstance(frontend, dict) else {}
-    visited_routes = frontend.get("visited", [])
-    visited_routes = visited_routes if isinstance(visited_routes, list) else []
-    route_urls = {}
-    for route in visited_routes:
-        if (
-            isinstance(route, dict)
-            and isinstance(route.get("path"), str)
-            and isinstance(route.get("url"), str)
+    cleaned_endpoints = []
+    seen_endpoints = set()
+    for index, endpoint in enumerate(observed_endpoints):
+        if not isinstance(endpoint, dict):
+            raise ValueError(
+                f"scraping_report.observed_endpoints[{index}] debe ser un objeto"
+            )
+        method = endpoint.get("method")
+        path = endpoint.get("path")
+        query_parameters = endpoint.get("query_parameters")
+        if not isinstance(method, str) or not method.strip():
+            raise ValueError(
+                f"scraping_report.observed_endpoints[{index}].method debe ser texto"
+            )
+        if not isinstance(path, str) or not path.strip():
+            raise ValueError(
+                f"scraping_report.observed_endpoints[{index}].path debe ser texto"
+            )
+        if not isinstance(query_parameters, list) or not all(
+            isinstance(parameter, str) for parameter in query_parameters
         ):
-            route_key = route["path"].rstrip("/").casefold() or "/"
-            route_urls[route_key] = route["url"]
-    declared_routes = frontend.get("declared", [])
-    for route in declared_routes if isinstance(declared_routes, list) else []:
-        if (
-            isinstance(route, dict)
-            and route.get("visited") is True
-            and isinstance(route.get("template"), str)
-        ):
-            route_key = route["template"].rstrip("/").casefold() or "/"
-            route_urls[route_key] = f"{target_url.rstrip('/')}/#{route['template']}"
+            raise ValueError(
+                "scraping_report.observed_endpoints"
+                f"[{index}].query_parameters debe ser una lista de textos"
+            )
 
-    interaction_sources: dict[str, list[str]] = {}
-    interactions = report.get("interactions", [])
-    for interaction in interactions if isinstance(interactions, list) else []:
-        if not isinstance(interaction, dict):
-            continue
-        route = interaction.get("route")
-        route_key = route.rstrip("/").casefold() or "/" if isinstance(route, str) else ""
-        source_url = route_urls.get(route_key)
-        request_ids = interaction.get("request_ids")
-        if not source_url or not isinstance(request_ids, list):
-            continue
-        for request_id in request_ids:
-            if isinstance(request_id, str):
-                interaction_sources.setdefault(request_id, []).append(source_url)
-
-    captured_requests = []
-    entry_points = []
-    for request in requests:
-        if not isinstance(request, dict) or not isinstance(request.get("url"), str):
-            continue
-
-        request_body = request.get("request_body")
-        if isinstance(request_body, dict) and request_body.get("captured"):
-            body = request_body.get("data", request_body.get("text"))
-        else:
-            body = None
-        url_parts = urlsplit(request["url"])
-        query_parameters = request.get("query_values")
-        if not isinstance(query_parameters, dict):
-            query_parameters = {}
-            for name, value in parse_qsl(url_parts.query, keep_blank_values=True):
-                if name in query_parameters:
-                    previous = query_parameters[name]
-                    query_parameters[name] = (
-                        [*previous, value]
-                        if isinstance(previous, list)
-                        else [previous, value]
-                    )
-                else:
-                    query_parameters[name] = value
-        headers = request.get("request_headers")
-        headers = (
-            {str(name).lower(): value for name, value in headers.items()}
-            if isinstance(headers, dict)
-            else {}
+        normalized_endpoint = {
+            **endpoint,
+            "method": method.strip().upper(),
+            "path": path.strip(),
+            "query_parameters": list(dict.fromkeys(query_parameters)),
+        }
+        signature = (
+            normalized_endpoint["method"],
+            normalized_endpoint["path"],
+            tuple(sorted(normalized_endpoint["query_parameters"])),
         )
+        if signature in seen_endpoints:
+            continue
+        seen_endpoints.add(signature)
+        cleaned_endpoints.append(normalized_endpoint)
+
+    cleaned_requests = []
+    request_indexes = {}
+    for index, request in enumerate(requests):
+        if not isinstance(request, dict):
+            raise ValueError(f"scraping_report.requests[{index}] debe ser un objeto")
+        request_id = request.get("id")
+        method = request.get("method")
+        url = request.get("url")
+        if not isinstance(request_id, str) or not request_id.strip():
+            raise ValueError(f"scraping_report.requests[{index}].id debe ser texto")
+        if not isinstance(method, str) or not method.strip():
+            raise ValueError(
+                f"scraping_report.requests[{index}].method debe ser texto"
+            )
+        if not isinstance(url, str) or not url.strip():
+            raise ValueError(f"scraping_report.requests[{index}].url debe ser texto")
+        if not isinstance(request.get("path"), str):
+            raise ValueError(f"scraping_report.requests[{index}].path debe ser texto")
+        if not isinstance(request.get("request_line"), str):
+            raise ValueError(
+                f"scraping_report.requests[{index}].request_line debe ser texto"
+            )
+        if not isinstance(request.get("resource_type"), str):
+            raise ValueError(
+                f"scraping_report.requests[{index}].resource_type debe ser texto"
+            )
+        if not isinstance(request.get("request_headers"), dict):
+            raise ValueError(
+                f"scraping_report.requests[{index}].request_headers debe ser un objeto"
+            )
+        if not isinstance(request.get("query_values"), dict):
+            raise ValueError(
+                f"scraping_report.requests[{index}].query_values debe ser un objeto"
+            )
+        query_parameters = request.get("query_parameters")
+        if not isinstance(query_parameters, list) or not all(
+            isinstance(parameter, str) for parameter in query_parameters
+        ):
+            raise ValueError(
+                f"scraping_report.requests[{index}].query_parameters debe ser una lista"
+            )
         observed_on = request.get("observed_on")
-        observed_on = observed_on if isinstance(observed_on, list) else []
-        observed_on = list(
+        if not isinstance(observed_on, list) or not all(
+            isinstance(item, str) for item in observed_on
+        ):
+            raise ValueError(
+                f"scraping_report.requests[{index}].observed_on debe ser una lista"
+            )
+        if request.get("request_body") is not None and not isinstance(
+            request["request_body"], dict
+        ):
+            raise ValueError(
+                f"scraping_report.requests[{index}].request_body debe ser objeto o null"
+            )
+        response = request.get("response")
+        if not isinstance(response, dict):
+            raise ValueError(
+                f"scraping_report.requests[{index}].response debe ser un objeto"
+            )
+        response_status = response.get("status")
+        if response_status is not None and (
+            not isinstance(response_status, (int, float))
+            or isinstance(response_status, bool)
+        ):
+            raise ValueError(
+                "scraping_report.requests"
+                f"[{index}].response.status debe ser numérico o null"
+            )
+        if not isinstance(response.get("status_text"), str):
+            raise ValueError(
+                f"scraping_report.requests[{index}].response.status_text debe ser texto"
+            )
+        if not isinstance(response.get("headers"), dict):
+            raise ValueError(
+                f"scraping_report.requests[{index}].response.headers debe ser un objeto"
+            )
+        response_body = response.get("body")
+        if (
+            not isinstance(response_body, dict)
+            or not isinstance(response_body.get("captured"), bool)
+            or not isinstance(response_body.get("content_type"), str)
+            or "data" not in response_body
+        ):
+            raise ValueError(
+                "scraping_report.requests"
+                f"[{index}].response.body debe incluir captured, content_type y data"
+            )
+
+        normalized_request = {
+            **request,
+            "id": request_id.strip(),
+            "method": method.strip().upper(),
+            "url": url.strip(),
+            "observed_on": list(
+                dict.fromkeys(
+                    item for item in observed_on if item
+                )
+            ),
+        }
+        signature_request = {
+            key: normalized_request[key]
+            for key in (
+                "method",
+                "url",
+                "query_parameters",
+                "query_values",
+                "request_headers",
+                "request_body",
+            )
+        }
+        signature = json.dumps(
+            signature_request,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        duplicate_index = request_indexes.get(signature)
+        if duplicate_index is None:
+            request_indexes[signature] = len(cleaned_requests)
+            cleaned_requests.append(normalized_request)
+            continue
+
+        kept_request = cleaned_requests[duplicate_index]
+        kept_request["observed_on"] = list(
             dict.fromkeys(
-                [
-                    *interaction_sources.get(str(request.get("id") or ""), []),
-                    *[
-                        source
-                        for source in observed_on
-                        if isinstance(source, str) and source
-                    ],
-                ]
+                [*kept_request["observed_on"], *normalized_request["observed_on"]]
             )
         )
-        normalized_request = {
-            "id": request.get("id") or f"weak_page_{len(entry_points) + 1:04d}",
-            "method": str(request.get("method") or "GET").upper(),
-            "url": request["url"],
-            "path": url_parts.path
-            + (f"?{url_parts.query}" if url_parts.query else ""),
-            "query_parameters": query_parameters,
-            "resource_type": request.get("resource_type"),
-            "headers": headers,
-            "body": body,
-            "observed_on": observed_on,
-            "response": request.get("response"),
-        }
-        entry_points.append(normalized_request)
-        captured_requests.append(
-            {
-                **normalized_request,
-                "request_headers": headers,
-                "request_body": request_body,
-            }
-        )
+        kept_response_body = kept_request["response"].get("body", {})
+        duplicate_response_body = normalized_request["response"].get("body", {})
+        if (
+            not kept_response_body.get("captured")
+            and duplicate_response_body.get("captured")
+        ):
+            kept_request["response"] = normalized_request["response"]
 
-    endpoints_by_path: dict[str, dict] = {}
-    for endpoint in report.get("observed_endpoints", []):
-        if not isinstance(endpoint, dict) or not isinstance(endpoint.get("path"), str):
-            continue
-        path = endpoint["path"]
-        normalized_endpoint = endpoints_by_path.setdefault(
-            path,
-            {
-                "template": f"{target_url}{path}",
-                "sample_urls": [],
-                "methods": [],
-            },
-        )
-        method = endpoint.get("method")
-        if isinstance(method, str) and method not in normalized_endpoint["methods"]:
-            normalized_endpoint["methods"].append(method)
-        for request in entry_points:
-            if urlsplit(request["url"]).path == path and request["url"] not in normalized_endpoint["sample_urls"]:
-                normalized_endpoint["sample_urls"].append(request["url"])
-
-    for endpoint in report.get("api_routes_from_source", []):
-        if not isinstance(endpoint, dict) or not isinstance(endpoint.get("path"), str):
-            continue
-        path = endpoint["path"]
-        normalized_endpoint = endpoints_by_path.setdefault(
-            path,
-            {
-                "template": f"{target_url}{path}",
-                "sample_urls": [],
-                "methods": [],
-            },
-        )
-        method = endpoint.get("method")
-        if isinstance(method, str) and method not in normalized_endpoint["methods"]:
-            normalized_endpoint["methods"].append(method)
-
-    states = [
-        {"url": route["url"], "path": route.get("path")}
-        for route in visited_routes
-        if isinstance(route, dict) and isinstance(route.get("url"), str)
-    ] if isinstance(visited_routes, list) else []
-    form_structures = [
-        {
-            "route_url": route["url"],
-            "forms": route.get("forms", []),
-        }
-        for route in visited_routes
-        if isinstance(route, dict)
-        and isinstance(route.get("url"), str)
-        and route.get("forms")
-    ] if isinstance(visited_routes, list) else []
-
-    for route in declared_routes if isinstance(declared_routes, list) else []:
-        if not isinstance(route, dict) or not isinstance(route.get("template"), str):
-            continue
-        route_url = f"{target_url}/#{route['template']}"
-        if not any(state["url"] == route_url for state in states):
-            states.append({"url": route_url, "path": route["template"]})
-
-    crawler_data = {
-        **report,
-        "target": {"requested_url": target_url},
-        "captured_requests": captured_requests,
-        "discovered_forms_structure": form_structures,
-        "navigation": {
-            "endpoints": list(endpoints_by_path.values()),
-            "states": states,
-        },
+    return {
+        "target": target.strip(),
+        "observed_endpoints": cleaned_endpoints,
+        "requests": cleaned_requests,
     }
-    deep_crawler_data = {
-        "target": target_url,
-        "summary": {
-            "unique_entry_point_count": len(entry_points),
-        },
-        "entry_points": entry_points,
-        "endpoints": [],
-        "forms": report.get("interactions", []),
-    }
-    return crawler_data, deep_crawler_data
 
 
-def extract_urls_from_deep_crawler(deep_crawler_data: dict) -> list[str]:
-    """Obtiene URLs y entry points observados por el crawler profundo."""
-    endpoint_urls = [
-        endpoint.get("final_url", "")
-        for endpoint in deep_crawler_data.get("endpoints", [])
-        if isinstance(endpoint, dict)
-    ]
-    request_urls = [
-        request.get("url", "")
-        for request in deep_crawler_data.get("entry_points", [])
-        if isinstance(request, dict)
-    ]
-    return deduplicate_urls(endpoint_urls, request_urls)
 
 
 def _request_query_parameters(request: dict) -> dict[str, object]:
@@ -302,11 +255,83 @@ def _request_query_parameters(request: dict) -> dict[str, object]:
             values[name] = value
     return values
 
-
 def _request_has_sqli_input(request: dict) -> bool:
     return request.get("body") is not None or bool(
         _request_query_parameters(request)
     )
+
+# Construye el contexto de reconocimiento específico para ataques SQLi.
+def build_sqli_recon_context(clean_scraping_report: dict, available_tools: list[dict]) -> dict:
+    """Reduce el reporte de scraping limpio a los inputs relevantes para SQLi."""
+    sql_inputs = []
+    for request in clean_scraping_report.get("requests", []):
+        if not isinstance(request, dict):
+            continue
+
+        request_body = request.get("request_body")
+        if isinstance(request_body, dict) and isinstance(
+            request_body.get("captured"), bool
+        ):
+            body = (
+                request_body.get("data", request_body.get("text"))
+                if request_body["captured"]
+                else None
+            )
+        else:
+            body = request_body
+
+        query_parameters = request.get("query_values")
+        if not isinstance(query_parameters, dict) or not query_parameters:
+            query_parameters = _request_query_parameters(
+                {"url": request.get("url")}
+            )
+
+        normalized_request = {
+            "id": request.get("id"),
+            "method": request.get("method"),
+            "url": request.get("url"),
+            "path": request.get("path"),
+            "resource_type": request.get("resource_type"),
+            "headers": request.get("request_headers"),
+            "body": body,
+            "query_parameters": query_parameters,
+        }
+        if not _request_has_sqli_input(normalized_request):
+            continue
+
+        headers = normalized_request["headers"]
+        headers = headers if isinstance(headers, dict) else {}
+        sql_inputs.append(
+            {
+                "id": normalized_request["id"],
+                "method": normalized_request["method"],
+                "url": normalized_request["url"],
+                "path": normalized_request["path"],
+                "resource_type": normalized_request["resource_type"],
+                "headers": {
+                    name: value
+                    for name, value in headers.items()
+                    if isinstance(name, str)
+                    and name.casefold()
+                    in {"host", "content-type", "accept", "referer", "user-agent"}
+                },
+                "body": normalized_request["body"],
+                "query_parameters": normalized_request["query_parameters"],
+            }
+        )
+
+    return {
+        "attack_type_filter": "sqli",
+        "target": clean_scraping_report["target"],
+        "total_requests_captured": len(clean_scraping_report.get("requests", [])),
+        "sqli_input_entry_points": sql_inputs,
+        "available_validation_tools": available_tools,
+    }
+
+
+
+
+
 
 
 def _has_xss_input(endpoint: str, request: dict) -> bool:
@@ -401,38 +426,6 @@ def _json_field_paths(value: object, prefix: str = "") -> set[str]:
         return {prefix}
     return set()
 
-# Construye el contexto de reconocimiento específico para ataques SQLi.
-def build_sqli_recon_context(crawler_data: dict, deep_crawler_data: dict | None ,discovered_urls: list[str],available_tools: list[dict]) -> dict:
-    """Reduce resultados de crawlers a los datos que sirven para planificar ataques."""
-    if deep_crawler_data is not None:
-        requests = (deep_crawler_data or {}).get("entry_points", [])
-        sql_inputs = []
-        for request in requests:
-            if not isinstance(request, dict) or not _request_has_sqli_input(request):
-                continue
-            headers = request.get("headers")
-            headers = headers if isinstance(headers, dict) else {}
-            sql_inputs.append({
-                "id": request.get("id"),
-                "method": request.get("method"),
-                "url": request.get("url"),
-                "path": request.get("path"),
-                "resource_type": request.get("resource_type"),
-                "headers": {
-                    name: value
-                    for name, value in headers.items()
-                    if name.lower() in {
-                        "host", "content-type", "accept", "referer", "user-agent"
-                    }
-                },
-                "body": request.get("body"),
-                "query_parameters": _request_query_parameters(request),
-            })
-        return {
-            "attack_type_filter": "sqli",
-            "sqli_input_entry_points": sql_inputs,
-            "available_validation_tools": available_tools,
-        }
 
 
 def build_crypto_recon_context(
@@ -653,17 +646,23 @@ def write_recon_context_snapshot(
     return output_path
 
 
+def _sqli_entry_points(recon_sources: dict | None) -> list[dict]:
+    sources = recon_sources or {}
+    requests = sources.get("sqli_input_entry_points")
+    if not isinstance(requests, list):
+        requests = sources.get("entry_points", [])
+    return [request for request in requests if isinstance(request, dict)]
+
+
 def build_sqli_fallback_output(target_url: str,deep_crawler_data: dict | None,) -> dict:
     """Construye un plan SQLi minimo con peticiones observadas si el LLM no devuelve JSON."""
-    requests = (deep_crawler_data or {}).get("entry_points", [])
+    requests = [
+        request
+        for request in _sqli_entry_points(deep_crawler_data)
+        if request.get("url") and _request_has_sqli_input(request)
+    ]
     targets = []
     for request in requests:
-        if (
-            not isinstance(request, dict)
-            or not request.get("url")
-            or not _request_has_sqli_input(request)
-        ):
-            continue
         targets.append({
             "target_id": f"target_{len(targets) + 1:03d}",
             "request_id": request.get("id") or "",
@@ -683,54 +682,76 @@ def build_sqli_fallback_output(target_url: str,deep_crawler_data: dict | None,) 
             "target_url": target_url,
             "attack_type_filter": "sqli",
             "total_targets_identified": len(targets),
-            "total_requests_captured": len(requests),
+            "total_requests_captured": (deep_crawler_data or {}).get(
+                "total_requests_captured", len(requests)
+            ),
         },
         "high_priority_targets": targets,
     }
 
 
 def ensure_sqli_entry_point_coverage(data: dict, deep_crawler_data: dict | None) -> dict:
-    """Incluye cada request observada con body aunque el LLM haya omitido alguna."""
+    """Keep SQLi targets grounded in observed inputs and cover every observed input."""
     output = dict(data)
-    targets = [
-        target for target in output.get("high_priority_targets", [])
-        if isinstance(target, dict)
-    ]
     requests = [
         request
-        for request in (deep_crawler_data or {}).get("entry_points", [])
+        for request in _sqli_entry_points(deep_crawler_data)
         if (
-            isinstance(request, dict)
-            and request.get("url")
+            request.get("url")
             and _request_has_sqli_input(request)
         )
     ]
-    covered_request_ids = {
-        request_id
-        for target in targets
-        for request_id in (
-            target.get("request_id"),
-            (target.get("request") or {}).get("id")
-            if isinstance(target.get("request"), dict)
-            else None,
-        )
-        if request_id
+    requests_by_id = {
+        request["id"]: request
+        for request in requests
+        if isinstance(request.get("id"), str) and request["id"]
     }
-    covered_request_objects = set()
-    for target in targets:
-        captured_request = _find_matching_captured_request(target, deep_crawler_data)
-        if captured_request:
-            if captured_request.get("id"):
-                covered_request_ids.add(captured_request["id"])
-            else:
-                covered_request_objects.add(id(captured_request))
+    targets = []
+    covered_request_ids = set()
+
+    for target in output.get("high_priority_targets", []):
+        if not isinstance(target, dict):
+            continue
+        target_request = target.get("request")
+        target_request = target_request if isinstance(target_request, dict) else {}
+        request_id = target.get("request_id") or target_request.get("id")
+        captured_request = requests_by_id.get(request_id)
+        if captured_request is None:
+            endpoint = target.get("endpoint") or target_request.get("url")
+            method = str(target.get("method") or target_request.get("method") or "").upper()
+            matches = [
+                request
+                for request in requests
+                if request.get("url") == endpoint
+                and str(request.get("method") or "").upper() == method
+            ]
+            if len(matches) == 1:
+                captured_request = matches[0]
+
+        if captured_request is None:
+            logger.warning(
+                "Recon descarta target SQLi sin request observada endpoint=%s",
+                target.get("endpoint"),
+            )
+            continue
+
+        captured_id = captured_request.get("id")
+        if captured_id and captured_id in covered_request_ids:
+            continue
+        grounded_target = {
+            **target,
+            "request_id": captured_id or "",
+            "endpoint": captured_request["url"],
+            "method": captured_request.get("method", "GET"),
+            "request": _build_request_from_capture(captured_request),
+        }
+        targets.append(grounded_target)
+        if captured_id:
+            covered_request_ids.add(captured_id)
 
     for request in requests:
         request_id = request.get("id")
-        if (
-            (request_id and request_id in covered_request_ids)
-            or id(request) in covered_request_objects
-        ):
+        if request_id and request_id in covered_request_ids:
             continue
 
         targets.append({
@@ -752,7 +773,13 @@ def ensure_sqli_entry_point_coverage(data: dict, deep_crawler_data: dict | None)
 
     output["high_priority_targets"] = targets
     summary = dict(output.get("recon_summary", {}))
+    if isinstance((deep_crawler_data or {}).get("target"), str):
+        summary["target_url"] = deep_crawler_data["target"]
+    summary["attack_type_filter"] = "sqli"
     summary["total_targets_identified"] = len(targets)
+    summary["total_requests_captured"] = (deep_crawler_data or {}).get(
+        "total_requests_captured", summary.get("total_requests_captured", len(requests))
+    )
     output["recon_summary"] = summary
     return output
 
@@ -1269,7 +1296,7 @@ def _find_matching_captured_request(
 ) -> dict | None:
     requests = [
         request
-        for request in (deep_crawler_data or {}).get("entry_points", [])
+        for request in _sqli_entry_points(deep_crawler_data)
         if isinstance(request, dict) and request.get("url")
     ]
     target_request = target.get("request")
@@ -1382,10 +1409,16 @@ def build_recon_output_from_dict(data: dict,target_url: str,attack_type_filter: 
     summary_data = data.get("recon_summary", {})
     targets_data = data.get("high_priority_targets", [])
     summary = ReconSummary(
-        target_url=summary_data.get("target_url", target_url),
+        target_url=(
+            target_url
+            if is_sqli_attack(attack_type_filter)
+            else summary_data.get("target_url", target_url)
+        ),
         attack_type_filter=(
             "access_control"
             if is_access_control_attack(attack_type_filter)
+            else "sqli"
+            if is_sqli_attack(attack_type_filter)
             else summary_data.get("attack_type_filter", attack_type_filter)
         ),
         total_targets_identified=summary_data.get(
@@ -1478,7 +1511,6 @@ def build_recon_output_from_dict(data: dict,target_url: str,attack_type_filter: 
                     if is_xss and validation_plan
                     else "dalfox"
                     if is_xss
-                    if is_access_control_attack(attack_type_filter)
                     else target.get("recommended_tool", default_tool)
                 ),
             )

@@ -8,6 +8,9 @@ export async function submitScanConfigAction(payload: CreateTaskPayload) {
     if (!payload.targetUrl) {
       return { success: false, error: 'La URL de destino es obligatoria.' };
     }
+    if (!payload.scrapingReport) {
+      return { success: false, error: 'El informe de scraping JSON es obligatorio.' };
+    }
 
     // 2. Delegar la ejecución al servicio
     const result = await scanService.createScanTask(payload);

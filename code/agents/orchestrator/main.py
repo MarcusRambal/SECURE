@@ -93,6 +93,7 @@ async def execute_orchestration_flow(payload: dict, channel: aio_pika.Channel):
         "recon_recovery_mode": None,
         "validate_recovery_mode": None,
         "token": payload.get("token"),
+        "scraping_report": payload.get("scraping_report"),
         "timings": {"queueWaitMs": round(queue_wait_ms, 2), "stages": {}},
     }
 

@@ -41,12 +41,14 @@ async def start_recon_worker():
                                 payload = json.loads(message.body.decode("utf-8"))
                                 target_url = payload.get("target_url")
                                 attack_type_filter = payload.get("attack_type", "full")
+                                scraping_report = payload.get("scraping_report")
                                 logger.info(f"📥 [RECON-AGENT] Tarea recibida para {target_url}")
 
                                 recon_data, recovery_mode, tool_timings = await process_recon_task(
                                     channel,
                                     target_url,
                                     attack_type_filter,
+                                    scraping_report=scraping_report,
                                 )
 
                                 status = "SUCCESS"

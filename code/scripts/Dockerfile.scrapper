@@ -1,0 +1,19 @@
+FROM python:3.11-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    WEAK_PAGE_SOURCE_ROOT=/app/weak_page
+
+WORKDIR /app
+
+RUN pip install --no-cache-dir playwright==1.56.0 \
+    && python -m playwright install --with-deps chromium \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY scripts/scrapper.py /app/scripts/scrapper.py
+COPY weak_page/js/router.js /app/weak_page/js/router.js
+COPY weak_page/backend/src/app.js /app/weak_page/backend/src/app.js
+COPY weak_page/backend/routes/ /app/weak_page/backend/routes/
+
+ENTRYPOINT ["python", "/app/scripts/scrapper.py"]
+CMD ["--target-url", "http://weak-page:3009"]

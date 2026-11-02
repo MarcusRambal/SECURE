@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Any, Optional
 
 
 
@@ -10,6 +10,7 @@ class TaskRequest(BaseModel):
     attack_type: str
     # JWT de sesión para ataques A07 (jwt). Vacío para SQLi/XSS/etc.
     token: Optional[str] = None
+    scraping_report: dict[str, Any]
 
 
 class TaskResponse(BaseModel):

@@ -15,9 +15,12 @@ from attack_types import (
     is_xss_attack,
     is_jwt_attack
 )
-from contract_schemas import ReconPlannerOutput, ReconSummary, HighPriorityTarget
+from contract_schemas import ReconPlannerOutput
+
+from mcp_skills import get_mcp_catalog
 
 from helpers import (
+    build_access_control_fallback_output,
     build_recon_output_from_dict,
     build_sqli_recon_context,
     build_sqli_fallback_output,
@@ -26,17 +29,14 @@ from helpers import (
     build_crypto_fallback_output,
     ensure_crypto_entry_point_coverage,
     ensure_access_control_target_coverage,
-    deduplicate_urls,
     ensure_sqli_entry_point_coverage,
-    extract_urls_from_crawler,
-    extract_urls_from_deep_crawler,
     ensure_xss_entry_point_coverage,
-    normalize_weak_page_crawler_report,
     update_recon_context_snapshot,
     write_recon_context_snapshot,
     build_access_control_recon_context,
+    clean_scraping_report
 )
-from mcp_skills import call_mcp_skill, get_mcp_catalog
+
 from recon_prompts import get_system_prompt
 
 logging.basicConfig(level=logging.INFO)
@@ -52,169 +52,60 @@ logger.info("🟢 [RECON] Cargando LLM de reconocimiento")
 # FLUJO PRINCIPAL DE RECONOCIMIENTO
 # ============================================================================
 
-async def process_recon_task(channel: aio_pika.Channel,target_url: str, attack_type_filter: str = "full",) -> tuple[ReconPlannerOutput, str, list[dict]]:
+async def process_recon_task(
+    channel: aio_pika.Channel,
+    target_url: str,
+    attack_type_filter: str = "full",
+    *,
+    scraping_report: dict,
+) -> tuple[ReconPlannerOutput, str, list[dict]]:
 
     started_at = datetime.now(timezone.utc).isoformat()
     is_sqli = is_sqli_attack(attack_type_filter)
     is_xss = is_xss_attack(attack_type_filter)
     is_crypto = is_crypto_attack(attack_type_filter)
     is_access_control = is_access_control_attack(attack_type_filter)
-    tool_timings: list[dict] = []
-
     is_jwt = is_jwt_attack(attack_type_filter)
 
-    if is_jwt:
-        # JWT no requiere crawling: jwt_tool autodescubre el endpoint protegido.
-        # Devolvemos un único target apuntando a la raíz para no romper el contrato
-        # ReconPlannerOutput que espera el orquestador.
-        logger.info("[RECON] JWT fast-path: skipping crawl for %s", target_url)
-        return (
-            ReconPlannerOutput(
-                recon_summary=ReconSummary(
-                    target_url=target_url,
-                    attack_type_filter=attack_type_filter,
-                    total_targets_identified=1,
-                    total_requests_captured=0,
-                ),
-                high_priority_targets=[
-                    HighPriorityTarget(
-                        target_id="target_001",
-                        request_id="",
-                        vulnerability_target="JWT authentication analysis (A07)",
-                        endpoint=target_url,
-                        method="GET",
-                        request=None,
-                        recommended_tool="jwt_tool",
-                    )
-                ],
-            ),
-            "clean",
-            [],
-        )
+    tool_timings: list[dict] = []
 
     logger.info("🟡 [RECON] Inicio target=%s attack_type=%s started_at=%s",target_url,attack_type_filter,started_at)
 
-    #Obtenemos el catálogo de herramientas disponibles en MCP
+    clean_scraping_report_data = clean_scraping_report(scraping_report)
+
+    # Obtenemos el catálogo después de validar y limpiar la entrada externa.
     catalog = await get_mcp_catalog(channel, tool_timings)
 
-    deep_crawler_data = None
-    deep_crawler_urls = []
-    is_weak_page = target_url == "http://weak-page:3009"
-    if is_weak_page:
-        weak_page_output = await call_mcp_skill(
-            channel, "weakPageCrawler", {}, tool_timings
-        )
-        try:
-            weak_page_report = json.loads(weak_page_output)
-        except json.JSONDecodeError as error:
-            raise RuntimeError(
-                f"weakPageCrawler no devolvió JSON válido: {error}"
-            ) from error
-        if not isinstance(weak_page_report, dict):
-            raise RuntimeError(
-                "weakPageCrawler devolvió un informe inválido: "
-                "se esperaba un objeto JSON"
-            )
-        if weak_page_report.get("error"):
-            raise RuntimeError(
-                f"weakPageCrawler falló: {weak_page_report['error']}"
-            )
-        crawler_data, deep_crawler_data = normalize_weak_page_crawler_report(
-            weak_page_report, target_url
-        )
-        crawler_urls = extract_urls_from_crawler(crawler_data)
-        deep_crawler_urls = extract_urls_from_deep_crawler(deep_crawler_data)
-        logger.info(
-            "[RECON] weakPageCrawler completado requests=%d urls=%d",
-            len(deep_crawler_data["entry_points"]),
-            len(crawler_urls),
-        )
-    else:
-        # Herramienta mandatoria de ejecucion para objetivos distintos al laboratorio.
-        crawler_output = await call_mcp_skill(
-            channel, "crawler", {"target_url": target_url}, tool_timings
-        )
-        try:
-            crawler_data = json.loads(crawler_output)
-        except json.JSONDecodeError as error:
-            raise RuntimeError(f"crawler no devolvió JSON válido: {error}") from error
-
-        crawler_urls = extract_urls_from_crawler(crawler_data)
-        logger.info("[RECON] crawler completado urls=%d", len(crawler_urls))
-
-    discovered_urls = deduplicate_urls(crawler_urls, deep_crawler_urls)
-
-    available_tools = [
-        {
-            "name": tool.get("name"),
-            "description": tool.get("description", ""),
-        }
-        for tool in catalog
-        if tool.get("name") not in {"crawler", "deep_crawler", "weakPageCrawler"}
-    ]
-
-    if (is_sqli or is_xss or is_crypto or is_access_control) and deep_crawler_data is None:
-        logger.info(
-            "[RECON] %s: ejecutando deep_crawler con la salida efímera de crawler",
-            attack_type_filter,
-        )
-
-        deep_crawler_output = await call_mcp_skill(
-            channel,
-            "deep_crawler",
-            {"crawler_report": crawler_data},
-            tool_timings,
-        )
-
-        try:
-            deep_crawler_data = json.loads(deep_crawler_output)
-        except json.JSONDecodeError as error:
-            raise RuntimeError(f"deep_crawler no devolvió JSON válido: {error}") from error
-        
-        deep_crawler_urls = extract_urls_from_deep_crawler(deep_crawler_data)
-         
-        logger.info("[RECON] deep_crawler completado entry_points=%d urls=%d", len(deep_crawler_data.get("entry_points", [])), len(deep_crawler_urls),)
-        #Fase de limpieza del contexto para que el agente pueda consumirlo
-        discovered_urls = deduplicate_urls(crawler_urls, deep_crawler_urls)
-
     if is_sqli:
-        recon_sources = build_sqli_recon_context(
-            crawler_data, deep_crawler_data, discovered_urls, available_tools
-        )
+        recon_sources = build_sqli_recon_context(clean_scraping_report_data, catalog)
     elif is_xss:
-        recon_sources = build_xss_recon_context(
-            crawler_data, deep_crawler_data, discovered_urls, available_tools
-        )
+        recon_sources = build_xss_recon_context(clean_scraping_report_data, catalog)
     elif is_crypto:
-        recon_sources = build_crypto_recon_context(
-            crawler_data, deep_crawler_data, discovered_urls, available_tools
-        )
+        recon_sources = build_crypto_recon_context(clean_scraping_report_data, catalog)
     elif is_access_control:
-        recon_sources = build_access_control_recon_context(
-            crawler_data, deep_crawler_data, discovered_urls, available_tools
-        )
-    else:
-        recon_sources = {
-            "crawler_endpoints": crawler_data.get("navigation", {}).get("endpoints", [])[:50],
-            "deduplicated_urls": discovered_urls[:100],
-            "available_validation_tools": available_tools,
-        }
+        recon_sources = build_access_control_recon_context(clean_scraping_report_data, catalog)
+    elif is_jwt:
+        recon_sources = build_jwt_recon_context(clean_scraping_report_data, catalog)
+
 
     context_path = None
+
     try:
         context_path = write_recon_context_snapshot(
             target_url,
             attack_type_filter,
             recon_sources,
-            crawler_report=crawler_data,
-            deep_crawler_report=deep_crawler_data,
             tool_timings=tool_timings,
         )
 
         logger.info("[RECON] Contexto LLM guardado en %s", context_path)
     except OSError:
         logger.exception("[RECON] No se pudo guardar el contexto LLM")
-    logger.info("[RECON] Fuentes consolidadas crawler=%d deep_crawler=%d deduplicadas=%d",len(crawler_urls),len(deep_crawler_urls),len(discovered_urls),)
+    logger.info(
+        "[RECON] Scraping limpio requests=%d endpoints=%d",
+        len(clean_scraping_report_data["requests"]),
+        len(clean_scraping_report_data["observed_endpoints"]),
+    )
 
     system_prompt = SystemMessage(content=get_system_prompt(attack_type_filter))
 
@@ -230,6 +121,7 @@ async def process_recon_task(channel: aio_pika.Channel,target_url: str, attack_t
     logger.info("[RECON] Contexto compacto para LLM chars=%d",len(json.dumps(recon_sources, ensure_ascii=False)),)
 
     llm_output = {}
+
     try:
         # Salida estructurada del LLM
         structured_output = await structured_llm.ainvoke([system_prompt, user_message])
@@ -243,55 +135,42 @@ async def process_recon_task(channel: aio_pika.Channel,target_url: str, attack_t
             error,
         )
         if is_sqli:
-            parsed_dict = build_sqli_fallback_output(target_url, deep_crawler_data)
+            parsed_dict = build_sqli_fallback_output(target_url, recon_sources)
+        elif is_xss:
+            parsed_dict = build_xss_fallback_output(target_url, recon_sources)
         elif is_crypto:
-            parsed_dict = build_crypto_fallback_output(target_url, deep_crawler_data, discovered_urls)
-        else:
-            parsed_dict = {
-                "recon_summary": {
-                    "target_url": target_url,
-                    "attack_type_filter": attack_type_filter,
-                },
-                "high_priority_targets": [],
-            }
-        llm_output = {"error": str(error), "fallback": "deep_crawler_coverage"}
+            parsed_dict = build_crypto_fallback_output(target_url, recon_sources)
+        elif is_access_control:
+            parsed_dict = build_access_control_fallback_output(target_url, recon_sources)
+        elif is_jwt:
+            parsed_dict = build_jwt_fallback_output(target_url, recon_sources)
+
+        llm_output = {"error": str(error), "fallback": "recon_sources"}
     else:
         if not isinstance(structured_output, ReconPlannerOutput):
             raise TypeError("El LLM estructurado no devolvió una instancia de ReconPlannerOutput")
         
         logger.info("[RECON] Salida original del agente antes del procesamiento:\n%s",structured_output.model_dump_json(indent=2),)
-        
         parsed_dict = structured_output.model_dump()
         llm_output = parsed_dict
 
-    if is_weak_page:
-        summary = dict(parsed_dict.get("recon_summary", {}))
-        summary["total_requests_captured"] = len(
-            deep_crawler_data["entry_points"]
-        )
-        parsed_dict["recon_summary"] = summary
-
     if is_sqli:
-        parsed_dict = ensure_sqli_entry_point_coverage(parsed_dict, deep_crawler_data)
-
-    elif is_crypto:
-        parsed_dict = ensure_crypto_entry_point_coverage(parsed_dict, deep_crawler_data, target_url, discovered_urls)
-
-    elif is_access_control:
-        parsed_dict = ensure_access_control_target_coverage(
-            parsed_dict, deep_crawler_data, target_url, discovered_urls)
+        parsed_dict = ensure_sqli_entry_point_coverage(parsed_dict, recon_sources)
 
     elif is_xss:
-            parsed_dict = ensure_xss_entry_point_coverage(parsed_dict, deep_crawler_data)
-    
+        parsed_dict = ensure_xss_entry_point_coverage(parsed_dict, recon_sources)
+
+    elif is_crypto:
+        parsed_dict = ensure_crypto_entry_point_coverage(parsed_dict, recon_sources, target_url)
+
+    elif is_access_control:
+        parsed_dict = ensure_access_control_target_coverage(parsed_dict, recon_sources, target_url)
 
     recon_output = build_recon_output_from_dict(
         parsed_dict,
         target_url,
         attack_type_filter,
-        deep_crawler_data
-        if (is_sqli or is_xss or is_crypto or is_access_control)
-        else None,
+        recon_sources if (is_sqli or is_xss or is_crypto or is_access_control) else None,
     )
     logger.info("[RECON] Plan JSON validado targets=%d ", len(recon_output.high_priority_targets),)
 
