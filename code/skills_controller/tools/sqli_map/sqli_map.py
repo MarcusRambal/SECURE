@@ -16,6 +16,34 @@ logger = logging.getLogger(__name__)
 MAX_PROFILE_DATABASES = 3
 MAX_PROFILE_TABLES = 40
 SQLMAP_TEST_OPTIONS = ("--level=3", "--risk=2")
+SQLMAP_COMMAND_TIMEOUT_SECONDS = 300
+
+
+class SqlmapCommandTimeout(RuntimeError):
+    pass
+
+
+def _run_sqlmap_command(cmd: list, action: str) -> subprocess.CompletedProcess:
+    try:
+        return subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=SQLMAP_COMMAND_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as error:
+        raise SqlmapCommandTimeout(
+            f"SQLMap {action} timed out after "
+            f"{SQLMAP_COMMAND_TIMEOUT_SECONDS} seconds"
+        ) from error
+
+
+def _combined_output(result: subprocess.CompletedProcess) -> str:
+    return "\n".join(
+        output
+        for output in (result.stdout, result.stderr)
+        if isinstance(output, str) and output
+    )
 
 
 def _base_command(sqlmap_bin: str, url: Optional[str], param: Optional[str],
@@ -61,9 +89,23 @@ def run_detection_scan(sqlmap_bin: str, url: Optional[str], param: Optional[str]
         cmd.extend(["--tamper", tamper])
 
     logger.info("Running: %s", " ".join(cmd))
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+    try:
+        result = _run_sqlmap_command(cmd, "detection")
+    except SqlmapCommandTimeout as error:
+        return {
+            "scan_type": "detection",
+            "url": url,
+            "status": "timeout",
+            "error": str(error),
+            "injectable": False,
+            "database": "unknown",
+            "techniques": [],
+            "summary": [],
+            "diagnostics": [str(error)],
+            "exit_code": None,
+        }
 
-    output = f"{result.stdout}\n{result.stderr}"
+    output = _combined_output(result)
     injectable = bool(
         re.search(
             r"(?i)\bparameter\s+['\"]?[^'\"\s]+['\"]?\s+"
@@ -123,11 +165,11 @@ def enumerate_databases(sqlmap_bin: str, url: Optional[str],
     cmd.extend(SQLMAP_TEST_OPTIONS)
     cmd.append("--dbs")
 
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+    result = _run_sqlmap_command(cmd, "database enumeration")
     _require_success(result, "database enumeration")
     databases = []
     in_db_section = False
-    for line in result.stdout.split("\n"):
+    for line in _combined_output(result).splitlines():
         if "available databases" in line.lower():
             in_db_section = True
         if in_db_section:
@@ -151,14 +193,15 @@ def enumerate_tables(sqlmap_bin: str, url: Optional[str], database: Optional[str
     cmd.extend(SQLMAP_TEST_OPTIONS)
     cmd.append("--tables")
 
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+    result = _run_sqlmap_command(cmd, "table enumeration")
     _require_success(result, "table enumeration")
     tables = []
-    for line in result.stdout.split("\n"):
+    for line in _combined_output(result).splitlines():
         stripped = line.strip()
-        if stripped.startswith("| ") and not stripped.startswith("+-"):
-            table_name = stripped.strip("| ").strip()
-            if table_name and table_name != "Table":
+        table_row = re.fullmatch(r"\|\s*(.*?)\s*\|", stripped)
+        if table_row:
+            table_name = table_row.group(1).strip()
+            if table_name and table_name.casefold() != "table":
                 tables.append(table_name)
 
     if not tables:
@@ -227,7 +270,9 @@ def run_validation_scan(sqlmap_bin: str, url: Optional[str],
         sqlmap_bin, url, param, request_file=request_file, cookie=cookie
     )
     profile = {"status": "skipped", "reason": "not_confirmed"}
-    if result["exit_code"] == 0 and result["injectable"] is True:
+    if result.get("status") == "timeout":
+        profile = {"status": "skipped", "reason": "detection_timeout"}
+    elif result["exit_code"] == 0 and result["injectable"] is True:
         profile = run_schema_scan(
             sqlmap_bin,
             url,
@@ -255,7 +300,7 @@ def dump_table(sqlmap_bin: str, url: str, database: str, table: str,
     if cookie:
         cmd.extend(["--cookie", cookie])
 
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+    result = _run_sqlmap_command(cmd, "privilege check")
     return {
         "database": database,
         "table": table,
@@ -275,7 +320,7 @@ def check_privileges(sqlmap_bin: str, url: str, param: Optional[str] = None,
     if cookie:
         cmd.extend(["--cookie", cookie])
 
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+    result = _run_sqlmap_command(cmd, "table dump")
     output = result.stdout
 
     current_user = _extract_value(output, "current user")

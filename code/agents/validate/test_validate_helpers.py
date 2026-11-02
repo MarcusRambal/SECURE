@@ -1,4 +1,8 @@
+import json
+import os
+import tempfile
 import unittest
+from unittest.mock import patch
 
 from helpers import (
     build_validate_sqli_context,
@@ -12,10 +16,83 @@ from helpers import (
     merge_sqli_map_findings,
     merge_sqlmap_findings,
     sanitize_endpoint_for_context,
+    write_validate_context_snapshot,
 )
 
 
 class ValidateSqliHelperTests(unittest.TestCase):
+    def test_snapshot_saves_exact_context_and_tool_diagnostics(self):
+        context = {
+            "dalfox_results": [
+                {"tool": "dalfox", "status": "FINDINGS", "findings": []}
+            ]
+        }
+        diagnostics = [
+            {
+                "tool": "dalfox",
+                "raw_output_redacted": '{"findings":[]}',
+                "parsed_output": {"status": "NO_FINDINGS", "findings": []},
+            }
+        ]
+        with tempfile.TemporaryDirectory() as output_dir:
+            with patch.dict(
+                os.environ,
+                {"VALIDATE_CONTEXT_OUTPUT_DIR": output_dir},
+            ):
+                snapshot_path = write_validate_context_snapshot(
+                    "http://wackopicko",
+                    "xss",
+                    {
+                        "system_prompt": "system",
+                        "user_message": "message",
+                        "validation_context": context,
+                    },
+                    context["dalfox_results"],
+                    tool_diagnostics=diagnostics,
+                )
+
+            snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(snapshot["validation_context"], context)
+        self.assertEqual(snapshot["agent_context"]["user_message"], "message")
+        self.assertEqual(snapshot["tool_diagnostics"], diagnostics)
+
+    def test_preserves_xss_method_and_verification_steps(self):
+        result = build_validate_output_from_dict(
+            {
+                "vulnerabilities": [
+                    {
+                        "type": "Cross-Site Scripting (XSS)",
+                        "severity": "HIGH",
+                        "endpoint": "http://wackopicko/guestbook.php",
+                        "parameter": "comment",
+                        "method": "POST",
+                        "evidence": "Dalfox marked an XSS proof verified.",
+                        "verification_steps": "Repeat the captured request in the lab.",
+                        "confidence": "HIGH",
+                        "tools_used": ["dalfox"],
+                    }
+                ]
+            },
+            "http://wackopicko",
+            "2026-10-29T00:00:00+00:00",
+            [
+                {
+                    "tool": "dalfox",
+                    "endpoint": "http://wackopicko/guestbook.php",
+                    "method": "POST",
+                    "command": "dalfox raw-http request",
+                }
+            ],
+        )
+
+        finding = result.vulnerabilities[0]
+        self.assertEqual(finding.method, "POST")
+        self.assertEqual(
+            finding.verification_steps,
+            "Repeat the captured request in the lab.",
+        )
+
     def test_extracts_query_form_and_nested_json_parameter_names(self):
         query_and_form = get_sqli_test_parameters(
             "http://juice-shop:3000/login?next=%2Fhome&id=1",

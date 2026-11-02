@@ -56,10 +56,11 @@ async def get_task_result(task_id: str):
 
 
 async def execute_orchestration_flow(payload: dict, channel: aio_pika.Channel):
-    """Ejecuta el pipeline secuencial y persiste el resultado en TASKS_RESULTS_DB."""
     task_id = payload.get("task_id", "N/A")
     target_url = payload.get("target_url")
     attack_type = payload.get("attack_type", "full")
+
+    # Métricas de tiempo (merge: main tenía estas, David no las traía)
     flow_started = time.perf_counter()
     queue_wait_ms = 0.0
     queued_at = payload.get("queued_at")
@@ -67,8 +68,7 @@ async def execute_orchestration_flow(payload: dict, channel: aio_pika.Channel):
         try:
             queue_wait_ms = max(
                 0.0,
-                (datetime.now(timezone.utc) - datetime.fromisoformat(queued_at)).total_seconds()
-                * 1000,
+                (datetime.now(timezone.utc) - datetime.fromisoformat(queued_at)).total_seconds() * 1000,
             )
         except ValueError:
             logger.warning("queued_at inválido para task_id=%s: %s", task_id, queued_at)
@@ -92,6 +92,7 @@ async def execute_orchestration_flow(payload: dict, channel: aio_pika.Channel):
         # Cómo se recuperó cada fase: "clean" | "recovered" | "fallback" | "error".
         "recon_recovery_mode": None,
         "validate_recovery_mode": None,
+        "token": payload.get("token"),
         "timings": {"queueWaitMs": round(queue_wait_ms, 2), "stages": {}},
     }
 

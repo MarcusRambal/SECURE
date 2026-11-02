@@ -125,6 +125,13 @@ async def process_report_task(payload: dict) -> tuple[str, bool]:
             "- Sé conciso en la narrativa, pero incluye TODOS los hallazgos de TODAS las herramientas, TODAS sus evidencias, "
             "TODAS sus cadenas de ataque y TODAS las contraseñas recuperadas.\n"
             "- Retorna ÚNICAMENTE el texto en MARKDOWN puro. Sin envoltorios JSON."
+            "- No inventes pasos de verificación; utiliza `verification_steps` solo cuando exista.\n"
+            "- Si el comando usa `/tmp/dalfox-req.txt`, advierte que depende de un archivo temporal y no se puede repetir tal cual.\n"
+            "- Sé conciso, pero incluye todos los hallazgos y evidencias recibidos.\n"
+            "- Retorna ÚNICAMENTE el texto en MARKDOWN puro. Sin envoltorios JSON.\n"
+            "- NO incluyas secciones de 'Contacto', 'Autor', 'Firma' ni placeholders como "
+            "  '[su nombre]', '[su correo]', '[su teléfono]'. El informe TERMINA después "
+            "  de la sección 'Conclusiones y Próximos Pasos' (o 'Acciones Recomendadas')."
         )
     )
 

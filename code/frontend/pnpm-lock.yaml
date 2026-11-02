@@ -17,6 +17,9 @@ importers:
       react-dom:
         specifier: 19.2.8
         version: 19.2.8(react@19.2.8)
+      three:
+        specifier: 0.136.0
+        version: 0.136.0
     devDependencies:
       '@types/node':
         specifier: ^20
@@ -27,6 +30,9 @@ importers:
       '@types/react-dom':
         specifier: ^19
         version: 19.3.0(@types/react@19.3.0)
+      '@types/three':
+        specifier: 0.136.0
+        version: 0.136.0
       babel-plugin-react-compiler:
         specifier: 1.0.0
         version: 1.0.0
@@ -452,6 +458,9 @@ packages:
 
   '@types/react@19.3.0':
     resolution: {integrity: sha512-N0rFCuH9YoxG9/m61l9MfpJKfmLOVU0em7ipIz6TRgSSkvReLB9vL85GB+yr8Bs5leqpvg96JSwF4ZS1s4viQg==}
+
+  '@types/three@0.136.0':
+    resolution: {integrity: sha512-yNBe5U3B+eSZU+pmiDxeq3hDyF+ftYghFkY3y0ayZrF8SjoUMVIRXqEfJX39wTSDsiY4/+tkmKgNxhhIKbnxeQ==}
 
   '@typescript-eslint/eslint-plugin@8.70.0':
     resolution: {integrity: sha512-/v8HZt6RlyIZxB3ntehELOcUcfxKPVGWXnQdJuHRmzrqgF8nQypcC/oxGW+Ot4VGKDq81XugPKxx0n5PBtf9PA==}
@@ -1671,6 +1680,9 @@ packages:
     resolution: {integrity: sha512-ot0WnXS9fgdkgIcePe6RHNk1WA8+muPa6cSjeR3V8K27q9BB1rTE3R1p7Hv0z1ZyAc8s6Vvv8DIyWf681MAt0w==}
     engines: {node: '>= 0.4'}
 
+  three@0.136.0:
+    resolution: {integrity: sha512-+fEMX7nYLz2ZesVP/dyifli5Jf8gR3XPAnFJveQ80aMhibFduzrADnjMbARXh8+W9qLK7rshJCjAIL/6cDxC+A==}
+
   tinyglobby@0.2.17:
     resolution: {integrity: sha512-wXR/dYpcqKmfWpEdZjiKJOwCNFndD0DMnrW/cYjVGttEkBfVgcLFHoNrlj47mjOVic9yyNu65alsgF4NQyTa2g==}
     engines: {node: '>=12.0.0'}
@@ -2181,6 +2193,8 @@ snapshots:
   '@types/react@19.3.0':
     dependencies:
       csstype: 3.2.3
+
+  '@types/three@0.136.0': {}
 
   '@typescript-eslint/eslint-plugin@8.70.0(@typescript-eslint/parser@8.70.0(eslint@9.39.5)(typescript@5.9.3))(eslint@9.39.5)(typescript@5.9.3)':
     dependencies:
@@ -3643,6 +3657,8 @@ snapshots:
       has-flag: 4.0.0
 
   supports-preserve-symlinks-flag@1.0.0: {}
+
+  three@0.136.0: {}
 
   tinyglobby@0.2.17:
     dependencies:

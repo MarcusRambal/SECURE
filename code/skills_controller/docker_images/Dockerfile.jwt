@@ -1,0 +1,4 @@
+FROM python:3.11-slim
+WORKDIR /app
+COPY handlers/jwt_tool_handler.py /app/jwt_tool_handler.py
+ENTRYPOINT ["python", "/app/jwt_tool_handler.py"]

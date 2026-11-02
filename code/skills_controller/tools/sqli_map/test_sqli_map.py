@@ -1,8 +1,15 @@
+import subprocess
 import unittest
 from unittest.mock import patch
 from types import SimpleNamespace
 
-from sqli_map import _extract_db_type, _extract_techniques, run_detection_scan
+from sqli_map import (
+    SQLMAP_COMMAND_TIMEOUT_SECONDS,
+    SqlmapCommandTimeout,
+    _extract_db_type,
+    _extract_techniques,
+    run_detection_scan,
+)
 from sqli_map import enumerate_databases, enumerate_tables, run_validation_scan
 
 
@@ -56,6 +63,18 @@ class SqlmapReportParsingTests(unittest.TestCase):
         self.assertTrue(result["injectable"])
         self.assertEqual(result["database"], "SQLite")
         self.assertEqual(result["techniques"], ["boolean-based"])
+
+    @patch("sqli_map.subprocess.run", side_effect=subprocess.TimeoutExpired("sqlmap", 300))
+    def test_detection_timeout_is_reported_without_claiming_a_negative_result(self, run):
+        result = run_detection_scan(
+            "sqlmap", None, param="email", request_file="/tmp/request.txt"
+        )
+
+        self.assertEqual(result["status"], "timeout")
+        self.assertIsNone(result["exit_code"])
+        self.assertIn(str(SQLMAP_COMMAND_TIMEOUT_SECONDS), result["error"])
+        self.assertFalse(result["injectable"])
+        self.assertEqual(run.call_args.kwargs["timeout"], SQLMAP_COMMAND_TIMEOUT_SECONDS)
 
     @patch("sqli_map.subprocess.run")
     def test_lists_databases_from_captured_request(self, run):
@@ -137,6 +156,20 @@ class SqlmapReportParsingTests(unittest.TestCase):
         self.assertIn("--risk=2", command)
 
     @patch("sqli_map.subprocess.run")
+    def test_parses_table_rows_without_padding_from_stderr(self, run):
+        run.return_value = SimpleNamespace(
+            stdout="Database: main\n",
+            stderr="+-------+\n|Table  |\n+-------+\n|users  |\n|orders |\n+-------+\n",
+            returncode=0,
+        )
+
+        tables = enumerate_tables(
+            "sqlmap", None, "main", param="email", request_file="/tmp/request.txt"
+        )
+
+        self.assertEqual(tables, ["users", "orders"])
+
+    @patch("sqli_map.subprocess.run")
     def test_empty_table_output_is_reported_as_a_failure(self, run):
         run.return_value = SimpleNamespace(
             stdout="No tables found\n",
@@ -213,6 +246,31 @@ class SqlmapReportParsingTests(unittest.TestCase):
         self.assertEqual(report["profile"]["reason"], "not_confirmed")
         databases.assert_not_called()
         tables.assert_not_called()
+
+    def test_validation_reports_table_timeout_as_partial(self):
+        with (
+            patch(
+                "sqli_map.run_detection_scan",
+                return_value={
+                    "exit_code": 0,
+                    "injectable": True,
+                    "database": "SQLite",
+                },
+            ),
+            patch(
+                "sqli_map.enumerate_tables",
+                side_effect=SqlmapCommandTimeout(
+                    "SQLMap table enumeration timed out after 180 seconds"
+                ),
+            ),
+        ):
+            report = run_validation_scan(
+                "sqlmap", None, "email", request_file="/tmp/request.txt"
+            )
+
+        self.assertEqual(report["profile"]["status"], "partial")
+        self.assertEqual(report["profile"]["errors"][0]["action"], "tables")
+        self.assertIn("timed out", report["profile"]["errors"][0]["message"])
 
 
 if __name__ == "__main__":

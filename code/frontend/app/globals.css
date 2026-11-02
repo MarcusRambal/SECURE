@@ -5,11 +5,31 @@
 }
 
 :root {
-   --color-primario: #ED2100;
-   --color-secundario: #FF725C;
-   --color-terciario: #FF998A;
-   --color-texto: #FFE9E6;
-   --color-fondo: #000000;
+    --color-purple-50: #FBE6FF;
+    --color-purple-100: #F3B8FF;
+    --color-purple-200: #ED91FF;
+    --color-purple-300: #E45CFF;
+    --color-purple-400: #DC2EFF;
+    --color-purple-500: #D500FF;
+    --color-purple-600: #AE00D1;
+    --color-purple-700: #8800A3;
+    --color-purple-800: #620075;
+    --color-purple-900: #3C0047;
+    --color-purple-950: #15001A;
 
+    color-scheme: dark;
+    font-family: Arial, sans-serif;
+    color: var(--color-purple-50);
+    background: var(--color-purple-950);
 }
 
+html {
+    scroll-behavior: smooth;
+}
+
+body {
+    min-width: 320px;
+    min-height: 100vh;
+    overflow-x: hidden;
+    background: var(--color-purple-950);
+}
