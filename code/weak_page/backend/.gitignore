@@ -1,0 +1,6 @@
+node_modules/
+.env
+db/dulceNube.sqlite
+db/dulceNube.sqlite-*
+*.log
+!public/logs/*.log  

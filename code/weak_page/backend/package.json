@@ -1,0 +1,23 @@
+{
+  "name": "dulce-nube-backend",
+  "version": "1.0.0",
+  "description": "Backend deliberadamente vulnerable de la pastelería Dulce Nube. Solo para laboratorio local.",
+  "type": "module",
+  "main": "src/server.js",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js",
+    "seed": "node db/seed.js",
+    "reset": "rm -f db/dulceNube.sqlite && node db/seed.js"
+  },
+  "dependencies": {
+    "bcrypt": "^5.1.1",
+    "better-sqlite3": "^11.3.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.4.0",
+    "jsonwebtoken": "^9.0.2"
+  }
+}

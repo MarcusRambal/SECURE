@@ -1,0 +1,19 @@
+:root {
+  color-scheme: light;
+  --cream: #fff8f1;
+  --paper: #fffdfb;
+  --pink: #f3c9c6;
+  --pink-soft: #fbe9e5;
+  --rose: #bf7775;
+  --brown: #4c3831;
+  --brown-soft: #80665b;
+  --sage: #dce5d8;
+  --gold: #c99b59;
+  --line: #eadfd7;
+  --muted: #887b74;
+  --shadow: 0 16px 42px rgba(89, 58, 45, .09);
+  --radius: 22px;
+  --font-body: "DM Sans", sans-serif;
+  --font-display: "Playfair Display", Georgia, serif;
+  --content: 1180px;
+}

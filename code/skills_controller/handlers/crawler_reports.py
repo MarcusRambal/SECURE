@@ -11,6 +11,7 @@ logger = logging.getLogger("crawler_reports")
 TOOLS_DIR = Path(__file__).resolve().parents[1] / "tools"
 CRAWLER_OUTPUT_DIR = TOOLS_DIR / "crawler" / "outputs"
 DEEP_CRAWLER_OUTPUT_DIR = TOOLS_DIR / "deep_crawler" / "outputs"
+WEAK_PAGE_CRAWLER_OUTPUT_DIR = TOOLS_DIR / "weak_page_crawler" / "outputs"
 _SENSITIVE_NAME = re.compile(
     r"password|passwd|username|user[_-]?name|credential|token|secret|"
     r"api[_-]?key|auth(?:orization|entication)?|bearer|jwt|cookie|"
@@ -120,3 +121,11 @@ def persist_crawler_report(result: dict, arguments: dict) -> dict:
 
 def persist_deep_crawler_report(result: dict, arguments: dict) -> dict:
     return _persist_json_report(result, DEEP_CRAWLER_OUTPUT_DIR, "deep_crawler")
+
+
+def persist_weak_page_crawler_report(result: dict, arguments: dict) -> dict:
+    return _persist_json_report(
+        result,
+        WEAK_PAGE_CRAWLER_OUTPUT_DIR,
+        "weak_page_crawler",
+    )

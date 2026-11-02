@@ -23,6 +23,7 @@ from helpers import (
     extract_urls_from_crawler,
     extract_urls_from_deep_crawler,
     ensure_xss_entry_point_coverage,
+    normalize_weak_page_crawler_report,
     update_recon_context_snapshot,
     write_recon_context_snapshot,
 )
@@ -86,33 +87,63 @@ async def process_recon_task(channel: aio_pika.Channel,target_url: str, attack_t
     #Obtenemos el catálogo de herramientas disponibles en MCP
     catalog = await get_mcp_catalog(channel, tool_timings)
 
-    #Herramienta mandatoria de ejecucion
-    crawler_output = await call_mcp_skill(
-        channel, "crawler", {"target_url": target_url}, tool_timings
-    )
-
-    try:
-        crawler_data = json.loads(crawler_output)
-    except json.JSONDecodeError as error:
-        raise RuntimeError(f"crawler no devolvió JSON válido: {error}") from error
-
-    crawler_urls = extract_urls_from_crawler(crawler_data)
-    discovered_urls = list(crawler_urls)
-
-    logger.info("[RECON] crawler completado urls=%d", len(crawler_urls))
-
     deep_crawler_data = None
     deep_crawler_urls = []
+    is_weak_page = target_url == "http://weak-page:3009"
+    if is_weak_page:
+        weak_page_output = await call_mcp_skill(
+            channel, "weakPageCrawler", {}, tool_timings
+        )
+        try:
+            weak_page_report = json.loads(weak_page_output)
+        except json.JSONDecodeError as error:
+            raise RuntimeError(
+                f"weakPageCrawler no devolvió JSON válido: {error}"
+            ) from error
+        if not isinstance(weak_page_report, dict):
+            raise RuntimeError(
+                "weakPageCrawler devolvió un informe inválido: "
+                "se esperaba un objeto JSON"
+            )
+        if weak_page_report.get("error"):
+            raise RuntimeError(
+                f"weakPageCrawler falló: {weak_page_report['error']}"
+            )
+        crawler_data, deep_crawler_data = normalize_weak_page_crawler_report(
+            weak_page_report, target_url
+        )
+        crawler_urls = extract_urls_from_crawler(crawler_data)
+        deep_crawler_urls = extract_urls_from_deep_crawler(deep_crawler_data)
+        logger.info(
+            "[RECON] weakPageCrawler completado requests=%d urls=%d",
+            len(deep_crawler_data["entry_points"]),
+            len(crawler_urls),
+        )
+    else:
+        # Herramienta mandatoria de ejecucion para objetivos distintos al laboratorio.
+        crawler_output = await call_mcp_skill(
+            channel, "crawler", {"target_url": target_url}, tool_timings
+        )
+        try:
+            crawler_data = json.loads(crawler_output)
+        except json.JSONDecodeError as error:
+            raise RuntimeError(f"crawler no devolvió JSON válido: {error}") from error
+
+        crawler_urls = extract_urls_from_crawler(crawler_data)
+        logger.info("[RECON] crawler completado urls=%d", len(crawler_urls))
+
+    discovered_urls = deduplicate_urls(crawler_urls, deep_crawler_urls)
+
     available_tools = [
         {
             "name": tool.get("name"),
             "description": tool.get("description", ""),
         }
         for tool in catalog
-        if tool.get("name") not in {"crawler", "deep_crawler"}
+        if tool.get("name") not in {"crawler", "deep_crawler", "weakPageCrawler"}
     ]
 
-    if is_sqli or is_xss or is_crypto:
+    if (is_sqli or is_xss or is_crypto) and deep_crawler_data is None:
         logger.info(
             "[RECON] %s: ejecutando deep_crawler con la salida efímera de crawler",
             attack_type_filter,
@@ -226,6 +257,13 @@ async def process_recon_task(channel: aio_pika.Channel,target_url: str, attack_t
         
         parsed_dict = structured_output.model_dump()
         llm_output = parsed_dict
+
+    if is_weak_page:
+        summary = dict(parsed_dict.get("recon_summary", {}))
+        summary["total_requests_captured"] = len(
+            deep_crawler_data["entry_points"]
+        )
+        parsed_dict["recon_summary"] = summary
 
     if is_sqli:
         parsed_dict = ensure_sqli_entry_point_coverage(parsed_dict, deep_crawler_data)
