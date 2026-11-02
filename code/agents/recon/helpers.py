@@ -8,13 +8,13 @@ from typing import List
 from urllib.parse import parse_qsl, urlsplit
 
 from contract_schemas import HighPriorityTarget, ReconPlannerOutput, ReconSummary
-from attack_types import is_crypto_attack, is_sqli_attack, is_xss_attack
+from attack_types import is_crypto_attack, is_sqli_attack, is_xss_attack, is_access_control_attack,
 from weak_page_xss import (
     classify_weak_page_xss_surface,
     is_weak_page_origin,
     is_weak_page_target,
 )
-
+  
 logger = logging.getLogger("recon-agent-worker")
 MAX_XSS_ENTRY_POINT_TARGETS = 20
 
@@ -1043,6 +1043,215 @@ def ensure_crypto_entry_point_coverage(
     return output
 
 
+ACCESS_CONTROL_DEFAULT_TARGETS = (
+    ("/rest/basket/1", "CRITICAL", "IDOR: acceso a la cesta de otro usuario"),
+    ("/api/Users", "HIGH", "Exposición de listado de usuarios"),
+    (
+        "/rest/admin/application-configuration",
+        "HIGH",
+        "Endpoint administrativo expuesto",
+    ),
+)
+
+
+def build_access_control_default_targets(target_url: str) -> list[dict]:
+    """Endpoints BAC mínimos usados cuando el LLM no propone objetivos.
+
+    No dependen del crawling ni del LLM: garantizan que Validate siempre tenga
+    algo que probar (IDOR, exposición de usuarios y admin expuesto).
+    """
+    base_url = str(target_url or "").rstrip("/")
+    targets: list[dict] = []
+    for index, (path, priority, reason) in enumerate(
+        ACCESS_CONTROL_DEFAULT_TARGETS, start=1
+    ):
+        endpoint = f"{base_url}{path}"
+        targets.append(
+            {
+                "target_id": f"target_{index:03d}",
+                "request_id": "",
+                "vulnerability_target": reason,
+                "endpoint": endpoint,
+                "method": "GET",
+                "priority": priority,
+                "request": {"method": "GET", "url": endpoint},
+                "recommended_tool": "access_control_prober",
+            }
+        )
+    return targets
+
+
+def build_access_control_fallback_output(
+    target_url: str,
+    deep_crawler_data: dict | None,
+    discovered_urls: list[str] | None = None,
+) -> dict:
+    """Plan mínimo de control de acceso usando solo requests/endpoints observados."""
+    requests = [
+        request
+        for request in (deep_crawler_data or {}).get("entry_points", [])
+        if isinstance(request, dict) and request.get("url")
+    ]
+    priority_keywords = (
+        "admin", "user", "account", "profile", "basket", "order", "cart",
+        "invoice", "document", "file", "api", "rest",
+    )
+    seen_urls: set[str] = set()
+    targets: list[dict] = []
+
+    def add_target(endpoint: str, method: str, request: dict | None, reason: str) -> None:
+        if endpoint in seen_urls:
+            return
+        seen_urls.add(endpoint)
+        targets.append(
+            {
+                "target_id": f"target_{len(targets) + 1:03d}",
+                "request_id": (request or {}).get("id") or "",
+                "vulnerability_target": reason,
+                "endpoint": endpoint,
+                "method": str(method or "GET").upper(),
+                "request": request
+                or {"method": str(method or "GET").upper(), "url": endpoint},
+                "recommended_tool": "access_control_prober",
+            }
+        )
+
+    # 1. Requests observadas que ya apuntan a objetos concretos.
+    for request in requests:
+        url = request["url"]
+        if _is_id_bearing_url(url):
+            add_target(
+                url,
+                request.get("method", "GET"),
+                {key: request.get(key) for key in ("id", "method", "url", "headers", "body")},
+                "Recurso observado con identificador de objeto; validar IDOR/control de acceso",
+            )
+
+    # 2. Requests observadas de superficies de usuario/admin.
+    for request in requests:
+        url = request["url"]
+        if any(keyword in url.lower() for keyword in priority_keywords):
+            add_target(
+                url,
+                request.get("method", "GET"),
+                {key: request.get(key) for key in ("id", "method", "url", "headers", "body")},
+                "Endpoint observado de usuario/administración; validar control de acceso",
+            )
+        if len(targets) >= 10:
+            break
+
+    # 3. URLs descubiertas relevantes.
+    for url in discovered_urls or []:
+        if any(keyword in url.lower() for keyword in priority_keywords):
+            add_target(
+                url,
+                "GET",
+                None,
+                "Endpoint observado relevante para control de acceso",
+            )
+        if len(targets) >= 10:
+            break
+
+    # 4. Último recurso: endpoints BAC conocidos, para que el prober pruebe
+    #    IDOR, exposición de usuarios y escalada vertical aunque no haya rutas
+    #    observadas con ID.
+    if not targets:
+        targets.extend(build_access_control_default_targets(target_url))
+
+    return {
+        "recon_summary": {
+            "target_url": target_url,
+            "attack_type_filter": "access_control",
+            "total_targets_identified": len(targets),
+            "total_requests_captured": len(requests),
+        },
+        "high_priority_targets": targets,
+    }
+
+
+def _access_control_target_key(target: dict) -> tuple[str, str]:
+    """Clave de deduplicación método + ruta para objetivos de control de acceso."""
+    endpoint = (
+        target.get("endpoint")
+        or (target.get("request") or {}).get("url")
+        or ""
+    )
+    return (
+        str(target.get("method") or "GET").upper(),
+        _normalize_request_path(str(endpoint)),
+    )
+
+
+def _is_useful_access_control_target(target: dict) -> bool:
+    """Descarta rutas SPA (hash) que no representan recursos del backend."""
+    endpoint = str(
+        target.get("endpoint")
+        or (target.get("request") or {}).get("url")
+        or ""
+    )
+    return "#/" not in endpoint and endpoint.strip() != ""
+
+
+def ensure_access_control_target_coverage(
+    data: dict,
+    deep_crawler_data: dict | None,
+    target_url: str,
+    discovered_urls: list[str] | None = None,
+    max_targets: int = 12,
+) -> dict:
+    """Garantiza que los recursos observados con identificador lleguen a validación.
+
+    El LLM de recon puede devolver objetivos genéricos (herramientas de web/sqli)
+    e ignorar ``potential_idor_endpoints``. Para control de acceso los hallazgos
+    deterministas dependen de que las peticiones observadas se ejecuten, así que
+    se fusionan siempre, priorizando los recursos con ID.
+    """
+    output = dict(data)
+    llm_targets = [
+        target
+        for target in output.get("high_priority_targets", [])
+        if isinstance(target, dict)
+    ]
+    fallback = build_access_control_fallback_output(
+        target_url, deep_crawler_data, discovered_urls
+    )
+    observed_targets = fallback["high_priority_targets"]
+
+    merged: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    # 1. Recursos observados con ID (IDOR) primero.
+    # 2. Resto de endpoints observados relevantes.
+    # 3. Objetivos propuestos por el LLM (normalizados a la herramienta correcta).
+    for target in observed_targets + llm_targets:
+        candidate = dict(target)
+        candidate["recommended_tool"] = "access_control_prober"
+        if not _is_useful_access_control_target(candidate):
+            continue
+        key = _access_control_target_key(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(candidate)
+        if len(merged) >= max_targets:
+            break
+
+    if merged:
+        if len(merged) > len(llm_targets):
+            logger.info(
+                "[RECON] Cobertura access_control ampliada: LLM=%d observados=%d final=%d",
+                len(llm_targets),
+                len(observed_targets),
+                len(merged),
+            )
+        output["high_priority_targets"] = merged
+
+    summary = dict(output.get("recon_summary", {}))
+    summary["attack_type_filter"] = "access_control"
+    summary["total_targets_identified"] = len(output.get("high_priority_targets", []))
+    output["recon_summary"] = summary
+    return output
+
+
 def _normalize_request_path(value: str) -> str:
     value = value.strip()
     parts = value.split(maxsplit=1)
@@ -1174,7 +1383,11 @@ def build_recon_output_from_dict(data: dict,target_url: str,attack_type_filter: 
     targets_data = data.get("high_priority_targets", [])
     summary = ReconSummary(
         target_url=summary_data.get("target_url", target_url),
-        attack_type_filter=summary_data.get("attack_type_filter", attack_type_filter),
+        attack_type_filter=(
+            "access_control"
+            if is_access_control_attack(attack_type_filter)
+            else summary_data.get("attack_type_filter", attack_type_filter)
+        ),
         total_targets_identified=summary_data.get(
             "total_targets_identified", len(targets_data)
         ),
@@ -1186,12 +1399,26 @@ def build_recon_output_from_dict(data: dict,target_url: str,attack_type_filter: 
         if not isinstance(target, dict):
             continue
         captured_request = (
-            _find_matching_captured_request(target, deep_crawler_data) if (is_sqli_attack(attack_type_filter) or is_xss_attack(attack_type_filter) or is_crypto_attack(attack_type_filter)) else None
+            _find_matching_captured_request(target, deep_crawler_data)
+            if (
+                is_sqli_attack(attack_type_filter)
+                or is_xss_attack(attack_type_filter)
+                or is_crypto_attack(attack_type_filter)
+                or is_access_control_attack(attack_type_filter)
+            )
+            else None
         )
         request_id = target.get("request_id") or ""
         request = target.get("request") or {}
         method = target.get("method", "GET")
-        default_tool = ("crypto_inspector" if is_crypto_attack(attack_type_filter) else ("dalfox" if is_xss_attack(attack_type_filter) else "sqlmap"))
+        if is_crypto_attack(attack_type_filter):
+            default_tool = "crypto_inspector"
+        elif is_access_control_attack(attack_type_filter):
+            default_tool = "access_control_prober"
+        elif is_xss_attack(attack_type_filter):
+            default_tool = "dalfox"
+        else:
+            default_tool = "sqlmap"
         if captured_request:
             request_id = captured_request.get("id") or request_id
             request = _build_request_from_capture(captured_request)
@@ -1251,6 +1478,7 @@ def build_recon_output_from_dict(data: dict,target_url: str,attack_type_filter: 
                     if is_xss and validation_plan
                     else "dalfox"
                     if is_xss
+                    if is_access_control_attack(attack_type_filter)
                     else target.get("recommended_tool", default_tool)
                 ),
             )
@@ -1265,3 +1493,92 @@ def build_recon_output_from_dict(data: dict,target_url: str,attack_type_filter: 
         len(output.high_priority_targets),
     )
     return output
+
+def _is_id_bearing_url(url: str) -> bool:
+    """Heurística para rutas que referencian un objeto concreto (ID/UUID)."""
+    if not isinstance(url, str) or not url:
+        return False
+    path = urlsplit(url).path
+    return bool(
+        "{id}" in url
+        or re.search(r"/\d+(?:/|$)", path)
+        or re.search(
+            r"/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+            r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}(?:/|$)",
+            path,
+        )
+    )
+
+
+def build_access_control_recon_context(
+    crawler_data: dict,
+    deep_crawler_data: dict | None,
+    discovered_urls: list[str],
+    available_tools: list[dict],
+) -> dict:
+    """Prepara endpoints y requests observadas para planificar pruebas de control de acceso."""
+    entry_points = []
+    for request in (deep_crawler_data or {}).get("entry_points", [])[:50]:
+        if not isinstance(request, dict):
+            continue
+        headers = request.get("headers")
+        headers = headers if isinstance(headers, dict) else {}
+        entry_points.append(
+            {
+                "id": request.get("id"),
+                "method": request.get("method"),
+                "url": request.get("url"),
+                "path": request.get("path"),
+                "resource_type": request.get("resource_type"),
+                "headers": {
+                    name: value
+                    for name, value in headers.items()
+                    if isinstance(name, str)
+                    and name.casefold()
+                    in {"authorization", "cookie", "content-type", "accept", "x-auth-token"}
+                },
+                "body": request.get("body"),
+                "response_status": (request.get("response") or {}).get("status"),
+            }
+        )
+
+    endpoints = [
+        {
+            "template": endpoint.get("template"),
+            "sample_urls": endpoint.get("sample_urls", []),
+            "methods": endpoint.get("methods", []),
+        }
+        for endpoint in crawler_data.get("navigation", {}).get("endpoints", [])[:50]
+        if isinstance(endpoint, dict)
+    ]
+
+    interesting_urls = [
+        url
+        for url in discovered_urls
+        if any(
+            keyword in url.lower()
+            for keyword in (
+                "admin", "user", "account", "profile", "basket", "order",
+                "cart", "invoice", "document", "file", "api", "rest",
+            )
+        )
+    ][:100]
+
+    return {
+        "attack_type_filter": "access_control",
+        "crawler_endpoints": endpoints,
+        "interesting_urls": interesting_urls,
+        "potential_idor_endpoints": [
+            url for url in discovered_urls if _is_id_bearing_url(url)
+        ][:50],
+        "captured_entry_points": entry_points,
+        "deduplicated_urls": discovered_urls[:100],
+        "available_validation_tools": available_tools,
+        "instructions": (
+            "Identifica endpoints y requests observadas que operen sobre objetos de "
+            "usuario (IDs numéricos, UUIDs, baskets, pedidos, perfiles, documentos). "
+            "Prioriza los que permitan comparar el acceso de dos identidades distintas. "
+            "No inventes endpoints ni credenciales: la fase de validación obtiene los "
+            "tokens y ejecuta access_control_prober."
+        ),
+    }

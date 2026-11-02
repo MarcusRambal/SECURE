@@ -1,0 +1,13 @@
+# Usar una imagen ligera de Python
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Instalar las dependencias necesarias
+RUN pip install --no-cache-dir requests
+
+# Copiar el script de la herramienta al contenedor
+COPY tools/access_control_prober.py /app/access_control_prober.py
+
+# El ejecutor efímero pasa los argumentos CLI al entrypoint
+ENTRYPOINT ["python", "/app/access_control_prober.py"]
