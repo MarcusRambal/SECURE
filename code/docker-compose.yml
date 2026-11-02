@@ -95,6 +95,8 @@ services:
         condition: service_completed_successfully
       build-weak-page-crawler:
         condition: service_completed_successfully
+      build-browser-xss-validator:
+        condition: service_completed_successfully
 
   # 4. Orquestador Principal (LLM Router)
   orchestrator:
@@ -200,6 +202,13 @@ services:
       context: ./weak_page
       dockerfile: Dockerfile.weakPageCrawler
     image: local-weak-page-crawler:latest
+    command: ["--help"]
+
+  build-browser-xss-validator:
+    build:
+      context: ./skills_controller
+      dockerfile: docker_images/Dockerfile.browser_xss_validator
+    image: local-browser-xss-validator:latest
     command: ["--help"]
 
   build-sqli-map:

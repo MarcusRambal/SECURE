@@ -5,6 +5,7 @@ from handlers.sqlmap_handler import handle_sqlmap_args
 from handlers.sqliManual_handler import execute_sqli_manual
 from handlers.sqli_map_handler import execute_sqli_map
 from handlers.deep_crawler_handler import handle_deep_crawler_args
+from handlers.browser_xss_handler import handle_browser_xss_args
 
 from handlers.crypto_inspector_handler import prepare_args as handle_crypto_inspector_args
 from tools.testssl_handler import prepare_args as handle_testssl_args
@@ -199,6 +200,37 @@ MCP_SKILLS_REGISTRY = {
         "success_exit_codes": [0],
         "postprocess_result": persist_weak_page_crawler_report,
     },
+    "browserXssValidator": {
+        "mcp_schema": {
+            "name": "browserXssValidator",
+            "description": (
+                "Valida una superficie XSS de navegador a partir de un plan "
+                "declarativo observado por Recon. Limita la navegación y las "
+                "solicitudes al mismo origen; las pruebas almacenadas requieren "
+                "un endpoint de limpieza observado/configurado por Recon."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "target_url": {
+                        "type": "string",
+                        "description": "Origen autorizado del objetivo",
+                    },
+                    "plan": {
+                        "type": "object",
+                        "description": "Plan de navegador derivado del reconocimiento",
+                    },
+                },
+                "required": ["target_url", "plan"],
+                "additionalProperties": False,
+            },
+        },
+        "image": "local-browser-xss-validator:latest",
+        "command_template": "{target_arg}",
+        "timeout": 90,
+        "prepare_args": handle_browser_xss_args,
+        "success_exit_codes": [0],
+    },
     "sqlmap": {
         "mcp_schema": {
             "name": "sqlmap",
@@ -233,7 +265,9 @@ MCP_SKILLS_REGISTRY = {
         "mcp_schema": {
             "name": "dalfox",
             "description": (
-                "Análisis especializado en Cross-Site Scripting (XSS reflejado y DOM). "
+                "Análisis HTTP especializado en Cross-Site Scripting (XSS reflejado). "
+                "No ejecuta la SPA en un navegador ni valida por sí solo flujos "
+                "XSS almacenados de escritura y lectura posterior. "
                 "Para GET: requiere URL con parámetros en la query string (?q=test). "
                 "Para POST: acepta 'request' estructurada con body y headers."
             ),

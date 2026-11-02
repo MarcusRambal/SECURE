@@ -12,6 +12,7 @@ export function renderContact() {
         <div class="field"><label for="contact-message">Tu mensaje</label><textarea id="contact-message" name="message" rows="5" required></textarea><small class="field-error" data-error-for="message"></small></div>
         <button class="button" type="submit">Enviar mensaje</button>
       </form>
+      <p><a href="#/contact-inbox">Abrir bandeja del laboratorio</a></p>
     </section>
     <aside class="info-card"><span class="eyebrow">Pasa a saludar</span><h2>El aroma te guía</h2>
       <div class="info-row"><strong>Dirección</strong><span>Av. de los Dulces 128, Col. Centro<br />Ciudad de México, CDMX</span></div>

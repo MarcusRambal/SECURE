@@ -6,6 +6,17 @@ I3	UNION SQLi (dump de tablas)	GET /products?category=	category='${cat}' → per
 I4	XSS Reflejado	GET /products?q=	Devuelve q en HTML sin escapar	res.json({ q }) o escape en el template	Robo de cookies / token del DOM
 I5	XSS Almacenado	POST /contact → GET /contact	Guarda y sirve HTML crudo	Escape al renderizar
 
+Dalfox valida XSS HTTP, pero no ejecuta la SPA ni verifica el flujo de segundo
+orden. Recon puede generar para estos casos un plan declarativo de validación
+basado en las peticiones y páginas observadas. Validate lo ejecuta mediante la
+herramienta genérica `browserXssValidator`, que confirma I4 solo si Chromium
+observa ejecución JavaScript en el sink DOM. Para I5, envía un único mensaje con
+marca sintética, lo lee en la vista de bandeja y lo elimina al terminar. El
+guard del crawler permanece intacto: las escrituras sintéticas generales siguen
+recibiendo HTTP 422. El permiso de prueba solo acepta el formato de mensaje, la
+lectura del registro marcado y su limpieza, únicamente fuera de
+`NODE_ENV=production`.
+
 
 
 🔐 CRYPTOGRAPHIC FAILURES (5)

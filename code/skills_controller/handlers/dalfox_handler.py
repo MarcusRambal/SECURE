@@ -84,6 +84,19 @@ def handle_dalfox_args(arguments: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[
             logger.info("[DALFOX HANDLER] Skip por recurso estático")
             return args, input_files
 
+        if method not in {"GET", "HEAD", "OPTIONS"} and any(
+            isinstance(name, str)
+            and name.casefold() == "x-weak-page-crawler"
+            and str(value).casefold() == "synthetic-probe"
+            for name, value in headers.items()
+        ):
+            args["skip_execution"] = True
+            args["reason"] = (
+                "Dalfox no repetirá escrituras sintéticas protegidas del "
+                "weak_page para evitar persistir payloads de escaneo."
+            )
+            return args, input_files
+
         extra_flags = ["--format", "json", "--no-color"]
 
         # --- Modo raw HTTP: POST, body, o métodos no-GET ---

@@ -13,6 +13,26 @@ from output_guard import guard_validate_output
 logger = logging.getLogger("validate-agent-worker")
 
 
+def simplify_recon_targets(raw_targets: list) -> list[dict]:
+    """Keep validation metadata while projecting Recon targets for Validate."""
+    simplified_targets = []
+    for item in raw_targets:
+        if not isinstance(item, dict):
+            continue
+        simplified_targets.append(
+            {
+                "target_id": item.get("target_id"),
+                "request_id": item.get("request_id"),
+                "endpoint": item.get("endpoint"),
+                "method": item.get("method"),
+                "recommended_tool": item.get("recommended_tool"),
+                "request": item.get("request", {}),
+                "validation_plan": item.get("validation_plan"),
+            }
+        )
+    return simplified_targets
+
+
 async def start_validate_worker():
     """Worker asíncrono que procesa solicitudes en validate_queue."""
     while True:
@@ -43,16 +63,7 @@ async def start_validate_worker():
                                 
                                 raw_targets = recon_data.get("high_priority_targets", [])
 
-                                simplified_targets = []
-                                for item in raw_targets:
-                                    simplified_targets.append({
-                                        "target_id": item.get("target_id"),
-                                        "request_id": item.get("request_id"),
-                                        "endpoint": item.get("endpoint"),
-                                        "method": item.get("method"),
-                                        "recommended_tool": item.get("recommended_tool"),
-                                        "request": item.get("request", {})  # Petición estructurada para SQLMap/Skills
-                                    })
+                                simplified_targets = simplify_recon_targets(raw_targets)
 
                                 logger.info(
                                     f"📥 [VALIDATE-AGENT] Tarea de validación recibida para {target_url} "

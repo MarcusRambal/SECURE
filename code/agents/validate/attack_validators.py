@@ -360,7 +360,7 @@ class SqliValidationStrategy(ValidationStrategy):
 
 
 class XssValidationStrategy(ValidationStrategy):
-    """Execute Dalfox per captured endpoint and expose only normalized evidence."""
+    """Run a declared browser proof or fall back to Dalfox per captured endpoint."""
 
     async def execute(
         self,
@@ -378,6 +378,7 @@ class XssValidationStrategy(ValidationStrategy):
             endpoint_url = str(request.get("url") or target["url"])
             endpoint_url = urljoin(f"{target_url.rstrip('/')}/", endpoint_url)
             safe_endpoint = sanitize_endpoint_for_context(endpoint_url)
+            method = str(request.get("method") or target.get("method") or "GET").upper()
 
             if not is_same_origin(target_url, endpoint_url):
                 evidence.pre_executed_context.append(
@@ -394,6 +395,93 @@ class XssValidationStrategy(ValidationStrategy):
                 )
                 continue
 
+            validation_plan = target.get("validation_plan")
+            if isinstance(validation_plan, dict):
+                raw_report = await call_mcp_skill(
+                    channel,
+                    "browserXssValidator",
+                    {
+                        "target_url": target_url,
+                        "plan": validation_plan,
+                    },
+                    tool_timings,
+                )
+                try:
+                    report = json.loads(raw_report)
+                except (TypeError, json.JSONDecodeError):
+                    report = {}
+                if not isinstance(report, dict):
+                    report = {}
+                outcome = str(report.get("outcome") or "").upper()
+                plan_mode = validation_plan.get("mode")
+                report_matches_target = (
+                    report.get("tool") == "browserXssValidator"
+                    and report.get("target") == target_url.rstrip("/")
+                    and report.get("mode") == plan_mode
+                )
+                if report_matches_target and outcome == "VULNERABLE" and (
+                    plan_mode != "stored_dom"
+                    or report.get("cleanup") == "success"
+                ):
+                    status = "VERIFIED"
+                elif report_matches_target and outcome == "NO_XSS" and (
+                    plan_mode != "stored_dom"
+                    or report.get("cleanup") == "success"
+                ):
+                    status = "NO_FINDINGS"
+                else:
+                    status = "INCONCLUSIVE"
+                plan_request = validation_plan.get("request")
+                plan_request = plan_request if isinstance(plan_request, dict) else {}
+                result_endpoint = urljoin(
+                    f"{target_url.rstrip('/')}/",
+                    str(plan_request.get("path") or ""),
+                )
+                parameter = str(validation_plan.get("parameter") or "") or None
+                result_evidence = (
+                    str(report.get("evidence") or "")[:1000]
+                    if report_matches_target
+                    else "El validador no devolvió un resultado coherente con el objetivo solicitado."
+                )
+                if not result_evidence:
+                    result_evidence = (
+                        "El validador de navegador no devolvió evidencia interpretable."
+                    )
+                normalized = {
+                    "tool": "browserXssValidator",
+                    "status": status,
+                    "target_id": target.get("target_id"),
+                    "request_id": target.get("request_id"),
+                    "endpoint": sanitize_endpoint_for_context(result_endpoint),
+                    "method": str(plan_request.get("method") or method).upper(),
+                    "parameter": parameter,
+                    "evidence": result_evidence,
+                    "mode": plan_mode,
+                    "cleanup": report.get("cleanup"),
+                    "stage": report.get("stage"),
+                    "checks": report.get("checks"),
+                }
+                evidence.pre_executed_context.append(normalized)
+                evidence.tool_diagnostics.append(
+                    {
+                        **normalized,
+                        "raw_output": raw_report[:20_000],
+                    }
+                )
+                command = f"browserXssValidator --target-url {target_url} --plan"
+                evidence.executed_commands.append(
+                    {
+                        "tool": "browserXssValidator",
+                        "command": command,
+                        "target_id": target.get("target_id"),
+                        "request_id": target.get("request_id"),
+                        "endpoint": sanitize_endpoint_for_context(result_endpoint),
+                        "method": str(plan_request.get("method") or method).upper(),
+                        "output": json.dumps(normalized, ensure_ascii=False),
+                    }
+                )
+                continue
+
             raw_output = await call_mcp_skill(
                 channel,
                 "dalfox",
@@ -401,7 +489,6 @@ class XssValidationStrategy(ValidationStrategy):
                 tool_timings,
             )
             result = parse_dalfox_output(raw_output)
-            method = str(request.get("method") or target.get("method") or "GET").upper()
             normalized_output = {
                 "status": result.status,
                 "findings": [
@@ -472,8 +559,71 @@ class XssValidationStrategy(ValidationStrategy):
             )
         return evidence
 
+    def build_deterministic_output(
+        self,
+        evidence: ValidationEvidence,
+        target_url: str,
+        started_at: str,
+    ) -> ValidateOutput | None:
+        if not evidence.pre_executed_context or not all(
+            item.get("tool") == "browserXssValidator"
+            for item in evidence.pre_executed_context
+        ):
+            return None
+
+        finished_at = datetime.now(timezone.utc).isoformat()
+        vulnerabilities = []
+        unconfirmed_findings = []
+        for item in evidence.pre_executed_context:
+            if item.get("status") == "VERIFIED":
+                vulnerabilities.append(
+                    Vulnerability(
+                        type=(
+                            "Stored Cross-Site Scripting (XSS)"
+                            if item.get("mode") == "stored_dom"
+                            else "Reflected DOM Cross-Site Scripting (XSS)"
+                        ),
+                        severity="HIGH",
+                        endpoint=item["endpoint"],
+                        parameter=item.get("parameter"),
+                        method=item.get("method"),
+                        evidence=item.get("evidence") or "Chromium verified JavaScript execution.",
+                        verification_steps=(
+                            "browserXssValidator injected a unique synthetic proof marker "
+                            "and observed its execution in the observed DOM flow."
+                        ),
+                        reproducible_command=next(
+                            execution["command"]
+                            for execution in evidence.executed_commands
+                            if execution.get("target_id") == item.get("target_id")
+                        ),
+                        confidence="HIGH",
+                        tools_used=["browserXssValidator"],
+                    )
+                )
+            elif item.get("status") == "INCONCLUSIVE":
+                unconfirmed_findings.append(
+                    {
+                        "type": "Cross-Site Scripting (XSS)",
+                        "status": "INCONCLUSIVE",
+                        "target_id": item.get("target_id"),
+                        "request_id": item.get("request_id"),
+                        "endpoint": item.get("endpoint"),
+                        "method": item.get("method"),
+                        "reason": item.get("evidence"),
+                        "tools_used": ["browserXssValidator"],
+                    }
+                )
+        return ValidateOutput(
+            target_url=target_url,
+            vulnerabilities=vulnerabilities,
+            unconfirmed_findings=unconfirmed_findings,
+            scan_started_at=started_at,
+            scan_finished_at=finished_at,
+        )
+
     def build_validation_context(self, evidence: ValidationEvidence) -> dict:
-        return {"dalfox_results": evidence.pre_executed_context}
+        return {"xss_validation_results": evidence.pre_executed_context}
 
     def merge_findings(
         self,
@@ -484,15 +634,104 @@ class XssValidationStrategy(ValidationStrategy):
         merged = merge_verified_dalfox_findings(
             parsed_output, evidence.executed_commands
         )
+        vulnerabilities = list(merged.get("vulnerabilities", []))
+        unconfirmed = list(merged.get("unconfirmed_findings", []))
+        for item in evidence.pre_executed_context:
+            if item.get("tool") != "browserXssValidator":
+                continue
+            if item.get("status") == "INCONCLUSIVE":
+                unconfirmed.append(
+                    {
+                        "type": "Cross-Site Scripting (XSS)",
+                        "status": "INCONCLUSIVE",
+                        "target_id": item.get("target_id"),
+                        "request_id": item.get("request_id"),
+                        "endpoint": item.get("endpoint"),
+                        "method": item.get("method"),
+                        "reason": item.get("evidence"),
+                        "tools_used": ["browserXssValidator"],
+                    }
+                )
+                continue
+            if item.get("status") != "VERIFIED":
+                continue
+
+            execution = next(
+                (
+                    command
+                    for command in evidence.executed_commands
+                    if command.get("tool") == "browserXssValidator"
+                    and command.get("target_id") == item.get("target_id")
+                ),
+                {},
+            )
+            finding_type = (
+                "Stored Cross-Site Scripting (XSS)"
+                if item.get("mode") == "stored_dom"
+                else "Reflected DOM Cross-Site Scripting (XSS)"
+            )
+            matching = next(
+                (
+                    vulnerability
+                    for vulnerability in vulnerabilities
+                    if isinstance(vulnerability, dict)
+                    and "xss" in str(vulnerability.get("type") or "").casefold()
+                    and _endpoint_key(str(vulnerability.get("endpoint") or ""))
+                    == _endpoint_key(str(item.get("endpoint") or ""))
+                    and str(vulnerability.get("parameter") or "").casefold()
+                    == str(item.get("parameter") or "").casefold()
+                    and str(vulnerability.get("method") or "").upper()
+                    == str(item.get("method") or "").upper()
+                ),
+                None,
+            )
+            if matching is not None:
+                tools_used = matching.get("tools_used")
+                if isinstance(tools_used, str):
+                    tools_used = [tools_used]
+                elif not isinstance(tools_used, list):
+                    tools_used = []
+                if "browserXssValidator" not in tools_used:
+                    tools_used.append("browserXssValidator")
+                matching["tools_used"] = tools_used
+                continue
+
+            vulnerabilities.append(
+                {
+                    "type": finding_type,
+                    "severity": "HIGH",
+                    "endpoint": item.get("endpoint"),
+                    "parameter": item.get("parameter"),
+                    "method": item.get("method"),
+                    "evidence": item.get("evidence")
+                    or "Chromium observed execution of the synthetic proof.",
+                    "verification_steps": (
+                        "browserXssValidator injected a unique synthetic proof marker "
+                        "and observed its execution in the observed DOM flow."
+                    ),
+                    "reproducible_command": execution.get("command", ""),
+                    "confidence": "HIGH",
+                    "tools_used": ["browserXssValidator"],
+                }
+            )
+
+        merged["vulnerabilities"] = vulnerabilities
+        if unconfirmed:
+            merged["unconfirmed_findings"] = unconfirmed
         logger.info(
-            "[VALIDATE] task_id=%s verified_dalfox_findings=%d",
+        "[VALIDATE] task_id=%s verified_xss_findings=%d",
             task_id,
             sum(
                 1
                 for item in evidence.pre_executed_context
                 for finding in item.get("findings", [])
                 if finding.get("verification") == "verified"
-            ),
+        )
+        + sum(
+            item.get("tool") == "browserXssValidator"
+            and item.get("status") == "VERIFIED"
+            for item in evidence.pre_executed_context
+        ),
         )
         return merged
 

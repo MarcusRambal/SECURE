@@ -7,6 +7,7 @@ const routes = [
   { pattern: /^\/checkout\/?$/, key: "checkout", title: "Tu pedido" },
   { pattern: /^\/order-confirmation\/([^/]+)\/?$/, key: "orderConfirmation", title: "Pedido confirmado" },
   { pattern: /^\/contact\/?$/, key: "contact", title: "Contacto" },
+  { pattern: /^\/contact-inbox\/?$/, key: "contactInbox", title: "Bandeja de contacto" },
   { pattern: /^\/about\/?$/, key: "about", title: "Sobre nosotras" },
   { pattern: /^\/scoreboard\/?$/, key: "scoreboard", title: "Panel de vulnerabilidades" }
 ];

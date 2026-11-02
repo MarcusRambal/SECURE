@@ -1,0 +1,10 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN pip install --no-cache-dir playwright \
+    && playwright install chromium --with-deps
+
+COPY tools/browser_xss_validator/browser_xss_validator.py /app/browser_xss_validator.py
+
+ENTRYPOINT ["python", "/app/browser_xss_validator.py"]
