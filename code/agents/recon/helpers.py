@@ -66,6 +66,150 @@ def extract_urls_from_crawler(crawler_data: dict) -> list[str]:
     return deduplicate_urls(request_urls, route_urls, endpoint_urls, state_urls)
 
 
+def normalize_weak_page_crawler_report(
+    report: dict, target_url: str
+) -> tuple[dict, dict]:
+    """Adapta el informe del laboratorio a los contratos crawler/deep_crawler de Recon."""
+    requests = report.get("requests", [])
+    if not isinstance(requests, list):
+        raise ValueError("weakPageCrawler devolvió una lista de peticiones inválida")
+
+    captured_requests = []
+    entry_points = []
+    for request in requests:
+        if not isinstance(request, dict) or not isinstance(request.get("url"), str):
+            continue
+
+        request_body = request.get("request_body")
+        if isinstance(request_body, dict) and request_body.get("captured"):
+            body = request_body.get("data", request_body.get("text"))
+        else:
+            body = None
+        url_parts = urlsplit(request["url"])
+        query_parameters = request.get("query_values")
+        if not isinstance(query_parameters, dict):
+            query_parameters = {}
+            for name, value in parse_qsl(url_parts.query, keep_blank_values=True):
+                if name in query_parameters:
+                    previous = query_parameters[name]
+                    query_parameters[name] = (
+                        [*previous, value]
+                        if isinstance(previous, list)
+                        else [previous, value]
+                    )
+                else:
+                    query_parameters[name] = value
+        headers = request.get("request_headers")
+        headers = (
+            {str(name).lower(): value for name, value in headers.items()}
+            if isinstance(headers, dict)
+            else {}
+        )
+        normalized_request = {
+            "id": request.get("id") or f"weak_page_{len(entry_points) + 1:04d}",
+            "method": str(request.get("method") or "GET").upper(),
+            "url": request["url"],
+            "path": url_parts.path
+            + (f"?{url_parts.query}" if url_parts.query else ""),
+            "query_parameters": query_parameters,
+            "resource_type": request.get("resource_type"),
+            "headers": headers,
+            "body": body,
+            "response": request.get("response"),
+        }
+        entry_points.append(normalized_request)
+        captured_requests.append(
+            {
+                **normalized_request,
+                "request_headers": headers,
+                "request_body": request_body,
+            }
+        )
+
+    endpoints_by_path: dict[str, dict] = {}
+    for endpoint in report.get("observed_endpoints", []):
+        if not isinstance(endpoint, dict) or not isinstance(endpoint.get("path"), str):
+            continue
+        path = endpoint["path"]
+        normalized_endpoint = endpoints_by_path.setdefault(
+            path,
+            {
+                "template": f"{target_url}{path}",
+                "sample_urls": [],
+                "methods": [],
+            },
+        )
+        method = endpoint.get("method")
+        if isinstance(method, str) and method not in normalized_endpoint["methods"]:
+            normalized_endpoint["methods"].append(method)
+        for request in entry_points:
+            if urlsplit(request["url"]).path == path and request["url"] not in normalized_endpoint["sample_urls"]:
+                normalized_endpoint["sample_urls"].append(request["url"])
+
+    for endpoint in report.get("api_routes_from_source", []):
+        if not isinstance(endpoint, dict) or not isinstance(endpoint.get("path"), str):
+            continue
+        path = endpoint["path"]
+        normalized_endpoint = endpoints_by_path.setdefault(
+            path,
+            {
+                "template": f"{target_url}{path}",
+                "sample_urls": [],
+                "methods": [],
+            },
+        )
+        method = endpoint.get("method")
+        if isinstance(method, str) and method not in normalized_endpoint["methods"]:
+            normalized_endpoint["methods"].append(method)
+
+    frontend = report.get("frontend_routes", {})
+    declared_routes = frontend.get("declared", []) if isinstance(frontend, dict) else []
+    visited_routes = frontend.get("visited", []) if isinstance(frontend, dict) else []
+    states = [
+        {"url": route["url"], "path": route.get("path")}
+        for route in visited_routes
+        if isinstance(route, dict) and isinstance(route.get("url"), str)
+    ] if isinstance(visited_routes, list) else []
+    form_structures = [
+        {
+            "route_url": route["url"],
+            "forms": route.get("forms", []),
+        }
+        for route in visited_routes
+        if isinstance(route, dict)
+        and isinstance(route.get("url"), str)
+        and route.get("forms")
+    ] if isinstance(visited_routes, list) else []
+
+    for route in declared_routes if isinstance(declared_routes, list) else []:
+        if not isinstance(route, dict) or not isinstance(route.get("template"), str):
+            continue
+        route_url = f"{target_url}/#{route['template']}"
+        if not any(state["url"] == route_url for state in states):
+            states.append({"url": route_url, "path": route["template"]})
+
+    crawler_data = {
+        **report,
+        "target": {"requested_url": target_url},
+        "captured_requests": captured_requests,
+        "discovered_forms_structure": form_structures,
+        "navigation": {
+            "endpoints": list(endpoints_by_path.values()),
+            "states": states,
+        },
+    }
+    deep_crawler_data = {
+        "target": target_url,
+        "summary": {
+            "unique_entry_point_count": len(entry_points),
+        },
+        "entry_points": entry_points,
+        "endpoints": [],
+        "forms": report.get("interactions", []),
+    }
+    return crawler_data, deep_crawler_data
+
+
 def extract_urls_from_deep_crawler(deep_crawler_data: dict) -> list[str]:
     """Obtiene URLs y entry points observados por el crawler profundo."""
     endpoint_urls = [
@@ -79,6 +223,35 @@ def extract_urls_from_deep_crawler(deep_crawler_data: dict) -> list[str]:
         if isinstance(request, dict)
     ]
     return deduplicate_urls(endpoint_urls, request_urls)
+
+
+def _request_query_parameters(request: dict) -> dict[str, object]:
+    parameters = request.get("query_parameters")
+    if isinstance(parameters, dict):
+        return parameters
+    try:
+        pairs = parse_qsl(
+            urlsplit(str(request.get("url") or "")).query,
+            keep_blank_values=True,
+        )
+    except ValueError:
+        return {}
+    values: dict[str, object] = {}
+    for name, value in pairs:
+        if name in values:
+            previous = values[name]
+            values[name] = (
+                [*previous, value] if isinstance(previous, list) else [previous, value]
+            )
+        else:
+            values[name] = value
+    return values
+
+
+def _request_has_sqli_input(request: dict) -> bool:
+    return request.get("body") is not None or bool(
+        _request_query_parameters(request)
+    )
 
 
 def _has_xss_input(endpoint: str, request: dict) -> bool:
@@ -180,9 +353,10 @@ def build_sqli_recon_context(crawler_data: dict, deep_crawler_data: dict | None 
         requests = (deep_crawler_data or {}).get("entry_points", [])
         sql_inputs = []
         for request in requests:
-            if not isinstance(request, dict) or request.get("body") is None:
+            if not isinstance(request, dict) or not _request_has_sqli_input(request):
                 continue
-            headers = request.get("headers", {})
+            headers = request.get("headers")
+            headers = headers if isinstance(headers, dict) else {}
             sql_inputs.append({
                 "id": request.get("id"),
                 "method": request.get("method"),
@@ -197,6 +371,7 @@ def build_sqli_recon_context(crawler_data: dict, deep_crawler_data: dict | None 
                     }
                 },
                 "body": request.get("body"),
+                "query_parameters": _request_query_parameters(request),
             })
         return {
             "attack_type_filter": "sqli",
@@ -399,8 +574,12 @@ def build_sqli_fallback_output(target_url: str,deep_crawler_data: dict | None,) 
     """Construye un plan SQLi minimo con peticiones observadas si el LLM no devuelve JSON."""
     requests = (deep_crawler_data or {}).get("entry_points", [])
     targets = []
-    for request in requests[:10]:
-        if not isinstance(request, dict) or not request.get("url"):
+    for request in requests:
+        if (
+            not isinstance(request, dict)
+            or not request.get("url")
+            or not _request_has_sqli_input(request)
+        ):
             continue
         targets.append({
             "target_id": f"target_{len(targets) + 1:03d}",
@@ -414,6 +593,8 @@ def build_sqli_fallback_output(target_url: str,deep_crawler_data: dict | None,) 
             },
             "recommended_tool": "sqlmap",
         })
+        if len(targets) >= 10:
+            break
     return {
         "recon_summary": {
             "target_url": target_url,
@@ -435,7 +616,11 @@ def ensure_sqli_entry_point_coverage(data: dict, deep_crawler_data: dict | None)
     requests = [
         request
         for request in (deep_crawler_data or {}).get("entry_points", [])
-        if isinstance(request, dict) and request.get("url") and request.get("body") is not None
+        if (
+            isinstance(request, dict)
+            and request.get("url")
+            and _request_has_sqli_input(request)
+        )
     ]
     covered_request_ids = {
         request_id

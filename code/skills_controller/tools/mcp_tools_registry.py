@@ -178,11 +178,14 @@ MCP_SKILLS_REGISTRY = {
         "mcp_schema": {
             "name": "weakPageCrawler",
             "description": (
-                "Crawler pasivo, limitado a la app propia weak_page en "
+                "Crawler activo con datos exclusivamente sintéticos, limitado a la app "
+                "propia weak_page en "
                 "http://weak-page:3009. Enumera desde el código fuente las rutas SPA "
-                "y endpoints Express, visita rutas de lectura del mismo origen y "
-                "guarda peticiones, métodos, cabeceras y respuestas. No envía "
-                "formularios, no ejecuta acciones de escritura y no acepta otros hosts."
+                "y endpoints Express, visita rutas del mismo origen, completa todos "
+                "los formularios visibles y registra las peticiones y respuestas. "
+                "Las escrituras llevan una marca de prueba: el backend las rechaza "
+                "con HTTP 422 antes de persistirlas; el login usa credenciales "
+                "sintéticas inválidas. Redacta campos sensibles y no acepta otros hosts."
             ),
             "inputSchema": {
                 "type": "object",
