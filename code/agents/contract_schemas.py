@@ -26,6 +26,10 @@ class HighPriorityTarget(BaseModel):
     )
     endpoint: str = Field(..., description="URL observada del endpoint")
     method: str = Field(..., description="Método HTTP observado")
+    priority: str = Field(
+        default="HIGH",
+        description="Prioridad sugerida del objetivo (CRITICAL, HIGH, MEDIUM, LOW, INFO)",
+    )
     request: Optional[Dict[str, Any]] = Field(
         default=None, description="Detalles de la solicitud capturada, si existen"
     )

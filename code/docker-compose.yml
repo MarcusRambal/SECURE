@@ -91,6 +91,8 @@ services:
         condition: service_healthy
       build-sqli-map:
         condition: service_completed_successfully
+      build-access-control-prober:
+        condition: service_completed_successfully
       build-jwt:
         condition: service_completed_successfully
       build-weak-page-crawler:
@@ -221,6 +223,13 @@ services:
       context: ./skills_controller
       dockerfile: docker_images/Dockerfile.jwt
     image: local-jwt-tool:latest
+    command: ["--help"]
+
+  build-access-control-prober:
+    build:
+      context: ./skills_controller
+      dockerfile: docker_images/Dockerfile.access_control_prober
+    image: local-access-control-prober:latest
     command: ["--help"]
 
   # 8. Entorno Vulnerable: WebGoat

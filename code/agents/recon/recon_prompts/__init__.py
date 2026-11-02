@@ -2,6 +2,7 @@ from collections.abc import Callable
 
 from attack_types import normalize_attack_type
 from .common import build_prompt as build_common_prompt
+from .access_control import build_prompt as build_access_control_prompt
 from .crypto_inspector import build_prompt as build_crypto_prompt
 from .sqli import build_prompt as build_sqli_prompt
 from .xss import build_prompt as build_xss_prompt
@@ -18,6 +19,7 @@ PROMPT_BUILDERS: dict[str, PromptBuilder] = {
     "sqli": build_sqli_prompt,
     "xss": build_xss_prompt,
     "crypto_inspector": build_crypto_prompt,
+    "access_control": build_access_control_prompt,
     "jwt": build_jwt_prompt,
 }
 

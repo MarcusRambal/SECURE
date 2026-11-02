@@ -5,8 +5,10 @@ from handlers.sqlmap_handler import handle_sqlmap_args
 from handlers.sqliManual_handler import execute_sqli_manual
 from handlers.sqli_map_handler import execute_sqli_map
 from handlers.deep_crawler_handler import handle_deep_crawler_args
-
 from handlers.crypto_inspector_handler import prepare_args as handle_crypto_inspector_args
+
+
+from tools.access_control_prober_handler import prepare_args as handle_access_control_prober_args
 from tools.testssl_handler import prepare_args as handle_testssl_args
 from tools.hydra_handler import prepare_args as handle_hydra_args
 from tools.ffuf_handler import prepare_args as handle_ffuf_args
@@ -492,6 +494,52 @@ MCP_SKILLS_REGISTRY = {
         "prepare_args": handle_crypto_inspector_args,
         "success_exit_codes": [0],
     },
-  
-  
+# =========================================================================
+    # Access Control
+    "access_control_prober": {
+        "mcp_schema": {
+            "name": "access_control_prober",
+            "description": (
+                "Detecta Broken Access Control mediante explotación activa: IDOR, "
+                "escalada vertical de privilegios, bypass de 403 y archivos o "
+                "directorios sensibles expuestos. Requiere token de atacante y, "
+                "opcionalmente, token de víctima."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "base_url": {
+                        "type": "string",
+                        "description": "URL base de la aplicación (ej. http://juice-shop:3000)",
+                    },
+                    "endpoint": {
+                        "type": "string",
+                        "description": "Ruta o URL del recurso a probar (ej. /rest/basket/{id})",
+                    },
+                    "victim_id": {
+                        "type": "string",
+                        "description": "ID del recurso que pertenece a la víctima (ej. 1)",
+                    },
+                    "token_victim": {
+                        "type": "string",
+                        "description": "Token JWT de la víctima (opcional, para comparar respuestas)",
+                    },
+                    "token_attacker": {
+                        "type": "string",
+                        "description": "Token JWT del atacante con privilegios normales",
+                    },
+                    "email_target": {
+                        "type": "string",
+                        "description": "Email del usuario objetivo para la prueba de contraseñas débiles (opcional)",
+                    },
+                },
+                "required": ["base_url", "endpoint", "victim_id", "token_attacker"],
+            },
+        },
+        "image": "local-access-control-prober:latest",
+        "command_template": "{args}",
+        "timeout": 300,
+        "prepare_args": handle_access_control_prober_args,
+        "success_exit_codes": [0],
+    },
 }
