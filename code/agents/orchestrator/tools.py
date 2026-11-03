@@ -4,16 +4,30 @@ import uuid
 import asyncio
 import logging
 import time
+import sys
 from datetime import datetime, timezone
+from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 import aio_pika
 from pydantic import BaseModel, Field
 from langchain_core.tools import StructuredTool
 
+from attack_types import is_crypto_attack, is_jwt_attack
+
+_MODULE_DIR = Path(__file__).resolve().parent
+_AGENTS_DIR = (
+    _MODULE_DIR.parent
+    if (_MODULE_DIR.parent / "recon").is_dir()
+    else _MODULE_DIR
+)
+if str(_AGENTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_AGENTS_DIR))
+
+from recon.main import build_recon_output
+
 logger = logging.getLogger("orchestrator-tools")
 
 RABBITMQ_URL = os.getenv("RABBITMQ_URL")
-RECON_QUEUE = "recon_queue"
 VALIDATE_QUEUE = "validate_queue"
 REPORTER_QUEUE = "reporter_queue"
 LOG_RPC_PAYLOADS = os.getenv("LOG_RPC_PAYLOADS", "false").strip().lower() in {
@@ -135,42 +149,55 @@ async def _send_rpc_request(channel: aio_pika.Channel, queue_name: str, payload:
 def create_orchestrator_tools(channel: aio_pika.Channel) -> list[StructuredTool]:
     """Crea e inyecta el canal de RabbitMQ persistente en las herramientas de LangChain."""
 
-    async def call_recon_agent(task_id: str) -> str:
+    async def prepare_recon_targets(task_id: str) -> str:
         state = TASK_STATE.get(task_id)
         if not state:
             return f"Error: No existe estado activo para task_id '{task_id}'."
 
         stage_started = time.perf_counter()
         target_url = state["target_url"]
-        logger.info(f"📤 [ORQUESTADOR -> RECON] Escaneando {target_url}...")
+        logger.info(
+            "[ORQUESTADOR] Preparando localmente los objetivos de %s", target_url
+        )
         await publish_scan_event(
             channel,
             task_id,
             "AGENT_THOUGHT",
             "recon",
-            f"Iniciando reconocimiento de {target_url}.",
+            f"Preparando objetivos de validación para {target_url}.",
         )
 
-        recon_payload = {
-            "target_url": target_url,
-            "attack_type": state.get("attack_type", "full"),
-        }
-        if state.get("scraping_report") is not None:
-            recon_payload["scraping_report"] = state["scraping_report"]
-        rpc_response = await _send_rpc_request(
-            channel, RECON_QUEUE, recon_payload
-        )
+        try:
+            recon_output = build_recon_output(
+                target_url,
+                state.get("attack_type", "full"),
+                scraping_report=state.get("scraping_report"),
+            )
+            stage_result = {
+                "status": "SUCCESS",
+                "used_fallback": False,
+                "recovery_mode": "clean",
+                "recon_data": recon_output.model_dump(),
+                "tool_timings": [],
+            }
+        except Exception as error:
+            logger.exception(
+                "[ORQUESTADOR] Falló la preparación local de objetivos task_id=%s",
+                task_id,
+            )
+            stage_result = {"status": "ERROR", "error": str(error)}
+
         stage_duration_ms = round((time.perf_counter() - stage_started) * 1000, 2)
-        rpc_timing = rpc_response.get("_rpc_timing", {})
         state["timings"]["stages"]["recon"] = {
-            **rpc_timing,
             "durationMs": stage_duration_ms,
-            "tools": rpc_response.get("tool_timings", []),
+            "tools": stage_result.get("tool_timings", []),
         }
 
-        # Si el RPC falla o devuelve ERROR, marcar la tarea como fallida
-        if not rpc_response or rpc_response.get("status") == "ERROR":
-            error_msg = (rpc_response or {}).get("error", "Sin respuesta del Recon Agent")
+        # Si la preparación local falla, detener la validación con error explícito.
+        if not stage_result or stage_result.get("status") == "ERROR":
+            error_msg = (stage_result or {}).get(
+                "error", "No se pudieron preparar los objetivos de validación"
+            )
             state["status"] = "FAILED"
             state["error_stage"] = "recon"
             state["error_message"] = error_msg
@@ -191,16 +218,16 @@ def create_orchestrator_tools(channel: aio_pika.Channel) -> list[StructuredTool]
                 task_id,
                 "TOOL_EXECUTION",
                 "recon",
-                f"El agente de reconocimiento falló: {error_msg}",
+                f"Falló la preparación de objetivos: {error_msg}",
                 duration_ms=stage_duration_ms,
                 details={
                     "status": "ERROR",
                     "timing": state["timings"]["stages"]["recon"],
                 },
             )
-            return f"Fallo en Recon Agent: {error_msg}"
+            return f"Fallo en la preparación de objetivos: {error_msg}"
 
-        recon_data = rpc_response.get("recon_data") or {
+        recon_data = stage_result.get("recon_data") or {
             "recon_summary": {
                 "target_url": target_url,
                 "attack_type_filter": state.get("attack_type", "full"),
@@ -209,9 +236,9 @@ def create_orchestrator_tools(channel: aio_pika.Channel) -> list[StructuredTool]
             },
             "high_priority_targets": [],
         }
-        used_fallback = rpc_response.get("used_fallback", False)
-        recovery_mode = rpc_response.get("recovery_mode", "clean")
-        status = rpc_response.get("status", "SUCCESS")
+        used_fallback = stage_result.get("used_fallback", False)
+        recovery_mode = stage_result.get("recovery_mode", "clean")
+        status = stage_result.get("status", "SUCCESS")
 
         state["recon_data"] = recon_data
         state["recon_used_fallback"] = used_fallback
@@ -220,8 +247,8 @@ def create_orchestrator_tools(channel: aio_pika.Channel) -> list[StructuredTool]
         # Trazabilidad explícita: "recovered" también cuenta como éxito limpio
         if recovery_mode == "recovered":
             logger.info(
-                f"♻️ [ORQUESTADOR] Recon recuperado de error de tool calling "
-                f"(JSON válido). Se trata como éxito limpio."
+                "[ORQUESTADOR] La preparación de objetivos se recuperó "
+                "de un error de tool calling."
             )
 
         if status == "PARTIAL":
@@ -265,7 +292,7 @@ def create_orchestrator_tools(channel: aio_pika.Channel) -> list[StructuredTool]
             task_id,
             "TOOL_EXECUTION",
             "recon",
-            f"Reconocimiento completado. Endpoints identificados: {endpoints_count}.",
+            f"Preparación de objetivos completada. Endpoints: {endpoints_count}.",
             duration_ms=stage_duration_ms,
             details={
                 "status": status,
@@ -275,7 +302,7 @@ def create_orchestrator_tools(channel: aio_pika.Channel) -> list[StructuredTool]
             endpoints=endpoint_summaries,
         )
         return (
-            f"Reconocimiento completado para '{task_id}'. "
+            f"Preparación de objetivos completada para '{task_id}'. "
             f"Endpoints: {endpoints_count}. "
             f"Estado: {status} (Recovery: {recovery_mode})."
         )
@@ -332,7 +359,11 @@ def create_orchestrator_tools(channel: aio_pika.Channel) -> list[StructuredTool]
             "high_priority_targets": [],
         }
 
-        if not (
+        requires_recon_targets = not (
+            is_crypto_attack(state.get("attack_type", "full"))
+            or is_jwt_attack(state.get("attack_type", "full"))
+        )
+        if requires_recon_targets and not (
             recon_data.get("endpoints")
             or recon_data.get("high_priority_targets")
             or recon_data.get("captured_requests")
@@ -601,9 +632,12 @@ def create_orchestrator_tools(channel: aio_pika.Channel) -> list[StructuredTool]
         )
 
     recon_tool = StructuredTool.from_function(
-        coroutine=call_recon_agent,
-        name="recon_agent",
-        description="Invoca al Agente de Reconocimiento pasando el task_id.",
+        coroutine=prepare_recon_targets,
+        name="prepare_targets",
+        description=(
+            "Prepara localmente los objetivos de validación desde el reporte de "
+            "scraping de la tarea. No invoca un agente remoto."
+        ),
         args_schema=TaskReferenceInput,
     )
 

@@ -58,6 +58,220 @@ def _endpoint_key(endpoint: str) -> str:
     return (urlsplit(endpoint).path.rstrip("/") or "/").casefold()
 
 
+_XSS_PROFILES_CACHE: dict | None = None
+_STORED_XSS_FIELD_HINTS = (
+    "message",
+    "comment",
+    "body",
+    "content",
+    "text",
+    "description",
+    "review",
+    "feedback",
+)
+_MAX_GENERIC_XSS_PLANS = 3
+
+
+def _load_xss_target_profiles() -> dict:
+    """Carga perfiles por origen con el contrato de validación del objetivo.
+
+    El mecanismo es genérico: la lógica no conoce laboratorios concretos; el
+    JSON solo aporta datos del entorno (cabeceras de guardia, prefijo de
+    marcador, patrón de lectura de registros) para orígenes que lo requieran.
+    """
+    global _XSS_PROFILES_CACHE
+    if _XSS_PROFILES_CACHE is not None:
+        return _XSS_PROFILES_CACHE
+    path = os.environ.get("XSS_TARGET_PROFILES_PATH") or os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "xss_target_profiles.json",
+    )
+    profiles: dict = {}
+    try:
+        with open(path, encoding="utf-8") as handle:
+            data = json.load(handle)
+        if isinstance(data, dict):
+            profiles = data
+    except (OSError, json.JSONDecodeError):
+        profiles = {}
+    _XSS_PROFILES_CACHE = profiles
+    return profiles
+
+
+def _xss_target_profile(target_url: str) -> dict:
+    profiles = _load_xss_target_profiles()
+    parts = urlsplit(target_url)
+    origin = f"{parts.scheme}://{parts.netloc}"
+    profile = profiles.get(origin) or profiles.get(parts.netloc)
+    return profile if isinstance(profile, dict) else {}
+
+
+def _profile_headers(profile: dict, key: str) -> dict:
+    headers = profile.get(key)
+    if not isinstance(headers, dict):
+        return {}
+    return {str(name): str(value) for name, value in headers.items()}
+
+
+def _append_probe_params(page_url: str) -> str:
+    """Añade probeId/marker respetando routers de hash y de query."""
+    probe = "probeId={id}&marker={marker}"
+    if "#" in page_url:
+        base, fragment = page_url.split("#", 1)
+        separator = "&" if "?" in fragment else "?"
+        return f"{base}#{fragment}{separator}{probe}"
+    separator = "&" if "?" in page_url else "?"
+    return f"{page_url}{separator}{probe}"
+
+
+def _preferred_stored_parameter(fields: list[str], body) -> str:
+    lowered = {name.casefold(): name for name in fields}
+    for hint in _STORED_XSS_FIELD_HINTS:
+        if hint in lowered:
+            return lowered[hint]
+    if isinstance(body, dict):
+        valued = [
+            name
+            for name in fields
+            if isinstance(body.get(name), str) and body.get(name)
+        ]
+        if valued:
+            return max(valued, key=lambda name: len(body[name]))
+    return fields[0]
+
+
+def _build_generic_browser_xss_plans(
+    target_url: str,
+    endpoint_url: str,
+    request: dict,
+) -> list[dict]:
+    """Genera planes de validación de navegador a partir de lo observado.
+
+    Usa las páginas (`observed_on`/`observed_pages`) y los parámetros
+    reflejados que Recon correlacionó; no depende de un origen concreto.
+    """
+    if not isinstance(request, dict):
+        return []
+    if not is_same_origin(target_url, endpoint_url):
+        return []
+
+    profile = _xss_target_profile(target_url)
+    marker_prefix = str(profile.get("marker_prefix") or "xss-probe-")
+    method = str(request.get("method") or "GET").upper()
+    url_parts = urlsplit(endpoint_url)
+    path = url_parts.path or "/"
+    observed_pages = [
+        page
+        for page in (request.get("observed_on") or [])
+        if isinstance(page, str) and is_same_origin(target_url, page)
+    ]
+    source_url = observed_pages[0] if observed_pages else endpoint_url
+
+    if method == "GET":
+        query_names = [
+            name
+            for name, _ in parse_qsl(url_parts.query, keep_blank_values=True)
+            if name
+        ]
+        if not query_names:
+            return []
+        reflected = [
+            name
+            for name in (request.get("reflected_parameters") or [])
+            if name in query_names
+        ]
+        ordered = list(dict.fromkeys([*reflected, *query_names]))
+        plans = []
+        for parameter in ordered[:_MAX_GENERIC_XSS_PLANS]:
+            selector = (
+                f'[name="{parameter}"], input[type="search"], '
+                f'textarea[name="{parameter}"], select[name="{parameter}"]'
+            )
+            plans.append(
+                {
+                    "mode": "reflected_dom",
+                    "source_url": source_url,
+                    "parameter": parameter,
+                    "input_selector": selector,
+                    "marker_prefix": marker_prefix,
+                    "request": {
+                        "method": "GET",
+                        "path": path,
+                        "query_parameter": parameter,
+                    },
+                }
+            )
+        return plans
+
+    if method == "POST":
+        body = request.get("body")
+        if isinstance(body, dict):
+            fields = [str(key) for key in body.keys() if isinstance(key, str)]
+        elif isinstance(body, str):
+            fields = [
+                key
+                for key, _ in parse_qsl(body, keep_blank_values=True)
+                if isinstance(key, str)
+            ]
+        else:
+            fields = []
+        if not fields:
+            return []
+        parameter = _preferred_stored_parameter(fields, body)
+        all_pages = [
+            page
+            for page in (request.get("observed_pages") or [])
+            if isinstance(page, str) and is_same_origin(target_url, page)
+        ]
+        verification_page = next(
+            (page for page in all_pages if page != source_url),
+            source_url,
+        )
+        suffix = profile.get("verification_path_suffix")
+        if isinstance(suffix, str) and suffix.strip():
+            verification_path = f"{path.rstrip('/')}/{suffix.strip().lstrip('/')}"
+        else:
+            verification_path = path
+        verification_request = {
+            "method": "GET",
+            "path_template": verification_path,
+        }
+        verification_headers = _profile_headers(
+            profile, "verification_request_headers"
+        )
+        if verification_headers:
+            verification_request["headers"] = verification_headers
+        cleanup = {
+            "method": "DELETE",
+            "path_template": f"{path.rstrip('/')}/{{id}}",
+            "body": {"marker": "{marker}"},
+        }
+        cleanup_headers = _profile_headers(profile, "cleanup_headers")
+        if cleanup_headers:
+            cleanup["headers"] = cleanup_headers
+        plan = {
+            "mode": "stored_dom",
+            "source_url": source_url,
+            "parameter": parameter,
+            "marker_prefix": marker_prefix,
+            "form_selector": "form",
+            "form_fields": fields[:8],
+            "submit_selector": (
+                "button[type='submit'], input[type='submit'], form button"
+            ),
+            "request": {"method": "POST", "path": path},
+            "verification_url_template": _append_probe_params(verification_page),
+            "verification_request": verification_request,
+            "cleanup": cleanup,
+        }
+        write_headers = _profile_headers(profile, "request_headers")
+        if write_headers:
+            plan["request_headers"] = write_headers
+        return [plan]
+
+    return []
+
+
 def _normalize_crypto_severity(finding: dict) -> str:
     """Respeta la severidad de la herramienta y degrada checksums estáticos."""
     severity = str(finding.get("severity") or "").strip().upper()
@@ -409,8 +623,17 @@ class XssValidationStrategy(ValidationStrategy):
                 )
                 continue
 
-            validation_plan = target.get("validation_plan")
-            if isinstance(validation_plan, dict):
+            declared_plan = target.get("validation_plan")
+            if isinstance(declared_plan, dict):
+                browser_plans = [declared_plan]
+            elif target.get("recommended_tool") == "browserXssValidator":
+                browser_plans = _build_generic_browser_xss_plans(
+                    target_url, endpoint_url, request
+                )
+            else:
+                browser_plans = []
+
+            for validation_plan in browser_plans:
                 raw_report = await call_mcp_skill(
                     channel,
                     "browserXssValidator",
@@ -494,8 +717,17 @@ class XssValidationStrategy(ValidationStrategy):
                         "output": json.dumps(normalized, ensure_ascii=False),
                     }
                 )
+                if status == "VERIFIED":
+                    # Un parámetro confirmado basta para este objetivo; no se
+                    # prueban los planes restantes.
+                    break
+            if browser_plans:
+                # Una vez que el validador de navegador ha recibido un plan
+                # específico para este origen, no debe reintentar Dalfox por
+                # inercia: el resultado del navegador ya es la fuente primaria.
                 continue
-
+            # No hay plan de navegador generado: Dalfox sigue siendo el
+            # fallback estándar para XSS sin un plan observado.
             raw_output = await call_mcp_skill(
                 channel,
                 "dalfox",

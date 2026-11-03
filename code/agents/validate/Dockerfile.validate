@@ -16,6 +16,7 @@ COPY validate/config.py .
 COPY validate/context_utils.py .
 COPY validate/helpers.py .
 COPY validate/attack_validators.py .
+COPY validate/xss_target_profiles.json .
 COPY validate/dalfox_output.py .
 COPY validate/mcp_skills.py .
 COPY validate/output_guard.py .

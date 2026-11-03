@@ -285,24 +285,54 @@ def run_validation(base_url: str, plan: dict) -> dict:
                         id=record_id
                     )
                     verification_url_api = _target_url(base_url, verification_path)
-                    with page.expect_response(
-                        lambda response: (
-                            urlsplit(response.url).path
-                            == urlsplit(verification_url_api).path
-                            and response.request.method.upper()
-                            == str(verification_request.get("method") or "GET").upper()
-                        ),
-                        timeout=10_000,
-                    ) as verification_response:
-                        page.goto(
-                            verification_url,
-                            wait_until="domcontentloaded",
-                            timeout=15_000,
+                    verification_method = str(
+                        verification_request.get("method") or "GET"
+                    ).upper()
+                    matching_responses = []
+
+                    def capture_verification_response(response) -> None:
+                        try:
+                            if (
+                                urlsplit(response.url).path
+                                == urlsplit(verification_url_api).path
+                                and response.request.method.upper()
+                                == verification_method
+                            ):
+                                matching_responses.append(response)
+                        except Exception:
+                            pass
+
+                    page.on("response", capture_verification_response)
+                    page.goto(
+                        verification_url,
+                        wait_until="domcontentloaded",
+                        timeout=15_000,
+                    )
+                    selector = str(plan.get("verification_selector") or "body")
+                    try:
+                        page.locator(selector).first.wait_for(
+                            state="visible", timeout=10_000
                         )
-                    verification_status = verification_response.value.status
-                    selector = plan["verification_selector"]
-                    page.locator(selector).wait_for(state="visible", timeout=10_000)
-                    rendered_html = page.locator(selector).inner_html()
+                    except Exception:
+                        if selector == "body":
+                            raise
+                        selector = "body"
+                        page.locator("body").first.wait_for(
+                            state="visible", timeout=5_000
+                        )
+                    try:
+                        page.wait_for_function(
+                            "(marker) => document.body && "
+                            "document.body.innerHTML.includes(marker)",
+                            arg=marker,
+                            timeout=6_000,
+                        )
+                    except Exception:
+                        pass
+                    verification_status = (
+                        matching_responses[-1].status if matching_responses else None
+                    )
+                    rendered_html = page.locator(selector).first.inner_html()
                     marker_in_view = marker in rendered_html
                     page.wait_for_timeout(350)
                     executed = bool(

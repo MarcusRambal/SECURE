@@ -119,27 +119,7 @@ services:
       rabbitmq:
         condition: service_healthy
 
-  # 5. Agente de Reconocimiento
-  recon-agent:
-    build:
-      context: ./agents
-      dockerfile: recon/Dockerfile.recon
-    env_file:
-      - .env
-    environment:
-      - RECON_CONTEXT_OUTPUT_DIR=/app/recon_context
-    volumes:
-      - ./agents/recon/recon_context:/app/recon_context:Z
-    networks:
-      - sec-net
-      - internal-net
-    extra_hosts:
-      - "host.docker.internal:host-gateway" # Docker Engine nativo en Linux no lo resuelve solo
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-
-  # 6. Agente de Validación
+  # 5. Agente de Validación
   validate-agent:
     build:
       context: ./agents
@@ -159,7 +139,7 @@ services:
       rabbitmq:
         condition: service_healthy
 
-  # 7. Agente Reportador (Generación de Informes Markdown)
+  # 6. Agente Reportador (Generación de Informes Markdown)
   reporter-agent:
     build:
       context: ./agents
