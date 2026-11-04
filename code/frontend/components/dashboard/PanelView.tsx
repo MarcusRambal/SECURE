@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment } from "react";
+import { Fragment, useLayoutEffect, useRef, type ReactNode } from "react";
 import type { AgentWebSocketEvent, ScanEndpoint } from "@/types/scan";
 import styles from "./PanelView.module.css";
 
@@ -160,6 +160,51 @@ const getEndpoints = (events: AgentWebSocketEvent[]): ScanEndpoint[] => {
   return [];
 };
 
+const ResultList = ({
+  children,
+  count,
+  className,
+  label,
+  ordered = false,
+}: {
+  children: ReactNode;
+  count: number;
+  className: string;
+  label: string;
+  ordered?: boolean;
+}) => {
+  const listRef = useRef<HTMLOListElement | HTMLUListElement>(null);
+
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+
+    const items = Array.from(list.children).slice(0, 3);
+    const updateHeight = () => {
+      const gap = Number.parseFloat(getComputedStyle(list).rowGap) || 0;
+      const height = items.reduce((total, item) => total + item.getBoundingClientRect().height, 0)
+        + gap * Math.max(0, items.length - 1);
+      list.style.setProperty("--three-items-height", `${height}px`);
+    };
+
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(list);
+    items.forEach((item) => observer.observe(item));
+    updateHeight();
+    return () => observer.disconnect();
+  });
+
+  const List = ordered ? "ol" : "ul";
+  return (
+    <>
+      {count > 3 && <p className={styles.scrollHint}>Desplázate para ver todos los resultados.</p>}
+      <List ref={(node) => { listRef.current = node; }} className={className} tabIndex={0} aria-label={label}>
+        {children}
+      </List>
+    </>
+  );
+};
+
 export const PanelView = ({
   taskId,
   events,
@@ -218,7 +263,6 @@ export const PanelView = ({
     <div className={styles.panelContainer}>
       <header className={styles.taskHeader}>
         <div>
-          <p className={styles.eyebrow}>Seguimiento de auditoría</p>
           <h1 className={styles.pageTitle}>Trazabilidad del escaneo</h1>
           <code className={styles.taskId}>
             {taskId ?? "Configura y lanza un escaneo para comenzar."}
@@ -241,7 +285,6 @@ export const PanelView = ({
       <section className={styles.stageSection} aria-labelledby="stage-title">
         <div className={styles.sectionHeading}>
           <div>
-            <p className={styles.eyebrow}>Pipeline</p>
             <h2 className={styles.sectionTitle} id="stage-title">
               Etapa actual
             </h2>
@@ -318,7 +361,7 @@ export const PanelView = ({
           </div>
 
           {endpoints.length > 0 ? (
-            <ol className={styles.endpointList}>
+            <ResultList className={styles.endpointList} count={endpoints.length} label="Endpoints a probar" ordered>
               {endpoints.map((endpoint, index) => (
                 <li
                   className={styles.endpointItem}
@@ -340,7 +383,7 @@ export const PanelView = ({
                   </div>
                 </li>
               ))}
-            </ol>
+            </ResultList>
           ) : (
             <p className={styles.emptyState}>
               {isFinished
@@ -375,7 +418,7 @@ export const PanelView = ({
           )}
 
           {visibleVulnerabilities.length > 0 ? (
-            <ul className={styles.vulnerabilityList}>
+            <ResultList className={styles.vulnerabilityList} count={visibleVulnerabilities.length} label="Vulnerabilidades">
               {visibleVulnerabilities.map((vulnerability, index) => (
                 <li
                   className={styles.vulnerabilityItem}
@@ -432,7 +475,7 @@ export const PanelView = ({
                   </div>
                 </li>
               ))}
-            </ul>
+            </ResultList>
           ) : (
             <p className={styles.emptyState}>
               {isFinished
