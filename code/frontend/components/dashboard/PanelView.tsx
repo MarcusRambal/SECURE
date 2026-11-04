@@ -247,9 +247,12 @@ export const PanelView = ({
           ? "En proceso"
           : "Conectando";
   const endpoints = getEndpoints(events);
-  const visibleVulnerabilities = vulnerabilities.filter(
-    (vulnerability) => vulnerability.severity !== "INFO",
-  );
+  const visibleVulnerabilities = vulnerabilities
+    .filter((vulnerability) => vulnerability.severity !== "INFO")
+    .map((vulnerability) => ({
+      ...vulnerability,
+      severity: vulnerability.severity === "CRITICAL" ? "HIGH" : vulnerability.severity,
+    }));
   const informationalCount = vulnerabilities.length - visibleVulnerabilities.length;
   const severityCounts = visibleVulnerabilities.reduce<Record<string, number>>(
     (counts, vulnerability) => {
@@ -406,7 +409,7 @@ export const PanelView = ({
 
           {visibleVulnerabilities.length > 0 && (
             <div className={styles.severitySummary} aria-label="Resumen por severidad">
-              {["CRITICAL", "HIGH", "MEDIUM", "LOW"].map((severity) => (
+              {["HIGH", "MEDIUM", "LOW"].map((severity) => (
                 <span
                   className={`${styles.severityChip} ${styles[`severity${severity}`]}`}
                   key={severity}
