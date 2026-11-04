@@ -3,9 +3,13 @@
 Este Proyecto propone el diseño e implementación de un Sistema multiagente basado en el protocolo de contexto de modelos (MCP) y habilidades (Skills/Tools) especializados para la automatización, detección y validación ética de vulnerabilidades en aplicaciones web. Las soluciones tradicionales operan predominantemente en consola(CLI) y generan reportes planos difíciles de interpretar. Es por esto que se propone, una interfaz gráfica dedicada y enfocada en la legibilidad mediante reportes estructurados y ayudas visuales que facilitan la comprensión del impacto del riesgo, por otro lado, ofrecer trazabilidad agentica que registra y expone cómo los agentes autónomos razonen, coordinan estrategia y ejecutan paso a paso los ataques en un entorno controlado.
 
 En el panel, las vulnerabilidades se agrupan en `HIGH`, `MEDIUM` y `LOW`.
-Los hallazgos `CRITICAL` se incluyen en `HIGH` para su visualización y conteo;
-su severidad original se conserva en el backend y en el reporte final. Los
-hallazgos `INFO` no se muestran en el listado de vulnerabilidades.
+Los hallazgos `CRITICAL` se incluyen en `HIGH` para su visualización y conteo
+en el panel y el reporte; su severidad original se conserva en el backend.
+Los hallazgos `INFO` no se muestran en el listado de vulnerabilidades y se
+conservan en una sección informativa separada del reporte.
+
+El [flujo y la organización de los agentes](code/agents/README.md) están
+documentados junto con sus contratos, estados y pruebas.
 
 ## Documentacion
 
