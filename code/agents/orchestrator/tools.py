@@ -63,6 +63,26 @@ class TaskReferenceInput(BaseModel):
     task_id: str = Field(description="UUID único de la tarea de auditoría en curso.")
 
 
+def _empty_recon_data(target_url: str, attack_type: str) -> dict:
+    return {
+        "recon_summary": {
+            "target_url": target_url,
+            "attack_type_filter": attack_type,
+            "total_targets_identified": 0,
+            "total_requests_captured": 0,
+        },
+        "high_priority_targets": [],
+    }
+
+
+def _empty_validation_data(target_url: str) -> dict:
+    return {
+        "target_url": target_url,
+        "vulnerabilities": [],
+        "unconfirmed_findings": [],
+    }
+
+
 async def publish_scan_event(
     channel: aio_pika.Channel,
     task_id: str,
@@ -202,15 +222,9 @@ def create_orchestrator_tools(channel: aio_pika.Channel) -> list[StructuredTool]
             state["error_stage"] = "recon"
             state["error_message"] = error_msg
             # recon_data vacío pero con forma válida: Validate lo asume como input.
-            state["recon_data"] = {
-                "recon_summary": {
-                    "target_url": target_url,
-                    "attack_type_filter": state.get("attack_type", "full"),
-                    "total_targets_identified": 0,
-                    "total_requests_captured": 0,
-                },
-                "high_priority_targets": [],
-            }
+            state["recon_data"] = _empty_recon_data(
+                target_url, state.get("attack_type", "full")
+            )
             state["recon_used_fallback"] = False
             state["recon_recovery_mode"] = "error"
             await publish_scan_event(
@@ -227,15 +241,9 @@ def create_orchestrator_tools(channel: aio_pika.Channel) -> list[StructuredTool]
             )
             return f"Fallo en la preparación de objetivos: {error_msg}"
 
-        recon_data = stage_result.get("recon_data") or {
-            "recon_summary": {
-                "target_url": target_url,
-                "attack_type_filter": state.get("attack_type", "full"),
-                "total_targets_identified": 0,
-                "total_requests_captured": 0,
-            },
-            "high_priority_targets": [],
-        }
+        recon_data = stage_result.get("recon_data") or _empty_recon_data(
+            target_url, state.get("attack_type", "full")
+        )
         used_fallback = stage_result.get("used_fallback", False)
         recovery_mode = stage_result.get("recovery_mode", "clean")
         status = stage_result.get("status", "SUCCESS")
@@ -324,11 +332,9 @@ def create_orchestrator_tools(channel: aio_pika.Channel) -> list[StructuredTool]
         if state.get("status") == "FAILED":
             # Validate se salta porque Recon falló, pero el Reporter espera
             # validation_data con forma válida. Inicializamos vacío.
-            state["validation_data"] = state.get("validation_data") or {
-                "target_url": state["target_url"],
-                "vulnerabilities": [],
-                "unconfirmed_findings": [],
-            }
+            state["validation_data"] = state.get("validation_data") or _empty_validation_data(
+                state["target_url"]
+            )
             state["validate_used_fallback"] = False
             state["validate_recovery_mode"] = "skipped"
             state["timings"]["stages"]["validate"] = {
@@ -349,15 +355,9 @@ def create_orchestrator_tools(channel: aio_pika.Channel) -> list[StructuredTool]
             )
             return "Validación omitida debido a un fallo en la fase de Reconocimiento."
 
-        recon_data = state.get("recon_data") or {
-            "recon_summary": {
-                "target_url": state["target_url"],
-                "attack_type_filter": state.get("attack_type", "full"),
-                "total_targets_identified": 0,
-                "total_requests_captured": 0,
-            },
-            "high_priority_targets": [],
-        }
+        recon_data = state.get("recon_data") or _empty_recon_data(
+            state["target_url"], state.get("attack_type", "full")
+        )
 
         requires_recon_targets = not (
             is_crypto_attack(state.get("attack_type", "full"))
@@ -370,11 +370,7 @@ def create_orchestrator_tools(channel: aio_pika.Channel) -> list[StructuredTool]
         ):
             logger.warning(f"Recon sin endpoints para {task_id}. Omisión directa de validación.")
             state["recon_data"] = recon_data
-            state["validation_data"] = {
-                "target_url": state["target_url"],
-                "vulnerabilities": [],
-                "unconfirmed_findings": [],
-            }
+            state["validation_data"] = _empty_validation_data(state["target_url"])
             state["validate_used_fallback"] = False
             state["validate_recovery_mode"] = "skipped"
             state["timings"]["stages"]["validate"] = {
@@ -433,11 +429,7 @@ def create_orchestrator_tools(channel: aio_pika.Channel) -> list[StructuredTool]
             state["error_stage"] = "validate"
             state["error_message"] = error_msg
             # El Reporter asume validation_data con esta forma; inicializar vacío si Validate falló.
-            state["validation_data"] = {
-                "target_url": state["target_url"],
-                "vulnerabilities": [],
-                "unconfirmed_findings": [],
-            }
+            state["validation_data"] = _empty_validation_data(state["target_url"])
             state["validate_used_fallback"] = False
             state["validate_recovery_mode"] = "error"
             await publish_scan_event(
@@ -454,11 +446,9 @@ def create_orchestrator_tools(channel: aio_pika.Channel) -> list[StructuredTool]
             )
             return f"Fallo en Validate Agent: {error_msg}"
 
-        validation_data = rpc_response.get("validation_data") or {
-            "target_url": state["target_url"],
-            "vulnerabilities": [],
-            "unconfirmed_findings": [],
-        }
+        validation_data = rpc_response.get("validation_data") or _empty_validation_data(
+            state["target_url"]
+        )
         used_fallback = rpc_response.get("used_fallback", False)
         recovery_mode = rpc_response.get("recovery_mode", "clean")
         status = rpc_response.get("status", "SUCCESS")
@@ -531,21 +521,9 @@ def create_orchestrator_tools(channel: aio_pika.Channel) -> list[StructuredTool]
             "recon_used_fallback": state.get("recon_used_fallback", False) or False,
             "validate_used_fallback": state.get("validate_used_fallback", False) or False,
             "recon_data": state.get("recon_data")
-            or {
-                "recon_summary": {
-                    "target_url": target_url,
-                    "attack_type_filter": state.get("attack_type", "full"),
-                    "total_targets_identified": 0,
-                    "total_requests_captured": 0,
-                },
-                "high_priority_targets": [],
-            },
+            or _empty_recon_data(target_url, state.get("attack_type", "full")),
             "validation_data": state.get("validation_data")
-            or {
-                "target_url": target_url,
-                "vulnerabilities": [],
-                "unconfirmed_findings": [],
-            },
+            or _empty_validation_data(target_url),
         }
 
         logger.info(f"📤 [ORQUESTADOR -> REPORTER] Solicitando informe Markdown para {task_id}...")

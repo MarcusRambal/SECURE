@@ -37,16 +37,44 @@ const renderInlineMarkdown = (text: string, keyPrefix: string) =>
 type ReportBlock =
   | { type: "heading"; level: number; text: string }
   | { type: "paragraph"; text: string }
+  | { type: "quote"; text: string }
+  | { type: "table"; headers: string[]; rows: string[][] }
   | { type: "list"; ordered: boolean; items: string[] }
   | { type: "code"; text: string }
   | { type: "rule" };
+
+const splitTableCells = (line: string): string[] => {
+  const text = line.trim().replace(/^\||\|$/g, "");
+  const cells: string[] = [];
+  let cell = "";
+  let inCode = false;
+  for (let index = 0; index < text.length; index++) {
+    const character = text[index];
+    if (character === "\\" && text[index + 1] === "|") {
+      cell += "|";
+      index++;
+    } else if (character === "`") {
+      inCode = !inCode;
+      cell += character;
+    } else if (character === "|" && !inCode) {
+      cells.push(cell.trim());
+      cell = "";
+    } else {
+      cell += character;
+    }
+  }
+  cells.push(cell.trim());
+  return cells;
+};
 
 const parseReport = (report: string): ReportBlock[] => {
   const blocks: ReportBlock[] = [];
   const lines = report.split(/\r?\n/);
   let codeLines: string[] | null = null;
+  let separated = false;
 
-  for (const rawLine of lines) {
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+    const rawLine = lines[lineIndex];
     const line = rawLine.trim();
     if (line.startsWith("```")) {
       if (codeLines === null) {
@@ -62,7 +90,42 @@ const parseReport = (report: string): ReportBlock[] => {
       codeLines.push(rawLine);
       continue;
     }
-    if (!line) continue;
+    if (!line) {
+      separated = true;
+      continue;
+    }
+
+    const previousSeparated = separated;
+    separated = false;
+
+    const nextLine = lines[lineIndex + 1]?.trim();
+    if (line.includes("|") && nextLine?.includes("|")) {
+      const headers = splitTableCells(line);
+      const separators = splitTableCells(nextLine);
+      if (headers.length === separators.length && separators.every((cell) => /^:?-{3,}:?$/.test(cell))) {
+        const rows: string[][] = [];
+        lineIndex++;
+        while (lines[lineIndex + 1]?.includes("|")) {
+          const row = splitTableCells(lines[lineIndex + 1]);
+          if (row.length !== headers.length) break;
+          lineIndex++;
+          rows.push(row);
+        }
+        blocks.push({ type: "table", headers, rows });
+        continue;
+      }
+    }
+
+    const quote = line.match(/^>\s?(.*)$/);
+    if (quote) {
+      const previousBlock = blocks.at(-1);
+      if (!previousSeparated && previousBlock?.type === "quote") {
+        previousBlock.text += ` ${quote[1]}`;
+      } else {
+        blocks.push({ type: "quote", text: quote[1] });
+      }
+      continue;
+    }
 
     const heading = line.match(/^(#{1,3})\s+(.+)$/);
     if (heading) {
@@ -91,7 +154,7 @@ const parseReport = (report: string): ReportBlock[] => {
     }
 
     const previousBlock = blocks.at(-1);
-    if (previousBlock?.type === "paragraph") {
+    if (!previousSeparated && previousBlock?.type === "paragraph") {
       previousBlock.text += ` ${line}`;
     } else {
       blocks.push({ type: "paragraph", text: line });
@@ -120,6 +183,33 @@ const MarkdownReport = ({ report }: { report: string }) => (
           <p key={`paragraph-${index}`}>
             {renderInlineMarkdown(block.text, `paragraph-${index}`)}
           </p>
+        );
+      }
+      if (block.type === "quote") {
+        return (
+          <blockquote className={styles.reportQuote} key={`quote-${index}`}>
+            {renderInlineMarkdown(block.text, `quote-${index}`)}
+          </blockquote>
+        );
+      }
+      if (block.type === "table") {
+        return (
+          <div className={styles.reportTableContainer} key={`table-${index}`}>
+            <table className={styles.reportTable}>
+              <thead>
+                <tr>{block.headers.map((header, cellIndex) => (
+                  <th scope="col" key={cellIndex}>{renderInlineMarkdown(header, `header-${index}-${cellIndex}`)}</th>
+                ))}</tr>
+              </thead>
+              <tbody>
+                {block.rows.map((row, rowIndex) => (
+                  <tr key={rowIndex}>{block.headers.map((_, cellIndex) => (
+                    <td key={cellIndex}>{renderInlineMarkdown(row[cellIndex] ?? "", `cell-${index}-${rowIndex}-${cellIndex}`)}</td>
+                  ))}</tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         );
       }
       if (block.type === "list") {

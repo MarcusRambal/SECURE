@@ -446,6 +446,28 @@
   color: var(--color-purple-200);
 }
 
+.reportQuote {
+  padding: 0.6rem 0.85rem;
+  border-left: 3px solid var(--color-purple-300);
+  color: var(--color-purple-200);
+}
+
+.reportTableContainer {
+  overflow-x: auto;
+}
+
+.reportTable {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.reportTable th,
+.reportTable td {
+  padding: 0.45rem 0.65rem;
+  border: 1px solid rgba(228, 92, 255, 0.25);
+  text-align: left;
+}
+
 .reportHeading {
   margin-top: 0.55rem;
   color: var(--color-purple-50);

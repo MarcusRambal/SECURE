@@ -410,6 +410,8 @@ def run_validation(base_url: str, plan: dict) -> dict:
     elif record_id is None:
         result["cleanup"] = "not_required"
     result["stage"] = failed_stage or stage
+    if result["outcome"] == "VULNERABLE":
+        result["proof_value"] = f"{marker}{payload}"
     return result
 
 

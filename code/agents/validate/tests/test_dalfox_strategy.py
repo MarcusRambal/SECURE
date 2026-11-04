@@ -148,6 +148,7 @@ class DalfoxStrategyTests(unittest.IsolatedAsyncioTestCase):
                     "method": "GET",
                     "parameter": "q",
                     "evidence": "Chromium observed DOM execution.",
+                    "proof_value": "marker<img src=/missing onerror=window.__browserXssProof=1>",
                     "stage": "reflected_result",
                     "checks": {
                         "response_status": 200,
@@ -166,6 +167,7 @@ class DalfoxStrategyTests(unittest.IsolatedAsyncioTestCase):
                     "method": "POST",
                     "parameter": "message",
                     "evidence": "Chromium observed execution from the contact inbox.",
+                    "proof_value": "stored-marker<img src=/missing onerror=window.__browserXssProof=1>",
                     "cleanup": "success",
                 }
             ),
@@ -206,6 +208,15 @@ class DalfoxStrategyTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(
             all(item.tools_used == ["browserXssValidator"] for item in output.vulnerabilities)
         )
+        reflected, stored = output.vulnerabilities
+        self.assertIn("GET", reflected.evidence)
+        self.assertIn("q", reflected.evidence)
+        self.assertIn("marker<img src=/missing", reflected.evidence)
+        self.assertIn("Chromium", reflected.evidence)
+        self.assertIn("POST", stored.evidence)
+        self.assertIn("message", stored.evidence)
+        self.assertIn("stored-marker<img src=/missing", stored.evidence)
+        self.assertIn("eliminado", stored.evidence)
 
     async def test_stored_plan_without_successful_cleanup_is_not_confirmed(self):
         strategy = get_validation_strategy("xss")
@@ -540,11 +551,42 @@ class DalfoxStrategyTests(unittest.IsolatedAsyncioTestCase):
             merged["vulnerabilities"][0]["tools_used"],
             ["browserXssValidator"],
         )
+        self.assertIn("Chromium", merged["vulnerabilities"][0]["evidence"])
+        self.assertIn("q", merged["vulnerabilities"][0]["evidence"])
+        self.assertNotIn("Prueba enviada:", merged["vulnerabilities"][0]["evidence"])
         self.assertEqual(len(merged["unconfirmed_findings"]), 1)
         self.assertEqual(
             merged["unconfirmed_findings"][0]["status"],
             "INCONCLUSIVE",
         )
+
+    def test_browser_evidence_is_added_to_matching_llm_finding(self):
+        strategy = get_validation_strategy("xss")
+        evidence = ValidationEvidence(
+            pre_executed_context=[{
+                "tool": "browserXssValidator",
+                "status": "VERIFIED",
+                "target_id": "target-1",
+                "endpoint": "https://example.test/search",
+                "method": "GET",
+                "parameter": "q",
+                "mode": "reflected_dom",
+                "proof_value": "synthetic-proof",
+            }],
+        )
+        finding = {
+            "type": "Cross-Site Scripting (XSS)",
+            "endpoint": "https://example.test/search",
+            "method": "GET",
+            "parameter": "q",
+            "evidence": "Evidencia previa",
+            "tools_used": ["dalfox"],
+        }
+        merged = strategy.merge_findings({"vulnerabilities": [finding]}, evidence, "task")
+        result = merged["vulnerabilities"][0]
+        self.assertIn("Evidencia previa", result["evidence"])
+        self.assertIn("synthetic-proof", result["evidence"])
+        self.assertEqual(result["tools_used"], ["dalfox", "browserXssValidator"])
 
 
 if __name__ == "__main__":

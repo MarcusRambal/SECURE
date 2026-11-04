@@ -587,6 +587,32 @@ class SqliValidationStrategy(ValidationStrategy):
         return parsed_output
 
 
+def _browser_xss_evidence(item: dict) -> str:
+    parameter = item.get("parameter")
+    method = item.get("method")
+    endpoint = item.get("endpoint")
+    location = " ".join(str(value) for value in (method, endpoint) if value)
+    parameter_text = f" en el parámetro {parameter}" if parameter else ""
+    location_text = f" de la solicitud {location}" if location else ""
+    if item.get("mode") == "stored_dom":
+        description = (
+            f"El validador envió una prueba sintética{parameter_text}{location_text} "
+            "y Chromium observó su ejecución en la vista que muestra el dato almacenado."
+        )
+        if item.get("cleanup") == "success":
+            description += " El registro de prueba fue eliminado."
+    else:
+        description = (
+            f"El validador introdujo una prueba sintética{parameter_text}{location_text} "
+            "y Chromium observó su ejecución en el DOM de la página."
+        )
+    proof_value = item.get("proof_value")
+    if isinstance(proof_value, str) and proof_value:
+        proof_text = proof_value if len(proof_value) <= 1000 else f"{proof_value[:1000]}... [truncada]"
+        description += f" Prueba enviada: {proof_text}"
+    return description
+
+
 class XssValidationStrategy(ValidationStrategy):
     """Run a declared browser proof or fall back to Dalfox per captured endpoint."""
 
@@ -697,6 +723,11 @@ class XssValidationStrategy(ValidationStrategy):
                     "cleanup": report.get("cleanup"),
                     "stage": report.get("stage"),
                     "checks": report.get("checks"),
+                    "proof_value": (
+                        report.get("proof_value")
+                        if report_matches_target and status == "VERIFIED"
+                        else None
+                    ),
                 }
                 evidence.pre_executed_context.append(normalized)
                 evidence.tool_diagnostics.append(
@@ -833,7 +864,7 @@ class XssValidationStrategy(ValidationStrategy):
                         endpoint=item["endpoint"],
                         parameter=item.get("parameter"),
                         method=item.get("method"),
-                        evidence=item.get("evidence") or "Chromium verified JavaScript execution.",
+                        evidence=_browser_xss_evidence(item),
                         verification_steps=(
                             "browserXssValidator injected a unique synthetic proof marker "
                             "and observed its execution in the observed DOM flow."
@@ -940,6 +971,12 @@ class XssValidationStrategy(ValidationStrategy):
                 if "browserXssValidator" not in tools_used:
                     tools_used.append("browserXssValidator")
                 matching["tools_used"] = tools_used
+                browser_evidence = _browser_xss_evidence(item)
+                existing_evidence = str(matching.get("evidence") or "")
+                if browser_evidence not in existing_evidence:
+                    matching["evidence"] = (
+                        f"{browser_evidence}\n{existing_evidence}".strip()
+                    )
                 continue
 
             vulnerabilities.append(
@@ -949,8 +986,7 @@ class XssValidationStrategy(ValidationStrategy):
                     "endpoint": item.get("endpoint"),
                     "parameter": item.get("parameter"),
                     "method": item.get("method"),
-                    "evidence": item.get("evidence")
-                    or "Chromium observed execution of the synthetic proof.",
+                    "evidence": _browser_xss_evidence(item),
                     "verification_steps": (
                         "browserXssValidator injected a unique synthetic proof marker "
                         "and observed its execution in the observed DOM flow."

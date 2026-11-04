@@ -242,6 +242,7 @@ class DalfoxOutputTests(unittest.TestCase):
                     "parameter": "comment",
                     "verification": "verified",
                     "context": "inHTML",
+                    "payload": "<svg onload=alert(1)>",
                     "evidence": "Dalfox confirmed an executable position",
                 }
             ],
@@ -262,6 +263,10 @@ class DalfoxOutputTests(unittest.TestCase):
 
         finding = merged["vulnerabilities"][0]
         self.assertEqual(finding["method"], "POST")
+        self.assertIn("Dalfox reportó una prueba XSS verificada", finding["evidence"])
+        self.assertIn("comment", finding["evidence"])
+        self.assertIn("inHTML", finding["evidence"])
+        self.assertIn("<svg onload=alert(1)>", finding["evidence"])
         self.assertIn("parámetro `comment`", finding["verification_steps"])
         self.assertIn("no lo demuestra", finding["verification_steps"])
         self.assertIn("<svg onload=alert(1)>", finding["verification_steps"])

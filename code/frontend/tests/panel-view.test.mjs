@@ -91,3 +91,41 @@ test("shows XSS evidence without a redundant verification section", () => {
   assert.equal((html.match(/Cómo verificar/g) ?? []).length, 1);
   assert.match(html, /Pasos SQL/);
 });
+
+test("renders report paragraphs, warnings and tables as separate blocks", () => {
+  const report = [
+    "# Informe",
+    "",
+    "**Tarea:** `123`",
+    "",
+    "**Objetivo:** `https://example.test`",
+    "",
+    "> **Advertencia:** Análisis parcial.",
+    "",
+    "| Herramienta | Total |",
+    "|---|---:|",
+    "| `browserXssValidator` | 2 |",
+  ].join("\n");
+  const html = renderPanel([], report);
+  assert.match(html, /<p><strong>Tarea:<\/strong> <code>123<\/code><\/p>/);
+  assert.match(html, /<p><strong>Objetivo:<\/strong>/);
+  assert.match(html, /<blockquote[^>]*><strong>Advertencia:<\/strong> Análisis parcial\.<\/blockquote>/);
+  assert.match(html, /<table/);
+  assert.match(html, /<th[^>]*>Herramienta<\/th>/);
+  assert.match(html, /<td><code>browserXssValidator<\/code><\/td>/);
+  assert.doesNotMatch(html, /\|---/);
+});
+
+test("keeps literal pipes and the content after a table", () => {
+  const report = [
+    "Herramienta | Detalle",
+    "--- | ---",
+    "`browser|validator` | valor\\|observado",
+    "",
+    "Conclusión independiente.",
+  ].join("\n");
+  const html = renderPanel([], report);
+  assert.match(html, /<td><code>browser\|validator<\/code><\/td>/);
+  assert.match(html, /<td>valor\|observado<\/td>/);
+  assert.match(html, /<p>Conclusión independiente\.<\/p>/);
+});

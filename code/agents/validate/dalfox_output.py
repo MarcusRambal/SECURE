@@ -357,6 +357,26 @@ def build_dalfox_validator_context(
     return record
 
 
+def _verified_dalfox_evidence(finding: dict, method: str | None) -> str:
+    parameter = finding.get("parameter")
+    context = finding.get("context")
+    location = f" en el parámetro {parameter}" if parameter else ""
+    request_method = f" de la solicitud {method}" if method else " de la solicitud"
+    description = (
+        f"Dalfox reportó una prueba XSS verificada{location}{request_method}."
+    )
+    if context:
+        description += f" Contexto reportado: {context}."
+    payload = finding.get("payload")
+    if isinstance(payload, str) and payload:
+        payload_text = payload if len(payload) <= 1000 else f"{payload[:1000]}... [truncada]"
+        description += f" Prueba reportada: {payload_text}"
+    evidence = finding.get("evidence")
+    if isinstance(evidence, str) and evidence.strip():
+        description += f" Evidencia de Dalfox: {evidence.strip()}"
+    return description
+
+
 def merge_verified_dalfox_findings(
     model_output: dict, executions: list[dict]
 ) -> dict:
@@ -420,12 +440,12 @@ def merge_verified_dalfox_findings(
                 str(parameter) if parameter else None,
                 str(finding.get("context")) if finding.get("context") else None,
             )
+            evidence = _verified_dalfox_evidence(finding, method)
             if existing is not None:
                 if not existing.get("method"):
                     existing["method"] = method
                 if not existing.get("verification_steps"):
                     existing["verification_steps"] = verification_steps
-                evidence = str(finding.get("evidence") or "").strip()
                 current_evidence = str(existing.get("evidence") or "")
                 if evidence and evidence.casefold() not in current_evidence.casefold():
                     existing["evidence"] = (
@@ -439,8 +459,7 @@ def merge_verified_dalfox_findings(
                     "endpoint": endpoint,
                     "parameter": parameter,
                     "method": method,
-                    "evidence": finding.get("evidence")
-                    or "Dalfox reported a verified XSS proof of concept.",
+                    "evidence": evidence,
                     "verification_steps": verification_steps,
                     "reproducible_command": execution.get("command", ""),
                     "confidence": "HIGH",
