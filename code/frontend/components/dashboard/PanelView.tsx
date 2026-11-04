@@ -467,7 +467,8 @@ export const PanelView = ({
                         <pre>{vulnerability.pocScript}</pre>
                       </details>
                     )}
-                    {vulnerability.verificationSteps && (
+                    {vulnerability.verificationSteps &&
+                      !/\bxss\b|cross[\s-]*site[\s-]*scripting/i.test(vulnerability.title) && (
                       <details className={styles.pocDetails}>
                         <summary>Cómo verificar</summary>
                         <p className={styles.evidence}>

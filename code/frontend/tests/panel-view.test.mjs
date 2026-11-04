@@ -71,3 +71,23 @@ test("preserves the empty state when only informational findings are present", (
   assert.doesNotMatch(html, /severitySummary|severityBadge/);
   assert.match(html, /La validación terminó sin vulnerabilidades confirmadas/);
 });
+
+test("shows XSS evidence without a redundant verification section", () => {
+  const html = renderPanel([
+    {
+      title: "Reflected DOM Cross-Site Scripting (XSS)",
+      severity: "HIGH",
+      evidence: "Chromium confirmó la prueba: <img onerror=proof>",
+      verificationSteps: "Pasos XSS",
+    },
+    {
+      title: "SQL Injection",
+      severity: "HIGH",
+      verificationSteps: "Pasos SQL",
+    },
+  ]);
+  assert.match(html, /Chromium confirmó la prueba: &lt;img onerror=proof&gt;/);
+  assert.doesNotMatch(html, /Pasos XSS/);
+  assert.equal((html.match(/Cómo verificar/g) ?? []).length, 1);
+  assert.match(html, /Pasos SQL/);
+});
