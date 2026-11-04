@@ -95,8 +95,6 @@ services:
         condition: service_completed_successfully
       build-jwt:
         condition: service_completed_successfully
-      build-weak-page-crawler:
-        condition: service_completed_successfully
       build-browser-xss-validator:
         condition: service_completed_successfully
 
@@ -121,27 +119,7 @@ services:
       rabbitmq:
         condition: service_healthy
 
-  # 5. Agente de Reconocimiento
-  recon-agent:
-    build:
-      context: ./agents
-      dockerfile: recon/Dockerfile.recon
-    env_file:
-      - .env
-    environment:
-      - RECON_CONTEXT_OUTPUT_DIR=/app/recon_context
-    volumes:
-      - ./agents/recon/recon_context:/app/recon_context:Z
-    networks:
-      - sec-net
-      - internal-net
-    extra_hosts:
-      - "host.docker.internal:host-gateway" # Docker Engine nativo en Linux no lo resuelve solo
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-
-  # 6. Agente de Validación
+  # 5. Agente de Validación
   validate-agent:
     build:
       context: ./agents
@@ -161,7 +139,7 @@ services:
       rabbitmq:
         condition: service_healthy
 
-  # 7. Agente Reportador (Generación de Informes Markdown)
+  # 6. Agente Reportador (Generación de Informes Markdown)
   reporter-agent:
     build:
       context: ./agents
@@ -177,34 +155,6 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
-
-  build-spa-crawler:
-    build:
-      context: ./skills_controller
-      dockerfile: docker_images/Dockerfile.spa_crawler
-    image: local-spa-crawler:latest
-    command: ["--help"]
-
-  build-crawler:
-    build:
-      context: ./skills_controller
-      dockerfile: docker_images/Dockerfile.crawler
-    image: local-crawler:latest
-    command: ["--help"]
-
-  build-deep-crawler:
-    build:
-      context: ./skills_controller
-      dockerfile: docker_images/Dockerfile.deep_crawler
-    image: local-deep-crawler:latest
-    command: ["--help"]
-
-  build-weak-page-crawler:
-    build:
-      context: ./weak_page
-      dockerfile: Dockerfile.weakPageCrawler
-    image: local-weak-page-crawler:latest
-    command: ["--help"]
 
   build-browser-xss-validator:
     build:
@@ -241,20 +191,9 @@ services:
     image: local-access-control-prober:latest
     command: ["--help"]
 
-  # 8. Entorno Vulnerable: WebGoat
-  webgoat:
-    image: webgoat/webgoat:latest
-    container_name: webgoat-target
-    init: true
-    restart: unless-stopped
-    security_opt:
-      - no-new-privileges:true
-    ports:
-      - "8080:8080"
-    networks:
-      - sec-net
 
-  # 9. Entorno Vulnerable: OWASP Juice Shop
+# Entornos Vulnerables
+
   juice-shop:
     image: bkimminich/juice-shop:latest
     container_name: juice-shop-target
@@ -264,18 +203,6 @@ services:
       - no-new-privileges:true
     ports:
       - "3001:3000"
-    networks:
-      - sec-net
-
-  pygoat:
-    image: pygoat/pygoat:latest
-    container_name: pygoat-target
-    init: true
-    restart: unless-stopped
-    security_opt:
-      - no-new-privileges:true
-    ports:
-      - "3002:8000"
     networks:
       - sec-net
   
@@ -306,6 +233,20 @@ services:
       - weak-page-db:/app/backend/db
     networks:
       - sec-net
+
+  scrapper:
+    profiles:
+      - scraper
+    build:
+      context: .
+      dockerfile: scripts/Dockerfile.scrapper
+    environment:
+      - WEAK_PAGE_SOURCE_ROOT=/app/weak_page
+    networks:
+      - sec-net
+    depends_on:
+      weak-page:
+        condition: service_started
 
 volumes:
   weak-page-db:

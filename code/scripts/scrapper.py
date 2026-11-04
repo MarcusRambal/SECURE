@@ -9,7 +9,6 @@ import os
 import re
 import sys
 from collections import deque
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
@@ -214,6 +213,7 @@ def _sanitize_body(
             "captured": False,
             "reason": "body_too_large",
             "content_type": media_type,
+            "data": None,
             "bytes": len(raw),
         }
     if not raw:
@@ -247,6 +247,7 @@ def _sanitize_body(
                 "captured": False,
                 "reason": "invalid_json",
                 "content_type": media_type,
+                "data": None,
                 "bytes": len(raw),
             }
         return {
@@ -260,19 +261,59 @@ def _sanitize_body(
                 "captured": False,
                 "reason": "private_text_body_redacted",
                 "content_type": media_type,
+                "data": None,
                 "bytes": len(raw),
             }
         return {
             "captured": True,
             "content_type": media_type,
-            "text": text,
+            "data": text,
         }
     return {
         "captured": False,
         "reason": "unsupported_content_type",
         "content_type": media_type or "unknown",
+        "data": None,
         "bytes": len(raw),
     }
+
+
+def _response_body_for_report(
+    body: dict[str, Any] | None, content_type: str
+) -> dict[str, Any]:
+    """Return response bodies in Recon's stable captured/content_type/data shape."""
+    media_type = content_type.split(";", 1)[0].strip().lower()
+    if not isinstance(body, dict):
+        return {
+            "captured": False,
+            "content_type": media_type,
+            "data": None,
+        }
+
+    return {
+        "captured": body.get("captured") is True,
+        "content_type": body.get("content_type") or media_type,
+        "data": body.get("data", body.get("text")),
+    }
+
+
+def _complete_request_records(requests: list[dict[str, Any]]) -> None:
+    """Keep requests without an HTTP response representable in the input contract."""
+    for request in requests:
+        if not isinstance(request.get("response"), dict):
+            request["response"] = {
+                "status": None,
+                "status_text": "",
+                "headers": {},
+                "body": _response_body_for_report(None, ""),
+            }
+            continue
+
+        response = request["response"]
+        response["body"] = _response_body_for_report(
+            response.get("body"),
+            response.get("headers", {}).get("content-type", ""),
+        )
 
 
 def _discover_forms(page: Any) -> list[dict[str, Any]]:
@@ -369,33 +410,6 @@ def _synthetic_field_value(field: dict[str, Any]) -> str | None:
     return "weakpage synthetic input"
 
 
-def _entry_point_from_request(request: dict[str, Any]) -> dict[str, Any]:
-    request_body = request.get("request_body")
-    body = None
-    if isinstance(request_body, dict) and request_body.get("captured"):
-        body = request_body.get("data", request_body.get("text"))
-    response = request.get("response")
-    response_data = None
-    if isinstance(response, dict):
-        response_data = {
-            "status": response.get("status"),
-            "headers": response.get("headers", {}),
-        }
-    return {
-        "id": request.get("id"),
-        "request_line": request.get("request_line"),
-        "method": request.get("method"),
-        "url": request.get("url"),
-        "path": request.get("path"),
-        "query_parameters": request.get("query_values", {}),
-        "resource_type": request.get("resource_type"),
-        "headers": request.get("request_headers", {}),
-        "body": body,
-        "response": response_data,
-        "observed_on": request.get("observed_on", []),
-    }
-
-
 def _route_key(path: str) -> str | None:
     return re.sub(r"/+", "/", path.split("?", 1)[0]).rstrip("/") or "/"
 
@@ -422,17 +436,52 @@ def _observed_api_endpoints(requests: list[dict[str, Any]]) -> list[dict[str, An
                 "method": request["method"],
                 "path": url_parts.path,
                 "query_parameters": [],
-                "request_ids": [],
             },
         )
         endpoint["query_parameters"] = sorted(
             set(endpoint["query_parameters"]) | set(request["query_parameters"])
         )
-        endpoint["request_ids"].append(request["id"])
     return sorted(
         endpoints.values(),
         key=lambda endpoint: (endpoint["path"], endpoint["method"]),
     )
+
+
+def _build_scraping_report(
+    target: str, captured_requests: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Build only the public input contract consumed by Recon."""
+    _complete_request_records(captured_requests)
+    request_fields = (
+        "id",
+        "method",
+        "url",
+        "path",
+        "request_line",
+        "query_parameters",
+        "query_values",
+        "resource_type",
+        "request_headers",
+        "request_body",
+        "response",
+        "observed_on",
+    )
+    requests = []
+    for request in captured_requests:
+        response = request["response"]
+        status = response.get("status")
+        if (
+            not isinstance(status, (int, float))
+            or isinstance(status, bool)
+        ):
+            continue
+        requests.append({field: request.get(field) for field in request_fields})
+
+    return {
+        "target": target,
+        "observed_endpoints": _observed_api_endpoints(requests),
+        "requests": requests,
+    }
 
 
 def run_crawl(target_url: str) -> dict[str, Any]:
@@ -559,11 +608,13 @@ def run_crawl(target_url: str) -> dict[str, Any]:
                             "captured": False,
                             "reason": "body_too_large",
                             "content_type": content_type.split(";", 1)[0].strip().lower(),
+                            "data": None,
                             "bytes": int(content_length),
                         }
                     else:
                         body = _sanitize_body(response.body(), content_type, path)
                         captured_body_count += int(body is not None)
+                body = _response_body_for_report(body, content_type)
                 record["response"] = {
                     "status": response.status,
                     "status_text": response.status_text,
@@ -873,131 +924,7 @@ def run_crawl(target_url: str) -> dict[str, Any]:
         finally:
             browser.close()
 
-    for route in frontend_routes:
-        route["visited"] = any(
-            _matches_declared_route(item["path"], [route["template"]])
-            for item in visited
-        )
-        if "{id}" in route["template"] and not route["visited"]:
-            route["note"] = "La ruta requiere un identificador y no fue inferido ni enviado."
-
-    entry_points = [
-        _entry_point_from_request(request)
-        for request in captured_requests
-    ]
-    endpoint_reports = []
-    for route in visited:
-        route_requests = [
-            request
-            for request in captured_requests
-            if route["url"] in request.get("observed_on", [])
-        ]
-        endpoint_reports.append(
-            {
-                "requested_urls": [route["url"]],
-                "final_url": route["url"],
-                "status": route.get("status"),
-                "status_text": "OK" if route.get("status") else None,
-                "headers": route.get("headers", {}),
-                "forms": route.get("forms", []),
-                "entry_point_ids": [request["id"] for request in route_requests],
-            }
-        )
-    form_interactions = [
-        interaction
-        for interaction in interactions
-        if interaction.get("action") == "synthetic_form_submission"
-    ]
-    errors = [
-        {"route": route.get("path"), "error": route["error"]}
-        for route in visited
-        if route.get("error")
-    ]
-    errors.extend(
-        {
-            "route": route.get("path"),
-            **submission_error,
-        }
-        for route in visited
-        for submission_error in route.get("form_submission_errors", [])
-    )
-    errors.extend(
-        {"error": error}
-        for error in capture_errors
-    )
-    errors.extend(
-        {
-            "route": interaction.get("route"),
-            "form_id": interaction.get("form_id"),
-            **field_error,
-        }
-        for interaction in form_interactions
-        for field_error in interaction.get("field_errors", [])
-    )
-    errors.extend(
-        {
-            "route": interaction.get("route"),
-            "error": interaction["error"],
-        }
-        for interaction in interactions
-        if interaction.get("error")
-    )
-    scanned_at = datetime.now(timezone.utc).isoformat()
-
-    return {
-        "tool": "weakPageCrawler",
-        "target": target,
-        "analyzed_at": scanned_at,
-        "scanned_at": scanned_at,
-        "summary": {
-            "requested_url_count": len(visited),
-            "unique_response_count": sum(
-                route.get("status") is not None for route in visited
-            ),
-            "unique_entry_point_count": len(entry_points),
-            "forms_attempted": len(form_interactions),
-            "forms_with_requests": sum(
-                bool(interaction.get("request_ids"))
-                for interaction in form_interactions
-            ),
-            "error_count": len(errors),
-        },
-        "endpoints": endpoint_reports,
-        "entry_points": entry_points,
-        "errors": errors,
-        "scope": {
-            "same_origin_only": True,
-            "allowed_methods": [
-                "GET",
-                "HEAD",
-                "synthetic POST, PUT, PATCH, or DELETE to same-origin /api routes",
-            ],
-            "synthetic_form_submissions": len(form_interactions),
-            "write_actions_persisted": False,
-            "write_probe_rejection_status": 422,
-            "synthetic_values_only": True,
-            "response_bodies_saved": True,
-            "sensitive_body_fields_redacted": True,
-            "maximum_body_bytes": MAX_BODY_BYTES,
-            "maximum_captured_bodies": MAX_CAPTURED_BODIES,
-            "request_limit": MAX_REQUESTS,
-            "route_limit": MAX_ROUTES,
-            "form_submission_limit": MAX_FORM_SUBMISSIONS,
-        },
-        "frontend_routes": {
-            "declared": frontend_routes,
-            "visited": visited,
-            "discovered_from_links": discovered,
-            "declared_count": len(frontend_routes),
-            "visited_count": sum(item["visited"] for item in visited),
-        },
-        "interactions": interactions,
-        "api_routes_from_source": api_routes,
-        "observed_endpoints": _observed_api_endpoints(captured_requests),
-        "requests": captured_requests,
-        "request_count": len(captured_requests),
-        "capture_errors": capture_errors,
-    }
+    return _build_scraping_report(target, captured_requests)
 
 
 def main() -> int:

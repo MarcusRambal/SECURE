@@ -1,6 +1,8 @@
 import unittest
+from types import ModuleType, SimpleNamespace
+from unittest.mock import MagicMock, patch
 
-from browser_xss_validator import _validate_plan
+from browser_xss_validator import _validate_plan, run_validation
 
 
 class BrowserXssValidatorPlanTests(unittest.TestCase):
@@ -55,6 +57,70 @@ class BrowserXssValidatorPlanTests(unittest.TestCase):
             _validate_plan("https://example.test", plan),
             ("https://example.test/api/contact", "POST"),
         )
+
+    def test_confirmed_result_reports_the_exact_value_sent(self):
+        plan = {
+            "mode": "reflected_dom",
+            "source_url": "https://example.test/search",
+            "parameter": "q",
+            "input_selector": "input[name=q]",
+            "request": {"method": "GET", "path": "/api/search"},
+        }
+        response = SimpleNamespace(status=200, text=lambda: "marker in response")
+        page = MagicMock()
+        page.evaluate.return_value = True
+        page.expect_response.return_value.__enter__.return_value.value = response
+        browser = MagicMock()
+        browser.new_context.return_value.new_page.return_value = page
+        playwright = MagicMock()
+        playwright.chromium.launch.return_value = browser
+        sync_api = ModuleType("playwright.sync_api")
+        sync_api.sync_playwright = MagicMock()
+        sync_api.sync_playwright.return_value.__enter__.return_value = playwright
+        playwright_module = ModuleType("playwright")
+
+        with (
+            patch.dict("sys.modules", {
+                "playwright": playwright_module,
+                "playwright.sync_api": sync_api,
+            }),
+            patch("browser_xss_validator.secrets.token_hex", return_value="abc123"),
+        ):
+            result = run_validation("https://example.test", plan)
+
+        value_sent = page.locator.return_value.first.fill.call_args.args[0]
+        self.assertEqual(result["outcome"], "VULNERABLE")
+        self.assertEqual(result["proof_value"], value_sent)
+        self.assertIn("xss-probe-abc123", value_sent)
+
+    def test_unconfirmed_result_does_not_report_a_proof_as_executed(self):
+        plan = {
+            "mode": "reflected_dom",
+            "source_url": "https://example.test/search",
+            "parameter": "q",
+            "input_selector": "input[name=q]",
+            "request": {"method": "GET", "path": "/api/search"},
+        }
+        response = SimpleNamespace(status=200, text=lambda: "no marker")
+        page = MagicMock()
+        page.evaluate.return_value = False
+        page.expect_response.return_value.__enter__.return_value.value = response
+        browser = MagicMock()
+        browser.new_context.return_value.new_page.return_value = page
+        playwright = MagicMock()
+        playwright.chromium.launch.return_value = browser
+        sync_api = ModuleType("playwright.sync_api")
+        sync_api.sync_playwright = MagicMock()
+        sync_api.sync_playwright.return_value.__enter__.return_value = playwright
+
+        with patch.dict("sys.modules", {
+            "playwright": ModuleType("playwright"),
+            "playwright.sync_api": sync_api,
+        }):
+            result = run_validation("https://example.test", plan)
+
+        self.assertEqual(result["outcome"], "NO_XSS")
+        self.assertNotIn("proof_value", result)
 
 
 if __name__ == "__main__":

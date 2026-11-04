@@ -1,0 +1,17 @@
+{
+  "http://weak-page:3009": {
+    "description": "Contrato de validación XSS del laboratorio weak_page: el guard sintético solo admite escrituras/lecturas/limpieza marcadas con esta cabecera y este prefijo de marcador, y la bandeja lee registros por /api/contact/xss-inbox/{id}.",
+    "marker_prefix": "weakpage-xss-probe-",
+    "request_headers": {
+      "x-weak-page-xss-validation": "stored-contact"
+    },
+    "verification_request_headers": {
+      "x-weak-page-xss-validation": "stored-contact"
+    },
+    "verification_path_suffix": "xss-inbox/{id}",
+    "cleanup_headers": {
+      "content-type": "application/json",
+      "x-weak-page-xss-validation": "stored-contact"
+    }
+  }
+}

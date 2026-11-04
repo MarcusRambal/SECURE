@@ -2,7 +2,7 @@ from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Literal, Optional
 
 # ============================================================================
-# 1. MODELOS DEL AGENTE DE RECONOCIMIENTO (RECON)
+# 1. MODELOS DE SALIDA DE RECONOCIMIENTO
 # ============================================================================
 
 
@@ -171,7 +171,8 @@ class ReporterInput(BaseModel):
         description="Tipo de auditoría solicitada (full, sql_injection, xss, command_injection)",
     )
     recon_used_fallback: bool = Field(
-        default=False, description="Indica si el Recon-Agent utilizó mecanismo de respaldo"
+        default=False,
+        description="Indica si la etapa de reconocimiento utilizó un mecanismo de respaldo",
     )
     validate_used_fallback: bool = Field(
         default=False, description="Indica si el Validate-Agent utilizó mecanismo de respaldo"

@@ -27,8 +27,13 @@ export default function Dashboard() {
         <div className={styles.dashboardContainer}>
             <NavBar active={view} onChange={setView} />
 
+            <main>
             {view === "config" ? (
-                <section className={styles.configSection}>
+                <section className={styles.configSection} aria-labelledby="config-title">
+                    <div className={styles.configHeader}>
+                        <h1 id="config-title">Configuración del análisis</h1>
+                        <p>Define el objetivo y selecciona las pruebas que deseas ejecutar.</p>
+                    </div>
                     <ConfigPanel onTaskCreated={handleTaskCreated} />
                 </section>
             ) : (
@@ -44,6 +49,7 @@ export default function Dashboard() {
                     />
                 </section>
             )}
+            </main>
         </div>
     );
 }

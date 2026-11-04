@@ -68,6 +68,7 @@ async def start_scan(request: TaskRequest):
     # El token solo tiene sentido en ataques que lo requieren (jwt).
     if request.token:
         payload["token"] = request.token
+    payload["scraping_report"] = request.scraping_report
 
     try:
         print(f"Payload enviado a rabbitmq: task_id={task_id}, attack_type={request.attack_type}")

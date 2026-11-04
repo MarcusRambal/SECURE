@@ -12,7 +12,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Contrato compartido y lógica del orchestrator
 COPY contract_schemas.py .
 COPY llm_factory.py .
+COPY attack_types.py .
 COPY orchestrator/ .
+COPY recon/__init__.py /app/recon/__init__.py
+COPY recon/main.py /app/recon/main.py
 
 RUN adduser --disabled-password --gecos "" appuser && chown -R appuser:appuser /app
 USER appuser

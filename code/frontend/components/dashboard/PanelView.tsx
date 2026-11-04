@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment } from "react";
+import { Fragment, useLayoutEffect, useRef, type ReactNode } from "react";
 import type { AgentWebSocketEvent, ScanEndpoint } from "@/types/scan";
 import styles from "./PanelView.module.css";
 
@@ -37,16 +37,44 @@ const renderInlineMarkdown = (text: string, keyPrefix: string) =>
 type ReportBlock =
   | { type: "heading"; level: number; text: string }
   | { type: "paragraph"; text: string }
+  | { type: "quote"; text: string }
+  | { type: "table"; headers: string[]; rows: string[][] }
   | { type: "list"; ordered: boolean; items: string[] }
   | { type: "code"; text: string }
   | { type: "rule" };
+
+const splitTableCells = (line: string): string[] => {
+  const text = line.trim().replace(/^\||\|$/g, "");
+  const cells: string[] = [];
+  let cell = "";
+  let inCode = false;
+  for (let index = 0; index < text.length; index++) {
+    const character = text[index];
+    if (character === "\\" && text[index + 1] === "|") {
+      cell += "|";
+      index++;
+    } else if (character === "`") {
+      inCode = !inCode;
+      cell += character;
+    } else if (character === "|" && !inCode) {
+      cells.push(cell.trim());
+      cell = "";
+    } else {
+      cell += character;
+    }
+  }
+  cells.push(cell.trim());
+  return cells;
+};
 
 const parseReport = (report: string): ReportBlock[] => {
   const blocks: ReportBlock[] = [];
   const lines = report.split(/\r?\n/);
   let codeLines: string[] | null = null;
+  let separated = false;
 
-  for (const rawLine of lines) {
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+    const rawLine = lines[lineIndex];
     const line = rawLine.trim();
     if (line.startsWith("```")) {
       if (codeLines === null) {
@@ -62,7 +90,42 @@ const parseReport = (report: string): ReportBlock[] => {
       codeLines.push(rawLine);
       continue;
     }
-    if (!line) continue;
+    if (!line) {
+      separated = true;
+      continue;
+    }
+
+    const previousSeparated = separated;
+    separated = false;
+
+    const nextLine = lines[lineIndex + 1]?.trim();
+    if (line.includes("|") && nextLine?.includes("|")) {
+      const headers = splitTableCells(line);
+      const separators = splitTableCells(nextLine);
+      if (headers.length === separators.length && separators.every((cell) => /^:?-{3,}:?$/.test(cell))) {
+        const rows: string[][] = [];
+        lineIndex++;
+        while (lines[lineIndex + 1]?.includes("|")) {
+          const row = splitTableCells(lines[lineIndex + 1]);
+          if (row.length !== headers.length) break;
+          lineIndex++;
+          rows.push(row);
+        }
+        blocks.push({ type: "table", headers, rows });
+        continue;
+      }
+    }
+
+    const quote = line.match(/^>\s?(.*)$/);
+    if (quote) {
+      const previousBlock = blocks.at(-1);
+      if (!previousSeparated && previousBlock?.type === "quote") {
+        previousBlock.text += ` ${quote[1]}`;
+      } else {
+        blocks.push({ type: "quote", text: quote[1] });
+      }
+      continue;
+    }
 
     const heading = line.match(/^(#{1,3})\s+(.+)$/);
     if (heading) {
@@ -91,7 +154,7 @@ const parseReport = (report: string): ReportBlock[] => {
     }
 
     const previousBlock = blocks.at(-1);
-    if (previousBlock?.type === "paragraph") {
+    if (!previousSeparated && previousBlock?.type === "paragraph") {
       previousBlock.text += ` ${line}`;
     } else {
       blocks.push({ type: "paragraph", text: line });
@@ -120,6 +183,33 @@ const MarkdownReport = ({ report }: { report: string }) => (
           <p key={`paragraph-${index}`}>
             {renderInlineMarkdown(block.text, `paragraph-${index}`)}
           </p>
+        );
+      }
+      if (block.type === "quote") {
+        return (
+          <blockquote className={styles.reportQuote} key={`quote-${index}`}>
+            {renderInlineMarkdown(block.text, `quote-${index}`)}
+          </blockquote>
+        );
+      }
+      if (block.type === "table") {
+        return (
+          <div className={styles.reportTableContainer} key={`table-${index}`}>
+            <table className={styles.reportTable}>
+              <thead>
+                <tr>{block.headers.map((header, cellIndex) => (
+                  <th scope="col" key={cellIndex}>{renderInlineMarkdown(header, `header-${index}-${cellIndex}`)}</th>
+                ))}</tr>
+              </thead>
+              <tbody>
+                {block.rows.map((row, rowIndex) => (
+                  <tr key={rowIndex}>{block.headers.map((_, cellIndex) => (
+                    <td key={cellIndex}>{renderInlineMarkdown(row[cellIndex] ?? "", `cell-${index}-${rowIndex}-${cellIndex}`)}</td>
+                  ))}</tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         );
       }
       if (block.type === "list") {
@@ -158,6 +248,51 @@ const getEndpoints = (events: AgentWebSocketEvent[]): ScanEndpoint[] => {
     }
   }
   return [];
+};
+
+const ResultList = ({
+  children,
+  count,
+  className,
+  label,
+  ordered = false,
+}: {
+  children: ReactNode;
+  count: number;
+  className: string;
+  label: string;
+  ordered?: boolean;
+}) => {
+  const listRef = useRef<HTMLOListElement | HTMLUListElement>(null);
+
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+
+    const items = Array.from(list.children).slice(0, 3);
+    const updateHeight = () => {
+      const gap = Number.parseFloat(getComputedStyle(list).rowGap) || 0;
+      const height = items.reduce((total, item) => total + item.getBoundingClientRect().height, 0)
+        + gap * Math.max(0, items.length - 1);
+      list.style.setProperty("--three-items-height", `${height}px`);
+    };
+
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(list);
+    items.forEach((item) => observer.observe(item));
+    updateHeight();
+    return () => observer.disconnect();
+  });
+
+  const List = ordered ? "ol" : "ul";
+  return (
+    <>
+      {count > 3 && <p className={styles.scrollHint}>Desplázate para ver todos los resultados.</p>}
+      <List ref={(node) => { listRef.current = node; }} className={className} tabIndex={0} aria-label={label}>
+        {children}
+      </List>
+    </>
+  );
 };
 
 export const PanelView = ({
@@ -202,7 +337,14 @@ export const PanelView = ({
           ? "En proceso"
           : "Conectando";
   const endpoints = getEndpoints(events);
-  const severityCounts = vulnerabilities.reduce<Record<string, number>>(
+  const visibleVulnerabilities = vulnerabilities
+    .filter((vulnerability) => vulnerability.severity !== "INFO")
+    .map((vulnerability) => ({
+      ...vulnerability,
+      severity: vulnerability.severity === "CRITICAL" ? "HIGH" : vulnerability.severity,
+    }));
+  const informationalCount = vulnerabilities.length - visibleVulnerabilities.length;
+  const severityCounts = visibleVulnerabilities.reduce<Record<string, number>>(
     (counts, vulnerability) => {
       counts[vulnerability.severity] = (counts[vulnerability.severity] ?? 0) + 1;
       return counts;
@@ -214,7 +356,6 @@ export const PanelView = ({
     <div className={styles.panelContainer}>
       <header className={styles.taskHeader}>
         <div>
-          <p className={styles.eyebrow}>Seguimiento de auditoría</p>
           <h1 className={styles.pageTitle}>Trazabilidad del escaneo</h1>
           <code className={styles.taskId}>
             {taskId ?? "Configura y lanza un escaneo para comenzar."}
@@ -237,7 +378,6 @@ export const PanelView = ({
       <section className={styles.stageSection} aria-labelledby="stage-title">
         <div className={styles.sectionHeading}>
           <div>
-            <p className={styles.eyebrow}>Pipeline</p>
             <h2 className={styles.sectionTitle} id="stage-title">
               Etapa actual
             </h2>
@@ -284,6 +424,13 @@ export const PanelView = ({
                           ? "Preparando la tarea..."
                           : "Pendiente")}
                   </span>
+                  {stage.id === "validate" &&
+                    stageEvent?.eventType === "TOOL_EXECUTION" &&
+                    informationalCount > 0 && (
+                      <span className={styles.stageMessage}>
+                        Incluye {informationalCount} hallazgo{informationalCount === 1 ? "" : "s"} informativo{informationalCount === 1 ? "" : "s"} no mostrado{informationalCount === 1 ? "" : "s"} en el listado.
+                      </span>
+                    )}
                   {stageEvent?.durationMs !== undefined && (
                     <span className={styles.stageDuration}>
                       {formatDuration(stageEvent.durationMs)}
@@ -307,7 +454,7 @@ export const PanelView = ({
           </div>
 
           {endpoints.length > 0 ? (
-            <ol className={styles.endpointList}>
+            <ResultList className={styles.endpointList} count={endpoints.length} label="Endpoints a probar" ordered>
               {endpoints.map((endpoint, index) => (
                 <li
                   className={styles.endpointItem}
@@ -329,7 +476,7 @@ export const PanelView = ({
                   </div>
                 </li>
               ))}
-            </ol>
+            </ResultList>
           ) : (
             <p className={styles.emptyState}>
               {isFinished
@@ -346,13 +493,13 @@ export const PanelView = ({
               <h2 className={styles.sectionTitle}>Vulnerabilidades</h2>
             </div>
             <span className={`${styles.countBadge} ${styles.vulnerabilityCount}`}>
-              {vulnerabilities.length}
+              {visibleVulnerabilities.length}
             </span>
           </div>
 
-          {vulnerabilities.length > 0 && (
+          {visibleVulnerabilities.length > 0 && (
             <div className={styles.severitySummary} aria-label="Resumen por severidad">
-              {["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"].map((severity) => (
+              {["HIGH", "MEDIUM", "LOW"].map((severity) => (
                 <span
                   className={`${styles.severityChip} ${styles[`severity${severity}`]}`}
                   key={severity}
@@ -363,9 +510,9 @@ export const PanelView = ({
             </div>
           )}
 
-          {vulnerabilities.length > 0 ? (
-            <ul className={styles.vulnerabilityList}>
-              {vulnerabilities.map((vulnerability, index) => (
+          {visibleVulnerabilities.length > 0 ? (
+            <ResultList className={styles.vulnerabilityList} count={visibleVulnerabilities.length} label="Vulnerabilidades">
+              {visibleVulnerabilities.map((vulnerability, index) => (
                 <li
                   className={styles.vulnerabilityItem}
                   key={[
@@ -384,11 +531,6 @@ export const PanelView = ({
                     >
                       {vulnerability.severity}
                     </span>
-                    {vulnerability.confidence && (
-                      <span className={styles.confidence}>
-                        Confianza {vulnerability.confidence}
-                      </span>
-                    )}
                   </div>
                   <h3 className={styles.vulnerabilityTitle}>{vulnerability.title}</h3>
                   {vulnerability.endpoint && (
@@ -415,7 +557,8 @@ export const PanelView = ({
                         <pre>{vulnerability.pocScript}</pre>
                       </details>
                     )}
-                    {vulnerability.verificationSteps && (
+                    {vulnerability.verificationSteps &&
+                      !/\bxss\b|cross[\s-]*site[\s-]*scripting/i.test(vulnerability.title) && (
                       <details className={styles.pocDetails}>
                         <summary>Cómo verificar</summary>
                         <p className={styles.evidence}>
@@ -426,11 +569,11 @@ export const PanelView = ({
                   </div>
                 </li>
               ))}
-            </ul>
+            </ResultList>
           ) : (
             <p className={styles.emptyState}>
               {isFinished
-                ? "La validación terminó sin vulnerabilidades confirmadas."
+                ? "La validación terminó sin vulnerabilidades confirmadas de las severidades mostradas."
                 : "Los hallazgos confirmados aparecerán aquí durante la validación."}
             </p>
           )}

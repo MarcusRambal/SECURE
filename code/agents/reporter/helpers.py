@@ -1,17 +1,81 @@
 import json
+import logging
 import re
 import unicodedata
+
+from langdetect import DetectorFactory, LangDetectException, detect_langs
 
 from contract_schemas import ReporterInput
 from config import REPORTER_MAX_ENDPOINTS, REPORTER_MAX_EVIDENCE_CHARS
 
-SEVERITY_ORDER = ("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO")
+SEVERITY_ORDER = ("HIGH", "MEDIUM", "LOW")
 ACCESS_CONTROL_TOOL = "access_control_prober"
 CRYPTO_TOOL = "crypto_inspector"
 REPORTED_TOOLS = (CRYPTO_TOOL, ACCESS_CONTROL_TOOL)
+OWASP_XSS_REFERENCE = {
+    "cwe": "CWE-79",
+    "owasp": "A05:2025",
+    "source": "https://owasp.org/Top10/2025/A05_2025-Injection/",
+}
+_XSS_FINDING_TYPES = {
+    "cross-site scripting (xss)",
+    "reflected dom cross-site scripting (xss)",
+    "stored cross-site scripting (xss)",
+}
 _HASH_PATTERN = re.compile(
     r"\b(?:[a-fA-F0-9]{32}|[a-fA-F0-9]{40}|[a-fA-F0-9]{64})\b"
 )
+logger = logging.getLogger("reporter-agent-worker")
+DetectorFactory.seed = 0
+_ENGLISH_REPORT_LABEL = re.compile(
+    r"(?im)^\s*(?:#{1,6}\s*|[-*]\s*|\|\s*)"
+    r"(?:[^\w\s*|]+\s*)?(?:\d+[.)]\s*)?"
+    r"(?:\*\*)?(?:executive summary|summary|security audit report|security assessment|"
+    r"overview|scope|findings|vulnerabilities|recommendations|remediation|"
+    r"conclusions|next steps|evidence|description|impact|severity|"
+    r"attack chain|reproducible command)(?:\*\*)?(?:\s*:|\s*\||\s*$)"
+)
+
+
+def report_has_english_narrative(markdown_text: str, reporter_input: ReporterInput) -> bool:
+    """Detecta prosa inglesa evidente sin analizar datos técnicos originales."""
+    text = re.sub(r"```[^\n]*\n[\s\S]*?(?:```|$)", " ", markdown_text)
+    original_values = []
+    for finding in reporter_input.validation_data.vulnerabilities:
+        original_values.extend(
+            [
+                finding.type,
+                finding.evidence,
+                _evidence_for_report(finding),
+                finding.reproducible_command,
+                finding.verification_steps,
+                finding.attack_result,
+                *finding.attack_chain,
+            ]
+        )
+    for finding in reporter_input.validation_data.unconfirmed_findings:
+        if isinstance(finding, dict):
+            original_values.extend(finding.values())
+    for value in original_values:
+        if isinstance(value, str) and len(value.strip()) >= 8:
+            text = text.replace(value, " ")
+    text = re.sub(r"`[^`]*`", " ", text)
+    text = re.sub(r"https?://\S+", " ", text)
+    if _ENGLISH_REPORT_LABEL.search(text):
+        return True
+
+    for line in text.splitlines():
+        words = re.findall(r"[^\W\d_]+", line, re.UNICODE)
+        if len(words) < 4 or len(line) < 28:
+            continue
+        try:
+            languages = detect_langs(line[:3000])
+        except LangDetectException:
+            logger.warning("[REPORTER] No se pudo detectar el idioma de un fragmento.")
+            continue
+        if languages and languages[0].lang == "en" and languages[0].prob >= 0.95:
+            return True
+    return False
 
 
 def _fold_text(text: str) -> str:
@@ -30,13 +94,19 @@ def _limit_text(text: str, limit: int) -> str:
     return text if limit <= 0 or len(text) <= limit else text[:limit] + "..."
 
 
-def _severity_of(vulnerability) -> str:
+def _severity_of(vulnerability) -> str | None:
     severity = str(getattr(vulnerability, "severity", "") or "").upper()
-    return severity if severity in SEVERITY_ORDER else "INFO"
+    if severity == "CRITICAL":
+        return "HIGH"
+    if severity == "INFO":
+        return None
+    if severity in SEVERITY_ORDER:
+        return severity
+    raise ValueError(f"Severidad no reconocida: {severity!r}")
 
 
 def _sort_by_severity(vulnerabilities: list) -> list:
-    """CRITICAL primero; el resto en orden descendente de severidad."""
+    """Ordena las vulnerabilidades por severidad de presentación."""
     return sorted(
         vulnerabilities,
         key=lambda vulnerability: (
@@ -51,6 +121,17 @@ def _severity_counts(vulnerabilities: list) -> dict:
     for vulnerability in vulnerabilities:
         counts[_severity_of(vulnerability)] += 1
     return counts
+
+
+def _split_findings(reporter_input: ReporterInput) -> tuple[list, list]:
+    vulnerabilities = []
+    informational = []
+    for finding in reporter_input.validation_data.vulnerabilities:
+        if _severity_of(finding) is None:
+            informational.append(finding)
+        else:
+            vulnerabilities.append(finding)
+    return _sort_by_severity(vulnerabilities), informational
 
 
 def _tool_names(vulnerability) -> list[str]:
@@ -91,7 +172,10 @@ def _primary_tool(vulnerability) -> str:
 
 
 def _is_access_control(vulnerability) -> bool:
-    return ACCESS_CONTROL_TOOL in _tool_names(vulnerability)
+    return (
+        _severity_of(vulnerability) is not None
+        and ACCESS_CONTROL_TOOL in _tool_names(vulnerability)
+    )
 
 
 def _is_crypto(vulnerability) -> bool:
@@ -177,24 +261,22 @@ def _access_control_confirmation_label(vulnerability) -> str:
 
 def _tool_metrics(findings: list) -> dict:
     metrics = {
-        tool: {"total": 0, "CRITICAL": 0, "HIGH": 0, "critical_and_high": 0}
+        tool: {"total": 0, **{severity: 0 for severity in SEVERITY_ORDER}}
         for tool in REPORTED_TOOLS
     }
     for vulnerability in findings:
         for tool in _tool_names(vulnerability) or ["unknown"]:
             bucket = metrics.setdefault(
                 tool,
-                {"total": 0, "CRITICAL": 0, "HIGH": 0, "critical_and_high": 0},
+                {"total": 0, **{severity: 0 for severity in SEVERITY_ORDER}},
             )
             bucket["total"] += 1
             severity = _severity_of(vulnerability)
-            if severity in ("CRITICAL", "HIGH"):
-                bucket[severity] += 1
-                bucket["critical_and_high"] += 1
+            bucket[severity] += 1
     return metrics
 
 
-def _executive_summary(findings: list) -> dict:
+def _executive_summary(findings: list, informational_count: int) -> dict:
     counts = _severity_counts(findings)
     by_tool = _tool_metrics(findings)
     reported_findings = [
@@ -202,11 +284,6 @@ def _executive_summary(findings: list) -> dict:
         for vulnerability in findings
         if _primary_tool(vulnerability) in REPORTED_TOOLS
     ]
-    reported_critical = sum(
-        1
-        for vulnerability in reported_findings
-        if _severity_of(vulnerability) == "CRITICAL"
-    )
     reported_high = sum(
         1
         for vulnerability in reported_findings
@@ -215,13 +292,10 @@ def _executive_summary(findings: list) -> dict:
     return {
         "scope": "Hallazgos combinados de crypto_inspector y access_control_prober",
         "total_findings": len(findings),
-        "critical_total": counts["CRITICAL"],
         "high_total": counts["HIGH"],
-        "critical_and_high_total": counts["CRITICAL"] + counts["HIGH"],
+        "informational_count": informational_count,
         "reported_tools_total": len(reported_findings),
-        "reported_tools_critical_total": reported_critical,
         "reported_tools_high_total": reported_high,
-        "reported_tools_critical_and_high_total": reported_critical + reported_high,
         "severity_summary": counts,
         "by_tool": by_tool,
         "access_control_active_confirmations": sum(
@@ -239,10 +313,38 @@ def _executive_summary(findings: list) -> dict:
 def _evidence_for_report(vulnerability) -> str:
     evidence = str(getattr(vulnerability, "evidence", "") or "")
     limit = REPORTER_MAX_EVIDENCE_CHARS
-    # La evidencia CRITICAL/HIGH no debe recortarse tanto como la de baja severidad.
-    if _severity_of(vulnerability) in ("CRITICAL", "HIGH") and limit > 0:
+    # La evidencia de alta severidad conserva un límite más amplio.
+    if _severity_of(vulnerability) == "HIGH" and limit > 0:
         limit = max(limit, 1200)
     return _limit_text(evidence, limit)
+
+
+def _classification_reference(vulnerability) -> dict | None:
+    finding_type = str(getattr(vulnerability, "type", "") or "").strip().casefold()
+    cwe = str(getattr(vulnerability, "cwe", "") or "").strip()
+    owasp = str(getattr(vulnerability, "owasp", "") or "").strip()
+    if (
+        finding_type not in _XSS_FINDING_TYPES
+        or owasp
+        or (cwe and cwe.casefold() != "cwe-79")
+    ):
+        return None
+    return dict(OWASP_XSS_REFERENCE)
+
+
+def _evidence_lines(vulnerability) -> list[str]:
+    evidence = _evidence_for_report(vulnerability)
+    segments = evidence.split("; El validador ")
+    if len(segments) == 1:
+        return [f"- **Evidencia:** `{evidence}`"]
+    segments = [segments[0], *(f"El validador {part}" for part in segments[1:])]
+    split_segments = [segment.split(" Prueba enviada: ", 1) for segment in segments]
+    if not all(len(parts) == 2 and parts[0] == split_segments[0][0] for parts in split_segments):
+        return [f"- **Evidencia:** `{evidence}`"]
+    return [
+        f"- **Evidencia:** `{split_segments[0][0]}`",
+        *(f"- **Prueba enviada:** `{parts[1]}`" for parts in split_segments),
+    ]
 
 
 def _finding_context_payload(vulnerability) -> dict:
@@ -255,10 +357,12 @@ def _finding_context_payload(vulnerability) -> dict:
         "type": getattr(vulnerability, "type", "Unknown"),
         "severity": _severity_of(vulnerability),
         "endpoint": getattr(vulnerability, "endpoint", ""),
+        "method": getattr(vulnerability, "method", None),
         "parameter": getattr(vulnerability, "parameter", None),
         "confidence": getattr(vulnerability, "confidence", None),
         "cwe": getattr(vulnerability, "cwe", None),
         "owasp": getattr(vulnerability, "owasp", None),
+        "classification_reference": _classification_reference(vulnerability),
         "context_role": getattr(vulnerability, "context_role", None),
         "attack_demonstrated": getattr(vulnerability, "attack_demonstrated", None),
         "attack_result": getattr(vulnerability, "attack_result", None),
@@ -275,49 +379,62 @@ def _finding_context_payload(vulnerability) -> dict:
         ),
         "broken_hash": _is_broken_hash(vulnerability),
         "evidence": _evidence_for_report(vulnerability),
+        "verification_steps": getattr(vulnerability, "verification_steps", None),
         "reproducible_command": getattr(vulnerability, "reproducible_command", ""),
     }
 
 
 def _render_finding_markdown(vulnerability, index: int) -> list[str]:
     """Ficha determinista de un hallazgo, usada por fallback y anexo de garantía."""
-    severity = _severity_of(vulnerability)
+    severity = _severity_of(vulnerability) or "Informativo"
     attack_chain = _attack_chain(vulnerability)
     tool = _primary_tool(vulnerability)
     parts = [f"### {index}. [{severity}] {getattr(vulnerability, 'type', 'Unknown')}"]
-    parts.append(
-        f"- **ID del Hallazgo:** `{getattr(vulnerability, 'finding_id', None) or 'N/A'}`"
-    )
+    if getattr(vulnerability, "finding_id", None):
+        parts.append(f"- **ID del hallazgo:** `{vulnerability.finding_id}`")
     parts.append(f"- **Herramienta:** `{tool}`")
     parts.append(f"- **Endpoint:** `{getattr(vulnerability, 'endpoint', '')}`")
-    parts.append(
-        f"- **Parametro:** `{getattr(vulnerability, 'parameter', None) or 'N/A'}`"
-    )
+    if getattr(vulnerability, "method", None):
+        parts.append(f"- **Método:** `{vulnerability.method}`")
+    if getattr(vulnerability, "parameter", None):
+        parts.append(f"- **Parámetro:** `{vulnerability.parameter}`")
     parts.append(
         f"- **Certeza:** `{getattr(vulnerability, 'confidence', None) or 'N/A'}`"
     )
-    parts.append(
-        f"- **Mapeo Estandar:** CWE=`{getattr(vulnerability, 'cwe', None) or 'No reportado por la herramienta'}` | "
-        f"OWASP=`{getattr(vulnerability, 'owasp', None) or 'No reportado por la herramienta'}`"
-    )
-    parts.append(
-        f"- **Rol del Contexto:** `{getattr(vulnerability, 'context_role', None) or 'N/A'}`"
-    )
+    cwe = getattr(vulnerability, "cwe", None)
+    owasp = getattr(vulnerability, "owasp", None)
+    if cwe or owasp:
+        parts.append(
+            "- **Clasificación reportada por la herramienta:** "
+            + " · ".join(value for value in (cwe, owasp) if value)
+        )
+    reference = _classification_reference(vulnerability)
+    if reference:
+        parts.append(
+            "- **Clasificación orientativa por tipo de hallazgo:** "
+            f"{reference['cwe']} · OWASP Top 10 {reference['owasp']} (Inyección)."
+        )
+        parts.append(
+            "- **Mitigación orientativa:** Evitar insertar datos no confiables como HTML; "
+            "codificar la salida según su contexto y sanitizar el HTML cuando sea necesario."
+        )
+    if getattr(vulnerability, "context_role", None):
+        parts.append(f"- **Rol del contexto:** `{vulnerability.context_role}`")
     if str(getattr(vulnerability, "context_role", "") or "").casefold() == "static_checksum":
         parts.append(
-            "- **Clasificacion:** Falso positivo controlado / checksum estático "
+            "- **Clasificación:** Falso positivo controlado / checksum estático "
             "(no explotable por sí mismo)."
         )
 
     if _is_access_control(vulnerability):
         parts.append(
-            f"- **Confirmacion Activa:** ✅ **{_access_control_confirmation_label(vulnerability)}**. "
-            "La herramienta reprodujo la explotacion contra el objetivo."
+            f"- **Confirmación activa:** ✅ **{_access_control_confirmation_label(vulnerability)}**. "
+            "La herramienta reprodujo la explotación contra el objetivo."
         )
 
     if _is_recovered_password(vulnerability):
         parts.append(
-            f"- **Contrasena Recuperada:** `{getattr(vulnerability, 'attack_result', None)}`"
+            f"- **Contraseña recuperada:** `{getattr(vulnerability, 'attack_result', None)}`"
         )
     elif getattr(vulnerability, "attack_result", None):
         parts.append(
@@ -327,115 +444,82 @@ def _render_finding_markdown(vulnerability, index: int) -> list[str]:
     if _is_broken_hash(vulnerability):
         parts.append(f"- **Hash Roto/Obsoleto:** `{_hash_value(vulnerability)}`")
 
-    parts.append(f"- **Evidencia:** `{_evidence_for_report(vulnerability)}`")
+    parts.extend(_evidence_lines(vulnerability))
 
-    parts.append("- **Cadena de Ataque:**")
     if attack_chain:
+        parts.append("- **Cadena de ataque original:**")
         for step in attack_chain:
             parts.append(f"  {step}")
-    else:
-        parts.append("  No documentada por la herramienta.")
 
-    parts.append("- **Comando Reproducible:**")
-    parts.append("```bash")
-    parts.append(str(getattr(vulnerability, "reproducible_command", "") or "No disponible"))
-    parts.append("```")
-    tools_used = _tool_names(vulnerability)
-    parts.append(
-        f"- **Herramientas Utilizadas:** {', '.join(tools_used) if tools_used else 'N/A'}\n"
-    )
+    command = str(getattr(vulnerability, "reproducible_command", "") or "")
+    if command:
+        if command.startswith("browserXssValidator ") and command.rstrip().endswith(" --plan"):
+            parts.append("- **Referencia de ejecución:** no es un comando reproducible; falta el plan.")
+        else:
+            parts.append("- **Comando reproducible:**")
+        parts.extend(["```bash", command, "```"])
     parts.append("---\n")
     return parts
 
 
 def build_report_metrics(reporter_input: ReporterInput) -> dict:
     """Metricas combinadas para logging y para el resumen ejecutivo."""
-    findings = _sort_by_severity(list(reporter_input.validation_data.vulnerabilities))
-    return _executive_summary(findings)
+    findings, informational = _split_findings(reporter_input)
+    return _executive_summary(findings, len(informational))
 
 
 def build_fallback_markdown_report(reporter_input: ReporterInput, raw_error: str) -> str:
     """Construye un informe Markdown de respaldo sin depender del LLM."""
-    vulnerabilities = _sort_by_severity(list(reporter_input.validation_data.vulnerabilities))
-    targets = reporter_input.recon_data.high_priority_targets
+    vulnerabilities, informational = _split_findings(reporter_input)
     unconfirmed = reporter_input.validation_data.unconfirmed_findings
-    summary = _executive_summary(vulnerabilities)
+    summary = _executive_summary(vulnerabilities, len(informational))
 
     parts = [
-        "# Informe de Auditoria de Ciberseguridad\n",
-        f"**ID de Tarea:** `{reporter_input.task_id}`",
-        f"**Objetivo Auditado:** `{reporter_input.target_url}`",
+        "# Informe de auditoría de ciberseguridad\n",
+        f"**ID de Tarea:** `{reporter_input.task_id}`\n",
+        f"**Objetivo Auditado:** `{reporter_input.target_url}`\n",
         f"**Modalidad:** `{reporter_input.attack_type}`\n",
     ]
 
     if reporter_input.recon_used_fallback or reporter_input.validate_used_fallback:
         parts.append(
-            "> **Advertencia de Analisis Degradado:** Fases previas utilizaron mecanismos "
+            "> **Advertencia de análisis degradado:** Fases previas utilizaron mecanismos "
             "de respaldo. La cobertura del reporte puede ser parcial.\n"
         )
 
     parts.append(
-        "> **Nota del Sistema:** Este informe se genero mediante la plantilla de respaldo "
-        "debido a una anomalia durante la generacion narrativa del LLM."
+        "> **Informe de respaldo:** No fue posible generar la narración con el modelo. "
+        "Se presentan los datos disponibles y, cuando aplica, una clasificación orientativa."
     )
-    parts.append(f"> **Error:** `{raw_error[:200]}`\n")
+    parts.append(f"> **Detalle técnico original:** `{raw_error[:200]}`\n")
 
     parts.append("## Resumen Ejecutivo\n")
-    parts.append(f"* **Objetivos Prioritarios Identificados:** {len(targets)}")
-    parts.append(f"* **Hallazgos Confirmados:** {summary['total_findings']}")
-    parts.append(f"* **CRITICAL (total):** {summary['critical_total']}")
-    parts.append(f"* **HIGH (total):** {summary['high_total']}")
     parts.append(
-        "* **CRITICAL + HIGH (crypto_inspector + access_control_prober):** "
-        f"{summary['reported_tools_critical_and_high_total']}"
+        f"* **Objetivos prioritarios:** "
+        f"{reporter_input.recon_data.recon_summary.total_targets_identified}"
     )
-    parts.append(
-        "* **Hallazgos por Severidad:** "
-        + ", ".join(
-            f"{severity}={count}"
-            for severity, count in summary["severity_summary"].items()
-        )
-    )
-    parts.append(
-        f"* **Confirmaciones Activas de Control de Acceso:** "
-        f"{summary['access_control_active_confirmations']}"
-    )
-    parts.append(
-        f"* **Credenciales Recuperadas:** {summary['recovered_credentials']}"
-    )
-    parts.append(f"* **Hashes Rotos/Obsoletos:** {summary['broken_hashes']}")
-    parts.append(f"* **Pruebas Sin Confirmacion:** {len(unconfirmed)}\n")
-
-    parts.append("### Desglose por Herramienta\n")
-    parts.append("| Herramienta | CRITICAL | HIGH | CRITICAL + HIGH | Total |")
-    parts.append("|---|---:|---:|---:|---:|")
-    for tool in REPORTED_TOOLS:
-        metrics = summary["by_tool"].get(tool, {})
-        parts.append(
-            f"| `{tool}` | {metrics.get('CRITICAL', 0)} | {metrics.get('HIGH', 0)} | "
-            f"{metrics.get('critical_and_high', 0)} | {metrics.get('total', 0)} |"
-        )
-    parts.append(
-        f"| **TOTAL combinado** | **{summary['reported_tools_critical_total']}** | "
-        f"**{summary['reported_tools_high_total']}** | "
-        f"**{summary['reported_tools_critical_and_high_total']}** | "
-        f"**{summary['reported_tools_total']}** |\n"
-    )
+    parts.extend(_summary_lines(summary, len(unconfirmed)))
+    parts.append("")
 
     parts.append("## Detalle de Hallazgos\n")
     if not vulnerabilities:
         parts.append(
-            "*No se confirmaron vulnerabilidades explotables durante esta auditoria de seguridad.*\n"
+            "*No se confirmaron vulnerabilidades explotables durante esta auditoría de seguridad.*\n"
         )
     else:
         for index, vulnerability in enumerate(vulnerabilities, start=1):
             parts.extend(_render_finding_markdown(vulnerability, index))
 
+    if informational:
+        parts.append("## Hallazgos informativos\n")
+        for index, finding in enumerate(informational, start=1):
+            parts.extend(_render_finding_markdown(finding, index))
+
     if unconfirmed:
-        parts.append("## Pruebas sin Confirmacion\n")
+        parts.append("## Pruebas sin confirmación\n")
         parts.append(
             f"Se ejecutaron {len(unconfirmed)} pruebas/evaluaciones adicionales "
-            "que no arrojaron evidencia suficiente de explotacion directa.\n"
+            "que no arrojaron evidencia suficiente de explotación directa.\n"
         )
 
     return "\n".join(parts)
@@ -445,9 +529,34 @@ def build_reporter_context(reporter_input: ReporterInput) -> str:
     """Genera un resumen JSON compacto del contrato actual de Recon y Validate."""
     recon_summary = reporter_input.recon_data.recon_summary
     targets = reporter_input.recon_data.high_priority_targets
-    findings = _sort_by_severity(list(reporter_input.validation_data.vulnerabilities))
-    summary = _executive_summary(findings)
+    findings, informational = _split_findings(reporter_input)
+    summary = _executive_summary(findings, len(informational))
     unconfirmed = reporter_input.validation_data.unconfirmed_findings
+    unconfirmed_tools = []
+    for finding in unconfirmed:
+        if not isinstance(finding, dict):
+            continue
+        tools = finding.get("tools_used")
+        if isinstance(tools, list):
+            unconfirmed_tools.extend(tool for tool in tools if isinstance(tool, str) and tool)
+        for key in ("tool", "tool_used"):
+            tool = finding.get(key)
+            if isinstance(tool, str) and tool:
+                unconfirmed_tools.append(tool)
+    source_tools = list(dict.fromkeys(
+        tool.casefold()
+        for tool in [*(tool for finding in [*findings, *informational] for tool in _tool_names(finding)), *unconfirmed_tools]
+    ))
+
+    def unconfirmed_tool(finding: dict) -> str:
+        tool = finding.get("tool") or finding.get("tool_used")
+        if isinstance(tool, str) and tool:
+            return tool
+        tools = finding.get("tools_used")
+        if isinstance(tools, list):
+            return next((tool for tool in tools if isinstance(tool, str) and tool), "unknown")
+        return "unknown"
+
     context = {
         "task_id": reporter_input.task_id,
         "target_url": reporter_input.target_url,
@@ -472,7 +581,7 @@ def build_reporter_context(reporter_input: ReporterInput) -> str:
             ],
         },
         "validation_summary": {
-            "source_tools": list(REPORTED_TOOLS),
+            "source_tools": source_tools,
             "total_findings": len(findings),
             "severity_summary": summary["severity_summary"],
             "findings_order": list(SEVERITY_ORDER),
@@ -480,14 +589,14 @@ def build_reporter_context(reporter_input: ReporterInput) -> str:
             "findings": [
                 _finding_context_payload(vulnerability) for vulnerability in findings
             ],
+            "informational_count": len(informational),
+            "informational_findings": [
+                _finding_context_payload(finding) for finding in informational
+            ],
             "unconfirmed_count": len(unconfirmed),
             "unconfirmed_findings": [
                 {
-                    "tool": str(
-                        finding.get("tool")
-                        or finding.get("tool_used")
-                        or "unknown"
-                    ),
+                    "tool": unconfirmed_tool(finding),
                     "type": finding.get("type"),
                     "endpoint": finding.get("endpoint"),
                     "reason": finding.get("reason")
@@ -529,37 +638,36 @@ def _executive_summary_markdown(
     summary: dict, unconfirmed_count: int
 ) -> list[str]:
     """Resumen ejecutivo determinista para completar informes incompletos."""
-    combined_critical = summary["reported_tools_critical_total"]
-    combined_high = summary["reported_tools_high_total"]
-    lines = [
-        "## 📊 Resumen Ejecutivo",
-        "",
-        f"- **Hallazgos confirmados:** {summary['total_findings']}",
-        f"- **CRITICAL total:** {summary['critical_total']}",
-        f"- **HIGH total:** {summary['high_total']}",
-        "- **CRITICAL + HIGH (crypto_inspector + access_control_prober):** "
-        f"{summary['reported_tools_critical_and_high_total']}",
-        "- **Confirmaciones activas de control de acceso:** "
-        f"{summary['access_control_active_confirmations']}",
-        f"- **Credenciales recuperadas:** {summary['recovered_credentials']}",
-        f"- **Hashes rotos/obsoletos:** {summary['broken_hashes']}",
-        f"- **Pruebas sin confirmación:** {unconfirmed_count}",
-        "",
-        "| Herramienta | CRITICAL | HIGH | CRITICAL + HIGH | Total |",
-        "|---|---:|---:|---:|---:|",
-    ]
-    for tool in REPORTED_TOOLS:
-        metrics = summary["by_tool"].get(tool, {})
-        lines.append(
-            f"| `{tool}` | {metrics.get('CRITICAL', 0)} | {metrics.get('HIGH', 0)} | "
-            f"{metrics.get('critical_and_high', 0)} | {metrics.get('total', 0)} |"
-        )
-    lines.append(
-        f"| **TOTAL combinado** | **{combined_critical}** | **{combined_high}** | "
-        f"**{summary['reported_tools_critical_and_high_total']}** | "
-        f"**{summary['reported_tools_total']}** |"
+    return ["## Resumen Ejecutivo", "", *_summary_lines(summary, unconfirmed_count), ""]
+
+
+def _summary_lines(summary: dict, unconfirmed_count: int) -> list[str]:
+    severity = ", ".join(
+        f"{name}: {count}"
+        for name, count in summary["severity_summary"].items()
+        if count
+    ) or "sin hallazgos"
+    tools = ", ".join(
+        f"{tool}: {metrics['total']}"
+        for tool, metrics in summary["by_tool"].items()
+        if metrics["total"]
     )
-    lines.append("")
+    lines = [
+        f"- **Hallazgos confirmados:** {summary['total_findings']}",
+        f"- **Severidad:** {severity}",
+        f"- **Pruebas sin confirmación:** {unconfirmed_count}",
+    ]
+    if summary["informational_count"]:
+        lines.append(f"- **Hallazgos informativos:** {summary['informational_count']}")
+    if tools:
+        lines.append(f"- **Hallazgos por herramienta:** {tools}")
+    for label, key in (
+        ("Confirmaciones activas de control de acceso", "access_control_active_confirmations"),
+        ("Credenciales recuperadas", "recovered_credentials"),
+        ("Hashes rotos u obsoletos", "broken_hashes"),
+    ):
+        if summary[key]:
+            lines.append(f"- **{label}:** {summary[key]}")
     return lines
 
 
@@ -600,14 +708,14 @@ def _missing_highlight_lines(
         label = _access_control_confirmation_label(vulnerability)
         if "confirmada activamente" not in text_folded and _fold_text(label) not in text_folded:
             lines.append(
-                f"- **Confirmacion Activa:** ✅ **{label}**. "
-                "La herramienta reprodujo la explotacion contra el objetivo."
+                f"- **Confirmación activa:** ✅ **{label}**. "
+                "La herramienta reprodujo la explotación contra el objetivo."
             )
 
     if _is_recovered_password(vulnerability):
         if "contrasena recuperada" not in text_folded:
             lines.append(
-                f"- **Contrasena Recuperada:** "
+                f"- **Contraseña recuperada:** "
                 f"`{getattr(vulnerability, 'attack_result', None)}`"
             )
     elif getattr(vulnerability, "attack_result", None):
@@ -633,7 +741,7 @@ def _missing_highlight_lines(
             and "checksum estatico" not in text_folded
         ):
             lines.append(
-                "- **Clasificacion:** Falso positivo controlado / checksum estático "
+                "- **Clasificación:** Falso positivo controlado / checksum estático "
                 "(no explotable por sí mismo)."
             )
     return lines
@@ -648,8 +756,33 @@ def finalize_report_markdown(
     Si se detecta una omision, se anexa una ficha determinista generada desde el
     contrato, sin inventar datos.
     """
-    findings = _sort_by_severity(list(reporter_input.validation_data.vulnerabilities))
-    summary = _executive_summary(findings)
+    vulnerabilities, informational = _split_findings(reporter_input)
+    findings = [*vulnerabilities, *informational]
+    if any(_classification_reference(finding) for finding in findings) and not all(
+        OWASP_XSS_REFERENCE[key].casefold() in markdown_text.casefold()
+        for key in ("owasp", "cwe")
+    ):
+        markdown_text = (
+            f"{markdown_text.rstrip()}\n\n## Referencia de clasificación\n\n"
+            "Los hallazgos XSS sin clasificación de la herramienta corresponden "
+            "orientativamente a CWE-79 y OWASP Top 10 A05:2025 (Inyección). "
+            "La clasificación se deriva del tipo de hallazgo; no fue reportada "
+            "por la herramienta.\n"
+        )
+    incomplete_browser_command = any(
+        (command := str(getattr(finding, "reproducible_command", "") or ""))
+        and command.startswith("browserXssValidator ")
+        and command.rstrip().endswith(" --plan")
+        and command in markdown_text
+        for finding in findings
+    )
+    if incomplete_browser_command and "no es un comando reproducible" not in markdown_text.casefold():
+        markdown_text = (
+            f"{markdown_text.rstrip()}\n\n"
+            "> **Nota:** La referencia de ejecución del navegador no es un comando "
+            "reproducible por sí sola: requiere el plan original.\n"
+        )
+    summary = _executive_summary(vulnerabilities, len(informational))
     unconfirmed_count = len(reporter_input.validation_data.unconfirmed_findings)
     needs_summary = not _has_executive_summary_heading(markdown_text)
 
@@ -698,18 +831,21 @@ def finalize_report_markdown(
         "",
         "## 🧾 Anexo Determinista de Hallazgos",
         "",
-        (
-            "> Este anexo se agrega automaticamente para garantizar que ningun "
-            "hallazgo confirmado, resaltado obligatorio o cadena de ataque quede "
-            "fuera del informe."
-        ),
+        "> Este anexo completa los hallazgos y datos omitidos en la narración.",
         "",
     ]
 
-    if missing:
-        parts.append("### Hallazgos no incluidos por la redaccion\n")
-        for index, vulnerability in enumerate(missing, start=1):
+    missing_vulnerabilities = [finding for finding in missing if _severity_of(finding) is not None]
+    missing_informational = [finding for finding in missing if _severity_of(finding) is None]
+    if missing_vulnerabilities:
+        parts.append("### Hallazgos no incluidos en la redacción\n")
+        for index, vulnerability in enumerate(missing_vulnerabilities, start=1):
             parts.extend(_render_finding_markdown(vulnerability, index))
+
+    if missing_informational:
+        parts.append("### Hallazgos informativos no incluidos en la redacción\n")
+        for index, finding in enumerate(missing_informational, start=1):
+            parts.extend(_render_finding_markdown(finding, index))
 
     if incomplete:
         parts.append("### Hallazgos con contenido incompleto\n")

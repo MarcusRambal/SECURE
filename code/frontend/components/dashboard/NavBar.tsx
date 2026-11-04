@@ -1,8 +1,10 @@
 "use client";
 
+import Image from "next/image";
+import Link from "next/link";
 import styles from "./NavBar.module.css";
 
-export type DashboardView = "config" | "panel" | "inicio";
+export type DashboardView = "config" | "panel";
 
 interface NavBarProps {
   active: DashboardView;
@@ -12,12 +14,17 @@ interface NavBarProps {
 const TABS: { id: DashboardView; label: string }[] = [
   { id: "config", label: "Configuración" },
   { id: "panel", label: "Panel" },
-  { id: "inicio", label: "Secure"}
 ];
 
 export const NavBar = ({ active, onChange }: NavBarProps) => {
   return (
+    <header className={styles.header}>
     <nav className={styles.navBar} aria-label="Navegación del escaneo">
+      <Link className={styles.homeLink} href="/" aria-label="SECURE, volver a la página principal">
+        <Image className={styles.logo} src="/LOBSTER.svg" alt="" width={42} height={42} />
+        <span>SECURE</span>
+      </Link>
+      <div className={styles.tabs}>
       {TABS.map((tab) => (
         <button
           key={tab.id}
@@ -29,6 +36,8 @@ export const NavBar = ({ active, onChange }: NavBarProps) => {
           {tab.label}
         </button>
       ))}
+      </div>
     </nav>
+    </header>
   );
 };

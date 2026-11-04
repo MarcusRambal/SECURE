@@ -1,0 +1,4467 @@
+{
+  "target": "http://weak-page:3009",
+  "observed_endpoints": [
+    {
+      "method": "GET",
+      "path": "/api/admin/vulnerabilities",
+      "query_parameters": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/login",
+      "query_parameters": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/register",
+      "query_parameters": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/contact",
+      "query_parameters": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/contact",
+      "query_parameters": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/orders",
+      "query_parameters": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/products",
+      "query_parameters": [
+        "category",
+        "q"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/products/1",
+      "query_parameters": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/products/1/related",
+      "query_parameters": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/products/10",
+      "query_parameters": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/products/10/related",
+      "query_parameters": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/products/11",
+      "query_parameters": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/products/11/related",
+      "query_parameters": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/products/12",
+      "query_parameters": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/products/12/related",
+      "query_parameters": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/products/2",
+      "query_parameters": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/products/2/related",
+      "query_parameters": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/products/3",
+      "query_parameters": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/products/3/related",
+      "query_parameters": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/products/4",
+      "query_parameters": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/products/4/related",
+      "query_parameters": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/products/5",
+      "query_parameters": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/products/5/related",
+      "query_parameters": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/products/6",
+      "query_parameters": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/products/6/related",
+      "query_parameters": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/products/7",
+      "query_parameters": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/products/7/related",
+      "query_parameters": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/products/8",
+      "query_parameters": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/products/8/related",
+      "query_parameters": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/products/9",
+      "query_parameters": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/products/9/related",
+      "query_parameters": []
+    }
+  ],
+  "requests": [
+    {
+      "id": "req_0001",
+      "method": "GET",
+      "url": "http://weak-page:3009/",
+      "path": "/",
+      "request_line": "GET / HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "document",
+      "request_headers": {
+        "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+        "upgrade-insecure-requests": "1",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "accept-ranges": "bytes",
+          "access-control-allow-origin": "*",
+          "cache-control": "public, max-age=0",
+          "connection": "keep-alive",
+          "content-length": "1133",
+          "content-type": "text/html; charset=UTF-8",
+          "date": "Mon, 02 Nov 2026 22:46:48 GMT",
+          "etag": "W/\"46d-1a193b58408\"",
+          "keep-alive": "timeout=5",
+          "last-modified": "Sat, 31 Oct 2026 20:45:09 GMT",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": false,
+          "content_type": "text/html",
+          "data": null
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/home"
+      ]
+    },
+    {
+      "id": "req_0002",
+      "method": "GET",
+      "url": "http://weak-page:3009/css/variables.css",
+      "path": "/css/variables.css",
+      "request_line": "GET /css/variables.css HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "stylesheet",
+      "request_headers": {
+        "accept": "text/css,*/*;q=0.1",
+        "referer": "http://weak-page:3009/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "accept-ranges": "bytes",
+          "access-control-allow-origin": "*",
+          "cache-control": "public, max-age=0",
+          "connection": "keep-alive",
+          "content-length": "435",
+          "content-type": "text/css; charset=UTF-8",
+          "date": "Mon, 02 Nov 2026 22:46:48 GMT",
+          "etag": "W/\"1b3-1a193b58408\"",
+          "keep-alive": "timeout=5",
+          "last-modified": "Sat, 31 Oct 2026 20:45:09 GMT",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": false,
+          "content_type": "text/css",
+          "data": null
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/home"
+      ]
+    },
+    {
+      "id": "req_0003",
+      "method": "GET",
+      "url": "http://weak-page:3009/css/styles.css",
+      "path": "/css/styles.css",
+      "request_line": "GET /css/styles.css HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "stylesheet",
+      "request_headers": {
+        "accept": "text/css,*/*;q=0.1",
+        "referer": "http://weak-page:3009/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "accept-ranges": "bytes",
+          "access-control-allow-origin": "*",
+          "cache-control": "public, max-age=0",
+          "connection": "keep-alive",
+          "content-length": "18348",
+          "content-type": "text/css; charset=UTF-8",
+          "date": "Mon, 02 Nov 2026 22:46:48 GMT",
+          "etag": "W/\"47ac-1a193b58408\"",
+          "keep-alive": "timeout=5",
+          "last-modified": "Sat, 31 Oct 2026 20:45:09 GMT",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": false,
+          "content_type": "text/css",
+          "data": null
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/home"
+      ]
+    },
+    {
+      "id": "req_0004",
+      "method": "GET",
+      "url": "http://weak-page:3009/css/scoreboard.css",
+      "path": "/css/scoreboard.css",
+      "request_line": "GET /css/scoreboard.css HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "stylesheet",
+      "request_headers": {
+        "accept": "text/css,*/*;q=0.1",
+        "referer": "http://weak-page:3009/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "accept-ranges": "bytes",
+          "access-control-allow-origin": "*",
+          "cache-control": "public, max-age=0",
+          "connection": "keep-alive",
+          "content-length": "3611",
+          "content-type": "text/css; charset=UTF-8",
+          "date": "Mon, 02 Nov 2026 22:46:48 GMT",
+          "etag": "W/\"e1b-1a193b58408\"",
+          "keep-alive": "timeout=5",
+          "last-modified": "Sat, 31 Oct 2026 20:45:09 GMT",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": false,
+          "content_type": "text/css",
+          "data": null
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/home"
+      ]
+    },
+    {
+      "id": "req_0005",
+      "method": "GET",
+      "url": "http://weak-page:3009/js/app.js",
+      "path": "/js/app.js",
+      "request_line": "GET /js/app.js HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "script",
+      "request_headers": {
+        "accept": "*/*",
+        "origin": "http://weak-page:3009",
+        "referer": "http://weak-page:3009/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "accept-ranges": "bytes",
+          "access-control-allow-origin": "*",
+          "cache-control": "public, max-age=0",
+          "connection": "keep-alive",
+          "content-length": "4576",
+          "content-type": "application/javascript; charset=UTF-8",
+          "date": "Mon, 02 Nov 2026 22:46:48 GMT",
+          "etag": "W/\"11e0-1a19d8bdb58\"",
+          "keep-alive": "timeout=5",
+          "last-modified": "Mon, 02 Nov 2026 18:35:51 GMT",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": false,
+          "content_type": "application/javascript",
+          "data": null
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/home"
+      ]
+    },
+    {
+      "id": "req_0006",
+      "method": "GET",
+      "url": "http://weak-page:3009/js/router.js",
+      "path": "/js/router.js",
+      "request_line": "GET /js/router.js HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "script",
+      "request_headers": {
+        "accept": "*/*",
+        "origin": "http://weak-page:3009",
+        "referer": "http://weak-page:3009/js/app.js",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "accept-ranges": "bytes",
+          "access-control-allow-origin": "*",
+          "cache-control": "public, max-age=0",
+          "connection": "keep-alive",
+          "content-length": "1274",
+          "content-type": "application/javascript; charset=UTF-8",
+          "date": "Mon, 02 Nov 2026 22:46:48 GMT",
+          "etag": "W/\"4fa-1a19d8bdb58\"",
+          "keep-alive": "timeout=5",
+          "last-modified": "Mon, 02 Nov 2026 18:35:51 GMT",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": false,
+          "content_type": "application/javascript",
+          "data": null
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/home"
+      ]
+    },
+    {
+      "id": "req_0007",
+      "method": "GET",
+      "url": "http://weak-page:3009/js/services/authService.js",
+      "path": "/js/services/authService.js",
+      "request_line": "GET /js/services/authService.js HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "script",
+      "request_headers": {
+        "accept": "*/*",
+        "origin": "http://weak-page:3009",
+        "referer": "http://weak-page:3009/js/app.js",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "accept-ranges": "bytes",
+          "access-control-allow-origin": "*",
+          "cache-control": "public, max-age=0",
+          "connection": "keep-alive",
+          "content-length": "2788",
+          "content-type": "application/javascript; charset=UTF-8",
+          "date": "Mon, 02 Nov 2026 22:46:48 GMT",
+          "etag": "W/\"ae4-1a193b58408\"",
+          "keep-alive": "timeout=5",
+          "last-modified": "Sat, 31 Oct 2026 20:45:09 GMT",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": false,
+          "content_type": "application/javascript",
+          "data": null
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/home"
+      ]
+    },
+    {
+      "id": "req_0008",
+      "method": "GET",
+      "url": "http://weak-page:3009/js/state/store.js",
+      "path": "/js/state/store.js",
+      "request_line": "GET /js/state/store.js HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "script",
+      "request_headers": {
+        "accept": "*/*",
+        "origin": "http://weak-page:3009",
+        "referer": "http://weak-page:3009/js/app.js",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "accept-ranges": "bytes",
+          "access-control-allow-origin": "*",
+          "cache-control": "public, max-age=0",
+          "connection": "keep-alive",
+          "content-length": "1320",
+          "content-type": "application/javascript; charset=UTF-8",
+          "date": "Mon, 02 Nov 2026 22:46:48 GMT",
+          "etag": "W/\"528-1a193b58408\"",
+          "keep-alive": "timeout=5",
+          "last-modified": "Sat, 31 Oct 2026 20:45:09 GMT",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": false,
+          "content_type": "application/javascript",
+          "data": null
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/home"
+      ]
+    },
+    {
+      "id": "req_0009",
+      "method": "GET",
+      "url": "http://weak-page:3009/js/services/productService.js",
+      "path": "/js/services/productService.js",
+      "request_line": "GET /js/services/productService.js HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "script",
+      "request_headers": {
+        "accept": "*/*",
+        "origin": "http://weak-page:3009",
+        "referer": "http://weak-page:3009/js/app.js",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "accept-ranges": "bytes",
+          "access-control-allow-origin": "*",
+          "cache-control": "public, max-age=0",
+          "connection": "keep-alive",
+          "content-length": "3623",
+          "content-type": "application/javascript; charset=UTF-8",
+          "date": "Mon, 02 Nov 2026 22:46:48 GMT",
+          "etag": "W/\"e27-1a193b58408\"",
+          "keep-alive": "timeout=5",
+          "last-modified": "Sat, 31 Oct 2026 20:45:09 GMT",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": false,
+          "content_type": "application/javascript",
+          "data": null
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/home"
+      ]
+    },
+    {
+      "id": "req_0010",
+      "method": "GET",
+      "url": "http://weak-page:3009/js/components/header.js",
+      "path": "/js/components/header.js",
+      "request_line": "GET /js/components/header.js HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "script",
+      "request_headers": {
+        "accept": "*/*",
+        "origin": "http://weak-page:3009",
+        "referer": "http://weak-page:3009/js/app.js",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "accept-ranges": "bytes",
+          "access-control-allow-origin": "*",
+          "cache-control": "public, max-age=0",
+          "connection": "keep-alive",
+          "content-length": "2622",
+          "content-type": "application/javascript; charset=UTF-8",
+          "date": "Mon, 02 Nov 2026 22:46:48 GMT",
+          "etag": "W/\"a3e-1a193b58408\"",
+          "keep-alive": "timeout=5",
+          "last-modified": "Sat, 31 Oct 2026 20:45:09 GMT",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": false,
+          "content_type": "application/javascript",
+          "data": null
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/home"
+      ]
+    },
+    {
+      "id": "req_0011",
+      "method": "GET",
+      "url": "http://weak-page:3009/js/components/footer.js",
+      "path": "/js/components/footer.js",
+      "request_line": "GET /js/components/footer.js HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "script",
+      "request_headers": {
+        "accept": "*/*",
+        "origin": "http://weak-page:3009",
+        "referer": "http://weak-page:3009/js/app.js",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "accept-ranges": "bytes",
+          "access-control-allow-origin": "*",
+          "cache-control": "public, max-age=0",
+          "connection": "keep-alive",
+          "content-length": "965",
+          "content-type": "application/javascript; charset=UTF-8",
+          "date": "Mon, 02 Nov 2026 22:46:48 GMT",
+          "etag": "W/\"3c5-1a193b58408\"",
+          "keep-alive": "timeout=5",
+          "last-modified": "Sat, 31 Oct 2026 20:45:09 GMT",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": false,
+          "content_type": "application/javascript",
+          "data": null
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/home"
+      ]
+    },
+    {
+      "id": "req_0012",
+      "method": "GET",
+      "url": "http://weak-page:3009/js/components/cartDrawer.js",
+      "path": "/js/components/cartDrawer.js",
+      "request_line": "GET /js/components/cartDrawer.js HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "script",
+      "request_headers": {
+        "accept": "*/*",
+        "origin": "http://weak-page:3009",
+        "referer": "http://weak-page:3009/js/app.js",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "accept-ranges": "bytes",
+          "access-control-allow-origin": "*",
+          "cache-control": "public, max-age=0",
+          "connection": "keep-alive",
+          "content-length": "2452",
+          "content-type": "application/javascript; charset=UTF-8",
+          "date": "Mon, 02 Nov 2026 22:46:48 GMT",
+          "etag": "W/\"994-1a193b58408\"",
+          "keep-alive": "timeout=5",
+          "last-modified": "Sat, 31 Oct 2026 20:45:09 GMT",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": false,
+          "content_type": "application/javascript",
+          "data": null
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/home"
+      ]
+    },
+    {
+      "id": "req_0013",
+      "method": "GET",
+      "url": "http://weak-page:3009/js/components/toast.js",
+      "path": "/js/components/toast.js",
+      "request_line": "GET /js/components/toast.js HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "script",
+      "request_headers": {
+        "accept": "*/*",
+        "origin": "http://weak-page:3009",
+        "referer": "http://weak-page:3009/js/app.js",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "accept-ranges": "bytes",
+          "access-control-allow-origin": "*",
+          "cache-control": "public, max-age=0",
+          "connection": "keep-alive",
+          "content-length": "343",
+          "content-type": "application/javascript; charset=UTF-8",
+          "date": "Mon, 02 Nov 2026 22:46:48 GMT",
+          "etag": "W/\"157-1a193b58408\"",
+          "keep-alive": "timeout=5",
+          "last-modified": "Sat, 31 Oct 2026 20:45:09 GMT",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": false,
+          "content_type": "application/javascript",
+          "data": null
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/home"
+      ]
+    },
+    {
+      "id": "req_0014",
+      "method": "GET",
+      "url": "http://weak-page:3009/js/components/loader.js",
+      "path": "/js/components/loader.js",
+      "request_line": "GET /js/components/loader.js HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "script",
+      "request_headers": {
+        "accept": "*/*",
+        "origin": "http://weak-page:3009",
+        "referer": "http://weak-page:3009/js/app.js",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "accept-ranges": "bytes",
+          "access-control-allow-origin": "*",
+          "cache-control": "public, max-age=0",
+          "connection": "keep-alive",
+          "content-length": "185",
+          "content-type": "application/javascript; charset=UTF-8",
+          "date": "Mon, 02 Nov 2026 22:46:48 GMT",
+          "etag": "W/\"b9-1a193b58408\"",
+          "keep-alive": "timeout=5",
+          "last-modified": "Sat, 31 Oct 2026 20:45:09 GMT",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": false,
+          "content_type": "application/javascript",
+          "data": null
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/home"
+      ]
+    },
+    {
+      "id": "req_0015",
+      "method": "GET",
+      "url": "http://weak-page:3009/js/pages/home.js",
+      "path": "/js/pages/home.js",
+      "request_line": "GET /js/pages/home.js HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "script",
+      "request_headers": {
+        "accept": "*/*",
+        "origin": "http://weak-page:3009",
+        "referer": "http://weak-page:3009/js/app.js",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "accept-ranges": "bytes",
+          "access-control-allow-origin": "*",
+          "cache-control": "public, max-age=0",
+          "connection": "keep-alive",
+          "content-length": "3199",
+          "content-type": "application/javascript; charset=UTF-8",
+          "date": "Mon, 02 Nov 2026 22:46:48 GMT",
+          "etag": "W/\"c7f-1a193b58408\"",
+          "keep-alive": "timeout=5",
+          "last-modified": "Sat, 31 Oct 2026 20:45:09 GMT",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": false,
+          "content_type": "application/javascript",
+          "data": null
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/home"
+      ]
+    },
+    {
+      "id": "req_0016",
+      "method": "GET",
+      "url": "http://weak-page:3009/js/pages/login.js",
+      "path": "/js/pages/login.js",
+      "request_line": "GET /js/pages/login.js HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "script",
+      "request_headers": {
+        "accept": "*/*",
+        "origin": "http://weak-page:3009",
+        "referer": "http://weak-page:3009/js/app.js",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "accept-ranges": "bytes",
+          "access-control-allow-origin": "*",
+          "cache-control": "public, max-age=0",
+          "connection": "keep-alive",
+          "content-length": "2503",
+          "content-type": "application/javascript; charset=UTF-8",
+          "date": "Mon, 02 Nov 2026 22:46:48 GMT",
+          "etag": "W/\"9c7-1a193b58408\"",
+          "keep-alive": "timeout=5",
+          "last-modified": "Sat, 31 Oct 2026 20:45:09 GMT",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": false,
+          "content_type": "application/javascript",
+          "data": null
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/home"
+      ]
+    },
+    {
+      "id": "req_0017",
+      "method": "GET",
+      "url": "http://weak-page:3009/js/pages/register.js",
+      "path": "/js/pages/register.js",
+      "request_line": "GET /js/pages/register.js HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "script",
+      "request_headers": {
+        "accept": "*/*",
+        "origin": "http://weak-page:3009",
+        "referer": "http://weak-page:3009/js/app.js",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "accept-ranges": "bytes",
+          "access-control-allow-origin": "*",
+          "cache-control": "public, max-age=0",
+          "connection": "keep-alive",
+          "content-length": "2415",
+          "content-type": "application/javascript; charset=UTF-8",
+          "date": "Mon, 02 Nov 2026 22:46:48 GMT",
+          "etag": "W/\"96f-1a193b58408\"",
+          "keep-alive": "timeout=5",
+          "last-modified": "Sat, 31 Oct 2026 20:45:09 GMT",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": false,
+          "content_type": "application/javascript",
+          "data": null
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/home"
+      ]
+    },
+    {
+      "id": "req_0018",
+      "method": "GET",
+      "url": "http://weak-page:3009/js/pages/catalog.js",
+      "path": "/js/pages/catalog.js",
+      "request_line": "GET /js/pages/catalog.js HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "script",
+      "request_headers": {
+        "accept": "*/*",
+        "origin": "http://weak-page:3009",
+        "referer": "http://weak-page:3009/js/app.js",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "accept-ranges": "bytes",
+          "access-control-allow-origin": "*",
+          "cache-control": "public, max-age=0",
+          "connection": "keep-alive",
+          "content-length": "4473",
+          "content-type": "application/javascript; charset=UTF-8",
+          "date": "Mon, 02 Nov 2026 22:46:48 GMT",
+          "etag": "W/\"1179-1a193b58408\"",
+          "keep-alive": "timeout=5",
+          "last-modified": "Sat, 31 Oct 2026 20:45:09 GMT",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": false,
+          "content_type": "application/javascript",
+          "data": null
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/home"
+      ]
+    },
+    {
+      "id": "req_0019",
+      "method": "GET",
+      "url": "http://weak-page:3009/js/pages/productDetail.js",
+      "path": "/js/pages/productDetail.js",
+      "request_line": "GET /js/pages/productDetail.js HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "script",
+      "request_headers": {
+        "accept": "*/*",
+        "origin": "http://weak-page:3009",
+        "referer": "http://weak-page:3009/js/app.js",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "accept-ranges": "bytes",
+          "access-control-allow-origin": "*",
+          "cache-control": "public, max-age=0",
+          "connection": "keep-alive",
+          "content-length": "3321",
+          "content-type": "application/javascript; charset=UTF-8",
+          "date": "Mon, 02 Nov 2026 22:46:48 GMT",
+          "etag": "W/\"cf9-1a193b58408\"",
+          "keep-alive": "timeout=5",
+          "last-modified": "Sat, 31 Oct 2026 20:45:09 GMT",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": false,
+          "content_type": "application/javascript",
+          "data": null
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/home"
+      ]
+    },
+    {
+      "id": "req_0020",
+      "method": "GET",
+      "url": "http://weak-page:3009/js/pages/checkout.js",
+      "path": "/js/pages/checkout.js",
+      "request_line": "GET /js/pages/checkout.js HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "script",
+      "request_headers": {
+        "accept": "*/*",
+        "origin": "http://weak-page:3009",
+        "referer": "http://weak-page:3009/js/app.js",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "accept-ranges": "bytes",
+          "access-control-allow-origin": "*",
+          "cache-control": "public, max-age=0",
+          "connection": "keep-alive",
+          "content-length": "6400",
+          "content-type": "application/javascript; charset=UTF-8",
+          "date": "Mon, 02 Nov 2026 22:46:48 GMT",
+          "etag": "W/\"1900-1a193b58408\"",
+          "keep-alive": "timeout=5",
+          "last-modified": "Sat, 31 Oct 2026 20:45:09 GMT",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": false,
+          "content_type": "application/javascript",
+          "data": null
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/home"
+      ]
+    },
+    {
+      "id": "req_0021",
+      "method": "GET",
+      "url": "http://weak-page:3009/js/pages/orderConfirmation.js",
+      "path": "/js/pages/orderConfirmation.js",
+      "request_line": "GET /js/pages/orderConfirmation.js HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "script",
+      "request_headers": {
+        "accept": "*/*",
+        "origin": "http://weak-page:3009",
+        "referer": "http://weak-page:3009/js/app.js",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "accept-ranges": "bytes",
+          "access-control-allow-origin": "*",
+          "cache-control": "public, max-age=0",
+          "connection": "keep-alive",
+          "content-length": "1777",
+          "content-type": "application/javascript; charset=UTF-8",
+          "date": "Mon, 02 Nov 2026 22:46:48 GMT",
+          "etag": "W/\"6f1-1a193b58408\"",
+          "keep-alive": "timeout=5",
+          "last-modified": "Sat, 31 Oct 2026 20:45:09 GMT",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": false,
+          "content_type": "application/javascript",
+          "data": null
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/home"
+      ]
+    },
+    {
+      "id": "req_0022",
+      "method": "GET",
+      "url": "http://weak-page:3009/js/pages/contact.js",
+      "path": "/js/pages/contact.js",
+      "request_line": "GET /js/pages/contact.js HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "script",
+      "request_headers": {
+        "accept": "*/*",
+        "origin": "http://weak-page:3009",
+        "referer": "http://weak-page:3009/js/app.js",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "accept-ranges": "bytes",
+          "access-control-allow-origin": "*",
+          "cache-control": "public, max-age=0",
+          "connection": "keep-alive",
+          "content-length": "3520",
+          "content-type": "application/javascript; charset=UTF-8",
+          "date": "Mon, 02 Nov 2026 22:46:48 GMT",
+          "etag": "W/\"dc0-1a19d8bdb58\"",
+          "keep-alive": "timeout=5",
+          "last-modified": "Mon, 02 Nov 2026 18:35:51 GMT",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": false,
+          "content_type": "application/javascript",
+          "data": null
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/home"
+      ]
+    },
+    {
+      "id": "req_0023",
+      "method": "GET",
+      "url": "http://weak-page:3009/js/pages/contactInbox.js",
+      "path": "/js/pages/contactInbox.js",
+      "request_line": "GET /js/pages/contactInbox.js HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "script",
+      "request_headers": {
+        "accept": "*/*",
+        "origin": "http://weak-page:3009",
+        "referer": "http://weak-page:3009/js/app.js",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "accept-ranges": "bytes",
+          "access-control-allow-origin": "*",
+          "cache-control": "public, max-age=0",
+          "connection": "keep-alive",
+          "content-length": "1594",
+          "content-type": "application/javascript; charset=UTF-8",
+          "date": "Mon, 02 Nov 2026 22:46:48 GMT",
+          "etag": "W/\"63a-1a19da3ad00\"",
+          "keep-alive": "timeout=5",
+          "last-modified": "Mon, 02 Nov 2026 19:01:52 GMT",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": false,
+          "content_type": "application/javascript",
+          "data": null
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/home"
+      ]
+    },
+    {
+      "id": "req_0024",
+      "method": "GET",
+      "url": "http://weak-page:3009/js/pages/about.js",
+      "path": "/js/pages/about.js",
+      "request_line": "GET /js/pages/about.js HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "script",
+      "request_headers": {
+        "accept": "*/*",
+        "origin": "http://weak-page:3009",
+        "referer": "http://weak-page:3009/js/app.js",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "accept-ranges": "bytes",
+          "access-control-allow-origin": "*",
+          "cache-control": "public, max-age=0",
+          "connection": "keep-alive",
+          "content-length": "2794",
+          "content-type": "application/javascript; charset=UTF-8",
+          "date": "Mon, 02 Nov 2026 22:46:48 GMT",
+          "etag": "W/\"aea-1a193b58408\"",
+          "keep-alive": "timeout=5",
+          "last-modified": "Sat, 31 Oct 2026 20:45:09 GMT",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": false,
+          "content_type": "application/javascript",
+          "data": null
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/home"
+      ]
+    },
+    {
+      "id": "req_0025",
+      "method": "GET",
+      "url": "http://weak-page:3009/js/pages/scoreBoard.js",
+      "path": "/js/pages/scoreBoard.js",
+      "request_line": "GET /js/pages/scoreBoard.js HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "script",
+      "request_headers": {
+        "accept": "*/*",
+        "origin": "http://weak-page:3009",
+        "referer": "http://weak-page:3009/js/app.js",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "accept-ranges": "bytes",
+          "access-control-allow-origin": "*",
+          "cache-control": "public, max-age=0",
+          "connection": "keep-alive",
+          "content-length": "10169",
+          "content-type": "application/javascript; charset=UTF-8",
+          "date": "Mon, 02 Nov 2026 22:46:48 GMT",
+          "etag": "W/\"27b9-1a193b58408\"",
+          "keep-alive": "timeout=5",
+          "last-modified": "Sat, 31 Oct 2026 20:45:09 GMT",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": false,
+          "content_type": "application/javascript",
+          "data": null
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/home"
+      ]
+    },
+    {
+      "id": "req_0026",
+      "method": "GET",
+      "url": "http://weak-page:3009/js/components/emptyState.js",
+      "path": "/js/components/emptyState.js",
+      "request_line": "GET /js/components/emptyState.js HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "script",
+      "request_headers": {
+        "accept": "*/*",
+        "origin": "http://weak-page:3009",
+        "referer": "http://weak-page:3009/js/app.js",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "accept-ranges": "bytes",
+          "access-control-allow-origin": "*",
+          "cache-control": "public, max-age=0",
+          "connection": "keep-alive",
+          "content-length": "244",
+          "content-type": "application/javascript; charset=UTF-8",
+          "date": "Mon, 02 Nov 2026 22:46:48 GMT",
+          "etag": "W/\"f4-1a193b58408\"",
+          "keep-alive": "timeout=5",
+          "last-modified": "Sat, 31 Oct 2026 20:45:09 GMT",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": false,
+          "content_type": "application/javascript",
+          "data": null
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/home"
+      ]
+    },
+    {
+      "id": "req_0027",
+      "method": "GET",
+      "url": "http://weak-page:3009/js/config.js",
+      "path": "/js/config.js",
+      "request_line": "GET /js/config.js HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "script",
+      "request_headers": {
+        "accept": "*/*",
+        "origin": "http://weak-page:3009",
+        "referer": "http://weak-page:3009/js/services/authService.js",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "accept-ranges": "bytes",
+          "access-control-allow-origin": "*",
+          "cache-control": "public, max-age=0",
+          "connection": "keep-alive",
+          "content-length": "224",
+          "content-type": "application/javascript; charset=UTF-8",
+          "date": "Mon, 02 Nov 2026 22:46:48 GMT",
+          "etag": "W/\"e0-1a193f33118\"",
+          "keep-alive": "timeout=5",
+          "last-modified": "Sat, 31 Oct 2026 21:52:31 GMT",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": false,
+          "content_type": "application/javascript",
+          "data": null
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/home"
+      ]
+    },
+    {
+      "id": "req_0028",
+      "method": "GET",
+      "url": "http://weak-page:3009/js/data/mockData.js",
+      "path": "/js/data/mockData.js",
+      "request_line": "GET /js/data/mockData.js HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "script",
+      "request_headers": {
+        "accept": "*/*",
+        "origin": "http://weak-page:3009",
+        "referer": "http://weak-page:3009/js/services/authService.js",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "accept-ranges": "bytes",
+          "access-control-allow-origin": "*",
+          "cache-control": "public, max-age=0",
+          "connection": "keep-alive",
+          "content-length": "5459",
+          "content-type": "application/javascript; charset=UTF-8",
+          "date": "Mon, 02 Nov 2026 22:46:48 GMT",
+          "etag": "W/\"1553-1a193b58408\"",
+          "keep-alive": "timeout=5",
+          "last-modified": "Sat, 31 Oct 2026 20:45:09 GMT",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": false,
+          "content_type": "application/javascript",
+          "data": null
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/home"
+      ]
+    },
+    {
+      "id": "req_0029",
+      "method": "GET",
+      "url": "http://weak-page:3009/js/services/apiClient.js",
+      "path": "/js/services/apiClient.js",
+      "request_line": "GET /js/services/apiClient.js HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "script",
+      "request_headers": {
+        "accept": "*/*",
+        "origin": "http://weak-page:3009",
+        "referer": "http://weak-page:3009/js/services/authService.js",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "accept-ranges": "bytes",
+          "access-control-allow-origin": "*",
+          "cache-control": "public, max-age=0",
+          "connection": "keep-alive",
+          "content-length": "636",
+          "content-type": "application/javascript; charset=UTF-8",
+          "date": "Mon, 02 Nov 2026 22:46:48 GMT",
+          "etag": "W/\"27c-1a193b58408\"",
+          "keep-alive": "timeout=5",
+          "last-modified": "Sat, 31 Oct 2026 20:45:09 GMT",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": false,
+          "content_type": "application/javascript",
+          "data": null
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/home"
+      ]
+    },
+    {
+      "id": "req_0030",
+      "method": "GET",
+      "url": "http://weak-page:3009/js/services/orderService.js",
+      "path": "/js/services/orderService.js",
+      "request_line": "GET /js/services/orderService.js HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "script",
+      "request_headers": {
+        "accept": "*/*",
+        "origin": "http://weak-page:3009",
+        "referer": "http://weak-page:3009/js/state/store.js",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "accept-ranges": "bytes",
+          "access-control-allow-origin": "*",
+          "cache-control": "public, max-age=0",
+          "connection": "keep-alive",
+          "content-length": "3021",
+          "content-type": "application/javascript; charset=UTF-8",
+          "date": "Mon, 02 Nov 2026 22:46:48 GMT",
+          "etag": "W/\"bcd-1a193b58408\"",
+          "keep-alive": "timeout=5",
+          "last-modified": "Sat, 31 Oct 2026 20:45:09 GMT",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": false,
+          "content_type": "application/javascript",
+          "data": null
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/home"
+      ]
+    },
+    {
+      "id": "req_0031",
+      "method": "GET",
+      "url": "http://weak-page:3009/js/utils/format.js",
+      "path": "/js/utils/format.js",
+      "request_line": "GET /js/utils/format.js HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "script",
+      "request_headers": {
+        "accept": "*/*",
+        "origin": "http://weak-page:3009",
+        "referer": "http://weak-page:3009/js/components/cartDrawer.js",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "accept-ranges": "bytes",
+          "access-control-allow-origin": "*",
+          "cache-control": "public, max-age=0",
+          "connection": "keep-alive",
+          "content-length": "240",
+          "content-type": "application/javascript; charset=UTF-8",
+          "date": "Mon, 02 Nov 2026 22:46:48 GMT",
+          "etag": "W/\"f0-1a193b58408\"",
+          "keep-alive": "timeout=5",
+          "last-modified": "Sat, 31 Oct 2026 20:45:09 GMT",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": false,
+          "content_type": "application/javascript",
+          "data": null
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/home"
+      ]
+    },
+    {
+      "id": "req_0032",
+      "method": "GET",
+      "url": "http://weak-page:3009/js/components/productCard.js",
+      "path": "/js/components/productCard.js",
+      "request_line": "GET /js/components/productCard.js HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "script",
+      "request_headers": {
+        "accept": "*/*",
+        "origin": "http://weak-page:3009",
+        "referer": "http://weak-page:3009/js/pages/home.js",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "accept-ranges": "bytes",
+          "access-control-allow-origin": "*",
+          "cache-control": "public, max-age=0",
+          "connection": "keep-alive",
+          "content-length": "987",
+          "content-type": "application/javascript; charset=UTF-8",
+          "date": "Mon, 02 Nov 2026 22:46:48 GMT",
+          "etag": "W/\"3db-1a193b58408\"",
+          "keep-alive": "timeout=5",
+          "last-modified": "Sat, 31 Oct 2026 20:45:09 GMT",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": false,
+          "content_type": "application/javascript",
+          "data": null
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/home"
+      ]
+    },
+    {
+      "id": "req_0033",
+      "method": "GET",
+      "url": "http://weak-page:3009/js/utils/validators.js",
+      "path": "/js/utils/validators.js",
+      "request_line": "GET /js/utils/validators.js HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "script",
+      "request_headers": {
+        "accept": "*/*",
+        "origin": "http://weak-page:3009",
+        "referer": "http://weak-page:3009/js/pages/register.js",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "accept-ranges": "bytes",
+          "access-control-allow-origin": "*",
+          "cache-control": "public, max-age=0",
+          "connection": "keep-alive",
+          "content-length": "1291",
+          "content-type": "application/javascript; charset=UTF-8",
+          "date": "Mon, 02 Nov 2026 22:46:48 GMT",
+          "etag": "W/\"50b-1a193b58408\"",
+          "keep-alive": "timeout=5",
+          "last-modified": "Sat, 31 Oct 2026 20:45:09 GMT",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": false,
+          "content_type": "application/javascript",
+          "data": null
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/home"
+      ]
+    },
+    {
+      "id": "req_0034",
+      "method": "GET",
+      "url": "http://weak-page:3009/js/services/contactService.js",
+      "path": "/js/services/contactService.js",
+      "request_line": "GET /js/services/contactService.js HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "script",
+      "request_headers": {
+        "accept": "*/*",
+        "origin": "http://weak-page:3009",
+        "referer": "http://weak-page:3009/js/pages/contact.js",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "accept-ranges": "bytes",
+          "access-control-allow-origin": "*",
+          "cache-control": "public, max-age=0",
+          "connection": "keep-alive",
+          "content-length": "927",
+          "content-type": "application/javascript; charset=UTF-8",
+          "date": "Mon, 02 Nov 2026 22:46:48 GMT",
+          "etag": "W/\"39f-1a193b58408\"",
+          "keep-alive": "timeout=5",
+          "last-modified": "Sat, 31 Oct 2026 20:45:09 GMT",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": false,
+          "content_type": "application/javascript",
+          "data": null
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/home"
+      ]
+    },
+    {
+      "id": "req_0035",
+      "method": "GET",
+      "url": "http://weak-page:3009/js/services/adminService.js",
+      "path": "/js/services/adminService.js",
+      "request_line": "GET /js/services/adminService.js HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "script",
+      "request_headers": {
+        "accept": "*/*",
+        "origin": "http://weak-page:3009",
+        "referer": "http://weak-page:3009/js/pages/scoreBoard.js",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "accept-ranges": "bytes",
+          "access-control-allow-origin": "*",
+          "cache-control": "public, max-age=0",
+          "connection": "keep-alive",
+          "content-length": "623",
+          "content-type": "application/javascript; charset=UTF-8",
+          "date": "Mon, 02 Nov 2026 22:46:48 GMT",
+          "etag": "W/\"26f-1a193b58408\"",
+          "keep-alive": "timeout=5",
+          "last-modified": "Sat, 31 Oct 2026 20:45:09 GMT",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": false,
+          "content_type": "application/javascript",
+          "data": null
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/home"
+      ]
+    },
+    {
+      "id": "req_0036",
+      "method": "POST",
+      "url": "http://weak-page:3009/api/auth/login",
+      "path": "/api/auth/login",
+      "request_line": "POST /api/auth/login HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "fetch",
+      "request_headers": {
+        "accept": "*/*",
+        "content-type": "application/json",
+        "origin": "http://weak-page:3009",
+        "referer": "http://weak-page:3009/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36",
+        "x-weak-page-crawler": "synthetic-probe"
+      },
+      "request_body": {
+        "captured": true,
+        "content_type": "application/json",
+        "data": {
+          "email": "[REDACTED]",
+          "password": "[REDACTED]"
+        }
+      },
+      "response": {
+        "status": 401,
+        "status_text": "Unauthorized",
+        "headers": {
+          "access-control-allow-origin": "*",
+          "connection": "keep-alive",
+          "content-length": "31",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 02 Nov 2026 22:46:48 GMT",
+          "etag": "W/\"1f-sGkxKM/py4uFAcO+EKpO94lYo9s\"",
+          "keep-alive": "timeout=5",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": true,
+          "content_type": "application/json",
+          "data": {
+            "message": "Usuario no existe"
+          }
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/login"
+      ]
+    },
+    {
+      "id": "req_0037",
+      "method": "POST",
+      "url": "http://weak-page:3009/api/auth/register",
+      "path": "/api/auth/register",
+      "request_line": "POST /api/auth/register HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "fetch",
+      "request_headers": {
+        "accept": "*/*",
+        "content-type": "application/json",
+        "origin": "http://weak-page:3009",
+        "referer": "http://weak-page:3009/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36",
+        "x-weak-page-crawler": "synthetic-probe"
+      },
+      "request_body": {
+        "captured": true,
+        "content_type": "application/json",
+        "data": {
+          "name": "[REDACTED]",
+          "email": "[REDACTED]",
+          "password": "[REDACTED]"
+        }
+      },
+      "response": {
+        "status": 422,
+        "status_text": "Unprocessable Entity",
+        "headers": {
+          "access-control-allow-origin": "*",
+          "connection": "keep-alive",
+          "content-length": "61",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 02 Nov 2026 22:46:49 GMT",
+          "etag": "W/\"3d-wAh8xCIRJZ5iRTQauUmYK5hUINc\"",
+          "keep-alive": "timeout=5",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": true,
+          "content_type": "application/json",
+          "data": {
+            "message": "Synthetic weakPageCrawler write probe rejected."
+          }
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/register"
+      ]
+    },
+    {
+      "id": "req_0038",
+      "method": "GET",
+      "url": "http://weak-page:3009/api/products",
+      "path": "/api/products",
+      "request_line": "GET /api/products HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "fetch",
+      "request_headers": {
+        "accept": "*/*",
+        "referer": "http://weak-page:3009/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "access-control-allow-origin": "*",
+          "connection": "keep-alive",
+          "content-length": "2852",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 02 Nov 2026 22:46:50 GMT",
+          "etag": "W/\"b24-lX61tk7gpE1eZY/oCjRHlVV5NJ8\"",
+          "keep-alive": "timeout=5",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": true,
+          "content_type": "application/json",
+          "data": {
+            "items": [
+              {
+                "id": 1,
+                "name": "Tarta de chocolate",
+                "category": "Tartas",
+                "price": 25,
+                "description": "Bizcocho de cacao con ganache y virutas.",
+                "image": null,
+                "stock": 10,
+                "featured": 1,
+                "ingredients": "harina,huevo,chocolate,mantequilla",
+                "allergens": "gluten,huevo,lácteos"
+              },
+              {
+                "id": 2,
+                "name": "Tarta de fresa",
+                "category": "Tartas",
+                "price": 22,
+                "description": "Base de vainilla con fresas frescas y nata.",
+                "image": null,
+                "stock": 8,
+                "featured": 1,
+                "ingredients": "harina,huevo,fresa,nata",
+                "allergens": "gluten,huevo,lácteos"
+              },
+              {
+                "id": 3,
+                "name": "Cheesecake",
+                "category": "Tartas",
+                "price": 20,
+                "description": "Estilo Nueva York con base de galleta.",
+                "image": null,
+                "stock": 12,
+                "featured": 0,
+                "ingredients": "queso,galleta,huevo",
+                "allergens": "gluten,huevo,lácteos"
+              },
+              {
+                "id": 4,
+                "name": "Croissant",
+                "category": "Bollería",
+                "price": 2.5,
+                "description": "Mantequilla francesa, hojaldrado 72h.",
+                "image": null,
+                "stock": 50,
+                "featured": 0,
+                "ingredients": "harina,mantequilla,levadura",
+                "allergens": "gluten,lácteos"
+              },
+              {
+                "id": 5,
+                "name": "Napolitana de chocolate",
+                "category": "Bollería",
+                "price": 3,
+                "description": "Hojaldre relleno de chocolate negro.",
+                "image": null,
+                "stock": 40,
+                "featured": 0,
+                "ingredients": "harina,mantequilla,chocolate",
+                "allergens": "gluten,lácteos"
+              },
+              {
+                "id": 6,
+                "name": "Ensaimada",
+                "category": "Bollería",
+                "price": 2.8,
+                "description": "Tradicional mallorquina con azúcar glas.",
+                "image": null,
+                "stock": 30,
+                "featured": 0,
+                "ingredients": "harina,manteca,azúcar",
+                "allergens": "gluten,lácteos"
+              },
+              {
+                "id": 7,
+                "name": "Macarons (6u)",
+                "category": "Galletas",
+                "price": 12,
+                "description": "Surtido de frambuesa, pistacho y vainilla.",
+                "image": null,
+                "stock": 20,
+                "featured": 1,
+                "ingredients": "almendra,huevo,azúcar",
+                "allergens": "frutos secos,huevo"
+              },
+              {
+                "id": 8,
+                "name": "Cookies de avena",
+                "category": "Galletas",
+                "price": 1.5,
+                "description": "Avena integral y chips de chocolate.",
+                "image": null,
+                "stock": 100,
+                "featured": 0,
+                "ingredients": "avena,mantequilla,chocolate",
+                "allergens": "gluten,lácteos"
+              },
+              {
+                "id": 9,
+                "name": "Brownie",
+                "category": "Galletas",
+                "price": 2.2,
+                "description": "Denso, fundente y con nueces.",
+                "image": null,
+                "stock": 60,
+                "featured": 0,
+                "ingredients": "chocolate,mantequilla,huevo,nuez",
+                "allergens": "huevo,lácteos,frutos secos"
+              },
+              {
+                "id": 10,
+                "name": "Tarta de zanahoria",
+                "category": "Tartas",
+                "price": 24,
+                "description": "Con frosting de queso crema y nueces.",
+                "image": null,
+                "stock": 6,
+                "featured": 0,
+                "ingredients": "zanahoria,harina,nuez,queso",
+                "allergens": "gluten,huevo,lácteos,frutos secos"
+              },
+              {
+                "id": 11,
+                "name": "Eclair de café",
+                "category": "Bollería",
+                "price": 3.5,
+                "description": "Masa choux con crema de café.",
+                "image": null,
+                "stock": 25,
+                "featured": 0,
+                "ingredients": "harina,huevo,café,nata",
+                "allergens": "gluten,huevo,lácteos"
+              },
+              {
+                "id": 12,
+                "name": "Tarta de limón",
+                "category": "Tartas",
+                "price": 23,
+                "description": "Base de sablé y crema de limón.",
+                "image": null,
+                "stock": 9,
+                "featured": 1,
+                "ingredients": "limón,harina,huevo,mantequilla",
+                "allergens": "gluten,huevo,lácteos"
+              }
+            ],
+            "searchInfo": null
+          }
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/catalog"
+      ]
+    },
+    {
+      "id": "req_0039",
+      "method": "GET",
+      "url": "http://weak-page:3009/api/products",
+      "path": "/api/products",
+      "request_line": "GET /api/products HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "fetch",
+      "request_headers": {
+        "accept": "*/*",
+        "referer": "http://weak-page:3009/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "access-control-allow-origin": "*",
+          "connection": "keep-alive",
+          "content-length": "2852",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 02 Nov 2026 22:46:50 GMT",
+          "etag": "W/\"b24-lX61tk7gpE1eZY/oCjRHlVV5NJ8\"",
+          "keep-alive": "timeout=5",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": true,
+          "content_type": "application/json",
+          "data": {
+            "items": [
+              {
+                "id": 1,
+                "name": "Tarta de chocolate",
+                "category": "Tartas",
+                "price": 25,
+                "description": "Bizcocho de cacao con ganache y virutas.",
+                "image": null,
+                "stock": 10,
+                "featured": 1,
+                "ingredients": "harina,huevo,chocolate,mantequilla",
+                "allergens": "gluten,huevo,lácteos"
+              },
+              {
+                "id": 2,
+                "name": "Tarta de fresa",
+                "category": "Tartas",
+                "price": 22,
+                "description": "Base de vainilla con fresas frescas y nata.",
+                "image": null,
+                "stock": 8,
+                "featured": 1,
+                "ingredients": "harina,huevo,fresa,nata",
+                "allergens": "gluten,huevo,lácteos"
+              },
+              {
+                "id": 3,
+                "name": "Cheesecake",
+                "category": "Tartas",
+                "price": 20,
+                "description": "Estilo Nueva York con base de galleta.",
+                "image": null,
+                "stock": 12,
+                "featured": 0,
+                "ingredients": "queso,galleta,huevo",
+                "allergens": "gluten,huevo,lácteos"
+              },
+              {
+                "id": 4,
+                "name": "Croissant",
+                "category": "Bollería",
+                "price": 2.5,
+                "description": "Mantequilla francesa, hojaldrado 72h.",
+                "image": null,
+                "stock": 50,
+                "featured": 0,
+                "ingredients": "harina,mantequilla,levadura",
+                "allergens": "gluten,lácteos"
+              },
+              {
+                "id": 5,
+                "name": "Napolitana de chocolate",
+                "category": "Bollería",
+                "price": 3,
+                "description": "Hojaldre relleno de chocolate negro.",
+                "image": null,
+                "stock": 40,
+                "featured": 0,
+                "ingredients": "harina,mantequilla,chocolate",
+                "allergens": "gluten,lácteos"
+              },
+              {
+                "id": 6,
+                "name": "Ensaimada",
+                "category": "Bollería",
+                "price": 2.8,
+                "description": "Tradicional mallorquina con azúcar glas.",
+                "image": null,
+                "stock": 30,
+                "featured": 0,
+                "ingredients": "harina,manteca,azúcar",
+                "allergens": "gluten,lácteos"
+              },
+              {
+                "id": 7,
+                "name": "Macarons (6u)",
+                "category": "Galletas",
+                "price": 12,
+                "description": "Surtido de frambuesa, pistacho y vainilla.",
+                "image": null,
+                "stock": 20,
+                "featured": 1,
+                "ingredients": "almendra,huevo,azúcar",
+                "allergens": "frutos secos,huevo"
+              },
+              {
+                "id": 8,
+                "name": "Cookies de avena",
+                "category": "Galletas",
+                "price": 1.5,
+                "description": "Avena integral y chips de chocolate.",
+                "image": null,
+                "stock": 100,
+                "featured": 0,
+                "ingredients": "avena,mantequilla,chocolate",
+                "allergens": "gluten,lácteos"
+              },
+              {
+                "id": 9,
+                "name": "Brownie",
+                "category": "Galletas",
+                "price": 2.2,
+                "description": "Denso, fundente y con nueces.",
+                "image": null,
+                "stock": 60,
+                "featured": 0,
+                "ingredients": "chocolate,mantequilla,huevo,nuez",
+                "allergens": "huevo,lácteos,frutos secos"
+              },
+              {
+                "id": 10,
+                "name": "Tarta de zanahoria",
+                "category": "Tartas",
+                "price": 24,
+                "description": "Con frosting de queso crema y nueces.",
+                "image": null,
+                "stock": 6,
+                "featured": 0,
+                "ingredients": "zanahoria,harina,nuez,queso",
+                "allergens": "gluten,huevo,lácteos,frutos secos"
+              },
+              {
+                "id": 11,
+                "name": "Eclair de café",
+                "category": "Bollería",
+                "price": 3.5,
+                "description": "Masa choux con crema de café.",
+                "image": null,
+                "stock": 25,
+                "featured": 0,
+                "ingredients": "harina,huevo,café,nata",
+                "allergens": "gluten,huevo,lácteos"
+              },
+              {
+                "id": 12,
+                "name": "Tarta de limón",
+                "category": "Tartas",
+                "price": 23,
+                "description": "Base de sablé y crema de limón.",
+                "image": null,
+                "stock": 9,
+                "featured": 1,
+                "ingredients": "limón,harina,huevo,mantequilla",
+                "allergens": "gluten,huevo,lácteos"
+              }
+            ],
+            "searchInfo": null
+          }
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/catalog"
+      ]
+    },
+    {
+      "id": "req_0040",
+      "method": "GET",
+      "url": "http://weak-page:3009/api/products",
+      "path": "/api/products",
+      "request_line": "GET /api/products HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "fetch",
+      "request_headers": {
+        "accept": "*/*",
+        "referer": "http://weak-page:3009/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "access-control-allow-origin": "*",
+          "connection": "keep-alive",
+          "content-length": "2852",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 02 Nov 2026 22:46:51 GMT",
+          "etag": "W/\"b24-lX61tk7gpE1eZY/oCjRHlVV5NJ8\"",
+          "keep-alive": "timeout=5",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": true,
+          "content_type": "application/json",
+          "data": {
+            "items": [
+              {
+                "id": 1,
+                "name": "Tarta de chocolate",
+                "category": "Tartas",
+                "price": 25,
+                "description": "Bizcocho de cacao con ganache y virutas.",
+                "image": null,
+                "stock": 10,
+                "featured": 1,
+                "ingredients": "harina,huevo,chocolate,mantequilla",
+                "allergens": "gluten,huevo,lácteos"
+              },
+              {
+                "id": 2,
+                "name": "Tarta de fresa",
+                "category": "Tartas",
+                "price": 22,
+                "description": "Base de vainilla con fresas frescas y nata.",
+                "image": null,
+                "stock": 8,
+                "featured": 1,
+                "ingredients": "harina,huevo,fresa,nata",
+                "allergens": "gluten,huevo,lácteos"
+              },
+              {
+                "id": 3,
+                "name": "Cheesecake",
+                "category": "Tartas",
+                "price": 20,
+                "description": "Estilo Nueva York con base de galleta.",
+                "image": null,
+                "stock": 12,
+                "featured": 0,
+                "ingredients": "queso,galleta,huevo",
+                "allergens": "gluten,huevo,lácteos"
+              },
+              {
+                "id": 4,
+                "name": "Croissant",
+                "category": "Bollería",
+                "price": 2.5,
+                "description": "Mantequilla francesa, hojaldrado 72h.",
+                "image": null,
+                "stock": 50,
+                "featured": 0,
+                "ingredients": "harina,mantequilla,levadura",
+                "allergens": "gluten,lácteos"
+              },
+              {
+                "id": 5,
+                "name": "Napolitana de chocolate",
+                "category": "Bollería",
+                "price": 3,
+                "description": "Hojaldre relleno de chocolate negro.",
+                "image": null,
+                "stock": 40,
+                "featured": 0,
+                "ingredients": "harina,mantequilla,chocolate",
+                "allergens": "gluten,lácteos"
+              },
+              {
+                "id": 6,
+                "name": "Ensaimada",
+                "category": "Bollería",
+                "price": 2.8,
+                "description": "Tradicional mallorquina con azúcar glas.",
+                "image": null,
+                "stock": 30,
+                "featured": 0,
+                "ingredients": "harina,manteca,azúcar",
+                "allergens": "gluten,lácteos"
+              },
+              {
+                "id": 7,
+                "name": "Macarons (6u)",
+                "category": "Galletas",
+                "price": 12,
+                "description": "Surtido de frambuesa, pistacho y vainilla.",
+                "image": null,
+                "stock": 20,
+                "featured": 1,
+                "ingredients": "almendra,huevo,azúcar",
+                "allergens": "frutos secos,huevo"
+              },
+              {
+                "id": 8,
+                "name": "Cookies de avena",
+                "category": "Galletas",
+                "price": 1.5,
+                "description": "Avena integral y chips de chocolate.",
+                "image": null,
+                "stock": 100,
+                "featured": 0,
+                "ingredients": "avena,mantequilla,chocolate",
+                "allergens": "gluten,lácteos"
+              },
+              {
+                "id": 9,
+                "name": "Brownie",
+                "category": "Galletas",
+                "price": 2.2,
+                "description": "Denso, fundente y con nueces.",
+                "image": null,
+                "stock": 60,
+                "featured": 0,
+                "ingredients": "chocolate,mantequilla,huevo,nuez",
+                "allergens": "huevo,lácteos,frutos secos"
+              },
+              {
+                "id": 10,
+                "name": "Tarta de zanahoria",
+                "category": "Tartas",
+                "price": 24,
+                "description": "Con frosting de queso crema y nueces.",
+                "image": null,
+                "stock": 6,
+                "featured": 0,
+                "ingredients": "zanahoria,harina,nuez,queso",
+                "allergens": "gluten,huevo,lácteos,frutos secos"
+              },
+              {
+                "id": 11,
+                "name": "Eclair de café",
+                "category": "Bollería",
+                "price": 3.5,
+                "description": "Masa choux con crema de café.",
+                "image": null,
+                "stock": 25,
+                "featured": 0,
+                "ingredients": "harina,huevo,café,nata",
+                "allergens": "gluten,huevo,lácteos"
+              },
+              {
+                "id": 12,
+                "name": "Tarta de limón",
+                "category": "Tartas",
+                "price": 23,
+                "description": "Base de sablé y crema de limón.",
+                "image": null,
+                "stock": 9,
+                "featured": 1,
+                "ingredients": "limón,harina,huevo,mantequilla",
+                "allergens": "gluten,huevo,lácteos"
+              }
+            ],
+            "searchInfo": null
+          }
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/catalog"
+      ]
+    },
+    {
+      "id": "req_0041",
+      "method": "GET",
+      "url": "http://weak-page:3009/api/products?q=weakpage-crawler",
+      "path": "/api/products?q=weakpage-crawler",
+      "request_line": "GET /api/products?q=weakpage-crawler HTTP/1.1",
+      "query_parameters": [
+        "q"
+      ],
+      "query_values": {
+        "q": "weakpage-crawler"
+      },
+      "resource_type": "fetch",
+      "request_headers": {
+        "accept": "*/*",
+        "referer": "http://weak-page:3009/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "access-control-allow-origin": "*",
+          "connection": "keep-alive",
+          "content-length": "106",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 02 Nov 2026 22:46:51 GMT",
+          "etag": "W/\"6a-9uyneAPH/OJt5/ZVaUQ62MS57MA\"",
+          "keep-alive": "timeout=5",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": true,
+          "content_type": "application/json",
+          "data": {
+            "items": [],
+            "searchInfo": {
+              "raw": "weakpage-crawler",
+              "rendered": "<b>Resultados para:</b> weakpage-crawler"
+            }
+          }
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/catalog"
+      ]
+    },
+    {
+      "id": "req_0042",
+      "method": "GET",
+      "url": "http://weak-page:3009/api/products",
+      "path": "/api/products",
+      "request_line": "GET /api/products HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "fetch",
+      "request_headers": {
+        "accept": "*/*",
+        "referer": "http://weak-page:3009/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "access-control-allow-origin": "*",
+          "connection": "keep-alive",
+          "content-length": "2852",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 02 Nov 2026 22:46:52 GMT",
+          "etag": "W/\"b24-lX61tk7gpE1eZY/oCjRHlVV5NJ8\"",
+          "keep-alive": "timeout=5",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": true,
+          "content_type": "application/json",
+          "data": {
+            "items": [
+              {
+                "id": 1,
+                "name": "Tarta de chocolate",
+                "category": "Tartas",
+                "price": 25,
+                "description": "Bizcocho de cacao con ganache y virutas.",
+                "image": null,
+                "stock": 10,
+                "featured": 1,
+                "ingredients": "harina,huevo,chocolate,mantequilla",
+                "allergens": "gluten,huevo,lácteos"
+              },
+              {
+                "id": 2,
+                "name": "Tarta de fresa",
+                "category": "Tartas",
+                "price": 22,
+                "description": "Base de vainilla con fresas frescas y nata.",
+                "image": null,
+                "stock": 8,
+                "featured": 1,
+                "ingredients": "harina,huevo,fresa,nata",
+                "allergens": "gluten,huevo,lácteos"
+              },
+              {
+                "id": 3,
+                "name": "Cheesecake",
+                "category": "Tartas",
+                "price": 20,
+                "description": "Estilo Nueva York con base de galleta.",
+                "image": null,
+                "stock": 12,
+                "featured": 0,
+                "ingredients": "queso,galleta,huevo",
+                "allergens": "gluten,huevo,lácteos"
+              },
+              {
+                "id": 4,
+                "name": "Croissant",
+                "category": "Bollería",
+                "price": 2.5,
+                "description": "Mantequilla francesa, hojaldrado 72h.",
+                "image": null,
+                "stock": 50,
+                "featured": 0,
+                "ingredients": "harina,mantequilla,levadura",
+                "allergens": "gluten,lácteos"
+              },
+              {
+                "id": 5,
+                "name": "Napolitana de chocolate",
+                "category": "Bollería",
+                "price": 3,
+                "description": "Hojaldre relleno de chocolate negro.",
+                "image": null,
+                "stock": 40,
+                "featured": 0,
+                "ingredients": "harina,mantequilla,chocolate",
+                "allergens": "gluten,lácteos"
+              },
+              {
+                "id": 6,
+                "name": "Ensaimada",
+                "category": "Bollería",
+                "price": 2.8,
+                "description": "Tradicional mallorquina con azúcar glas.",
+                "image": null,
+                "stock": 30,
+                "featured": 0,
+                "ingredients": "harina,manteca,azúcar",
+                "allergens": "gluten,lácteos"
+              },
+              {
+                "id": 7,
+                "name": "Macarons (6u)",
+                "category": "Galletas",
+                "price": 12,
+                "description": "Surtido de frambuesa, pistacho y vainilla.",
+                "image": null,
+                "stock": 20,
+                "featured": 1,
+                "ingredients": "almendra,huevo,azúcar",
+                "allergens": "frutos secos,huevo"
+              },
+              {
+                "id": 8,
+                "name": "Cookies de avena",
+                "category": "Galletas",
+                "price": 1.5,
+                "description": "Avena integral y chips de chocolate.",
+                "image": null,
+                "stock": 100,
+                "featured": 0,
+                "ingredients": "avena,mantequilla,chocolate",
+                "allergens": "gluten,lácteos"
+              },
+              {
+                "id": 9,
+                "name": "Brownie",
+                "category": "Galletas",
+                "price": 2.2,
+                "description": "Denso, fundente y con nueces.",
+                "image": null,
+                "stock": 60,
+                "featured": 0,
+                "ingredients": "chocolate,mantequilla,huevo,nuez",
+                "allergens": "huevo,lácteos,frutos secos"
+              },
+              {
+                "id": 10,
+                "name": "Tarta de zanahoria",
+                "category": "Tartas",
+                "price": 24,
+                "description": "Con frosting de queso crema y nueces.",
+                "image": null,
+                "stock": 6,
+                "featured": 0,
+                "ingredients": "zanahoria,harina,nuez,queso",
+                "allergens": "gluten,huevo,lácteos,frutos secos"
+              },
+              {
+                "id": 11,
+                "name": "Eclair de café",
+                "category": "Bollería",
+                "price": 3.5,
+                "description": "Masa choux con crema de café.",
+                "image": null,
+                "stock": 25,
+                "featured": 0,
+                "ingredients": "harina,huevo,café,nata",
+                "allergens": "gluten,huevo,lácteos"
+              },
+              {
+                "id": 12,
+                "name": "Tarta de limón",
+                "category": "Tartas",
+                "price": 23,
+                "description": "Base de sablé y crema de limón.",
+                "image": null,
+                "stock": 9,
+                "featured": 1,
+                "ingredients": "limón,harina,huevo,mantequilla",
+                "allergens": "gluten,huevo,lácteos"
+              }
+            ],
+            "searchInfo": null
+          }
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/catalog"
+      ]
+    },
+    {
+      "id": "req_0043",
+      "method": "GET",
+      "url": "http://weak-page:3009/api/products?category=Tartas",
+      "path": "/api/products?category=Tartas",
+      "request_line": "GET /api/products?category=Tartas HTTP/1.1",
+      "query_parameters": [
+        "category"
+      ],
+      "query_values": {
+        "category": "Tartas"
+      },
+      "resource_type": "fetch",
+      "request_headers": {
+        "accept": "*/*",
+        "referer": "http://weak-page:3009/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "access-control-allow-origin": "*",
+          "connection": "keep-alive",
+          "content-length": "1226",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 02 Nov 2026 22:46:53 GMT",
+          "etag": "W/\"4ca-WdQCsa1D2qpe/yVDrRpQOZSe3Po\"",
+          "keep-alive": "timeout=5",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": true,
+          "content_type": "application/json",
+          "data": {
+            "items": [
+              {
+                "id": 1,
+                "name": "Tarta de chocolate",
+                "category": "Tartas",
+                "price": 25,
+                "description": "Bizcocho de cacao con ganache y virutas.",
+                "image": null,
+                "stock": 10,
+                "featured": 1,
+                "ingredients": "harina,huevo,chocolate,mantequilla",
+                "allergens": "gluten,huevo,lácteos"
+              },
+              {
+                "id": 2,
+                "name": "Tarta de fresa",
+                "category": "Tartas",
+                "price": 22,
+                "description": "Base de vainilla con fresas frescas y nata.",
+                "image": null,
+                "stock": 8,
+                "featured": 1,
+                "ingredients": "harina,huevo,fresa,nata",
+                "allergens": "gluten,huevo,lácteos"
+              },
+              {
+                "id": 3,
+                "name": "Cheesecake",
+                "category": "Tartas",
+                "price": 20,
+                "description": "Estilo Nueva York con base de galleta.",
+                "image": null,
+                "stock": 12,
+                "featured": 0,
+                "ingredients": "queso,galleta,huevo",
+                "allergens": "gluten,huevo,lácteos"
+              },
+              {
+                "id": 10,
+                "name": "Tarta de zanahoria",
+                "category": "Tartas",
+                "price": 24,
+                "description": "Con frosting de queso crema y nueces.",
+                "image": null,
+                "stock": 6,
+                "featured": 0,
+                "ingredients": "zanahoria,harina,nuez,queso",
+                "allergens": "gluten,huevo,lácteos,frutos secos"
+              },
+              {
+                "id": 12,
+                "name": "Tarta de limón",
+                "category": "Tartas",
+                "price": 23,
+                "description": "Base de sablé y crema de limón.",
+                "image": null,
+                "stock": 9,
+                "featured": 1,
+                "ingredients": "limón,harina,huevo,mantequilla",
+                "allergens": "gluten,huevo,lácteos"
+              }
+            ],
+            "searchInfo": null
+          }
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/catalog"
+      ]
+    },
+    {
+      "id": "req_0044",
+      "method": "GET",
+      "url": "http://weak-page:3009/api/products?q=weakpage-crawler&category=Tartas",
+      "path": "/api/products?q=weakpage-crawler&category=Tartas",
+      "request_line": "GET /api/products?q=weakpage-crawler&category=Tartas HTTP/1.1",
+      "query_parameters": [
+        "category",
+        "q"
+      ],
+      "query_values": {
+        "q": "weakpage-crawler",
+        "category": "Tartas"
+      },
+      "resource_type": "fetch",
+      "request_headers": {
+        "accept": "*/*",
+        "referer": "http://weak-page:3009/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "access-control-allow-origin": "*",
+          "connection": "keep-alive",
+          "content-length": "106",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 02 Nov 2026 22:46:54 GMT",
+          "etag": "W/\"6a-9uyneAPH/OJt5/ZVaUQ62MS57MA\"",
+          "keep-alive": "timeout=5",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": true,
+          "content_type": "application/json",
+          "data": {
+            "items": [],
+            "searchInfo": {
+              "raw": "weakpage-crawler",
+              "rendered": "<b>Resultados para:</b> weakpage-crawler"
+            }
+          }
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/catalog"
+      ]
+    },
+    {
+      "id": "req_0045",
+      "method": "POST",
+      "url": "http://weak-page:3009/api/orders",
+      "path": "/api/orders",
+      "request_line": "POST /api/orders HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "fetch",
+      "request_headers": {
+        "accept": "*/*",
+        "content-type": "application/json",
+        "origin": "http://weak-page:3009",
+        "referer": "http://weak-page:3009/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36",
+        "x-weak-page-crawler": "synthetic-probe"
+      },
+      "request_body": {
+        "captured": true,
+        "content_type": "application/json",
+        "data": {
+          "customer": {
+            "name": "[REDACTED]",
+            "email": "[REDACTED]",
+            "phone": "[REDACTED]",
+            "postalCode": "[REDACTED]",
+            "address": "[REDACTED]",
+            "city": "[REDACTED]"
+          },
+          "items": [
+            {
+              "productId": 1,
+              "name": "[REDACTED]",
+              "price": 25,
+              "quantity": 1
+            }
+          ],
+          "paymentMethod": "card"
+        }
+      },
+      "response": {
+        "status": 422,
+        "status_text": "Unprocessable Entity",
+        "headers": {
+          "access-control-allow-origin": "*",
+          "connection": "keep-alive",
+          "content-length": "61",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 02 Nov 2026 22:46:55 GMT",
+          "etag": "W/\"3d-wAh8xCIRJZ5iRTQauUmYK5hUINc\"",
+          "keep-alive": "timeout=5",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": true,
+          "content_type": "application/json",
+          "data": {
+            "message": "Synthetic weakPageCrawler write probe rejected."
+          }
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/checkout"
+      ]
+    },
+    {
+      "id": "req_0046",
+      "method": "POST",
+      "url": "http://weak-page:3009/api/contact",
+      "path": "/api/contact",
+      "request_line": "POST /api/contact HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "fetch",
+      "request_headers": {
+        "accept": "*/*",
+        "content-type": "application/json",
+        "origin": "http://weak-page:3009",
+        "referer": "http://weak-page:3009/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36",
+        "x-weak-page-crawler": "synthetic-probe"
+      },
+      "request_body": {
+        "captured": true,
+        "content_type": "application/json",
+        "data": {
+          "name": "[REDACTED]",
+          "email": "[REDACTED]",
+          "subject": "Synthetic crawler probe",
+          "message": "Synthetic weakPageCrawler probe message."
+        }
+      },
+      "response": {
+        "status": 422,
+        "status_text": "Unprocessable Entity",
+        "headers": {
+          "access-control-allow-origin": "*",
+          "connection": "keep-alive",
+          "content-length": "61",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 02 Nov 2026 22:46:57 GMT",
+          "etag": "W/\"3d-wAh8xCIRJZ5iRTQauUmYK5hUINc\"",
+          "keep-alive": "timeout=5",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": true,
+          "content_type": "application/json",
+          "data": {
+            "message": "Synthetic weakPageCrawler write probe rejected."
+          }
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/contact"
+      ]
+    },
+    {
+      "id": "req_0047",
+      "method": "GET",
+      "url": "http://weak-page:3009/api/contact",
+      "path": "/api/contact",
+      "request_line": "GET /api/contact HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "fetch",
+      "request_headers": {
+        "accept": "*/*",
+        "referer": "http://weak-page:3009/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "access-control-allow-origin": "*",
+          "connection": "keep-alive",
+          "content-length": "368",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 02 Nov 2026 22:46:57 GMT",
+          "etag": "W/\"170-AJhVAWKOQAMFzdmmyl0VcBCj77w\"",
+          "keep-alive": "timeout=5",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": true,
+          "content_type": "application/json",
+          "data": {
+            "items": [
+              {
+                "id": 2,
+                "name": "[REDACTED]",
+                "email": "[REDACTED]",
+                "subject": "Synthetic crawler probe",
+                "message": "Synthetic weakPageCrawler probe message.",
+                "created_at": "[REDACTED_PHONE]:12:52"
+              },
+              {
+                "id": 1,
+                "name": "[REDACTED]",
+                "email": "[REDACTED]",
+                "subject": "aasf",
+                "message": "aadfafafaafafaffaf",
+                "created_at": "[REDACTED_PHONE]:13:44"
+              }
+            ]
+          }
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/contact-inbox"
+      ]
+    },
+    {
+      "id": "req_0048",
+      "method": "GET",
+      "url": "http://weak-page:3009/x",
+      "path": "/x",
+      "request_line": "GET /x HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "image",
+      "request_headers": {
+        "accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+        "referer": "http://weak-page:3009/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 404,
+        "status_text": "Not Found",
+        "headers": {
+          "access-control-allow-origin": "*",
+          "connection": "keep-alive",
+          "content-length": "140",
+          "content-security-policy": "default-src 'none'",
+          "content-type": "text/html; charset=utf-8",
+          "date": "Mon, 02 Nov 2026 22:46:57 GMT",
+          "keep-alive": "timeout=5",
+          "x-content-type-options": "nosniff",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": false,
+          "content_type": "text/html",
+          "data": null
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/contact-inbox"
+      ]
+    },
+    {
+      "id": "req_0049",
+      "method": "GET",
+      "url": "http://weak-page:3009/api/admin/vulnerabilities",
+      "path": "/api/admin/vulnerabilities",
+      "request_line": "GET /api/admin/vulnerabilities HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "fetch",
+      "request_headers": {
+        "accept": "*/*",
+        "referer": "http://weak-page:3009/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "access-control-allow-origin": "*",
+          "connection": "keep-alive",
+          "content-length": "554",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 02 Nov 2026 22:46:58 GMT",
+          "etag": "W/\"22a-sRbbgGylU4pzMumFFgbTJQiMdb8\"",
+          "keep-alive": "timeout=5",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": true,
+          "content_type": "application/json",
+          "data": {
+            "flags": {
+              "SQLI_LOGIN": true,
+              "SQLI_SEARCH": true,
+              "UNION_SQLI_DUMP": true,
+              "XSS_REFLECTED_SEARCH": true,
+              "XSS_STORED_CONTACT": true,
+              "PLAINTEXT_PASSWORDS": "[REDACTED]",
+              "WEAK_MD5_LEGACY": true,
+              "PREDICTABLE_RESET_TOKEN": "[REDACTED]",
+              "BASE64_FAKE_ENCRYPTION": true,
+              "HARDCODED_CRYPTO_SECRET": "[REDACTED]",
+              "IDOR_ORDERS": true,
+              "MISSING_AUTH_ME": true,
+              "EXPOSED_SENSITIVE_FILES": true,
+              "MISSING_ROLE_CHECK_ADMIN": true,
+              "MASS_ASSIGNMENT_REGISTER": true,
+              "JWT_ALG_NONE": true,
+              "JWT_WEAK_SECRET": "[REDACTED]",
+              "JWT_NO_EXPIRY": true,
+              "USER_ENUMERATION": true,
+              "WEAK_PASSWORD_NO_RATELIMIT": "[REDACTED]"
+            },
+            "securityMode": "vulnerable"
+          }
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/scoreboard"
+      ]
+    },
+    {
+      "id": "req_0050",
+      "method": "GET",
+      "url": "http://weak-page:3009/api/products/1",
+      "path": "/api/products/1",
+      "request_line": "GET /api/products/1 HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "fetch",
+      "request_headers": {
+        "accept": "*/*",
+        "referer": "http://weak-page:3009/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "access-control-allow-origin": "*",
+          "connection": "keep-alive",
+          "content-length": "248",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 02 Nov 2026 22:46:58 GMT",
+          "etag": "W/\"f8-gKQXjNU6NQGiv3Le1qIYwQNrNOU\"",
+          "keep-alive": "timeout=5",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": true,
+          "content_type": "application/json",
+          "data": {
+            "id": 1,
+            "name": "Tarta de chocolate",
+            "category": "Tartas",
+            "price": 25,
+            "description": "Bizcocho de cacao con ganache y virutas.",
+            "image": null,
+            "stock": 10,
+            "featured": 1,
+            "ingredients": "harina,huevo,chocolate,mantequilla",
+            "allergens": "gluten,huevo,lácteos"
+          }
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/product/1"
+      ]
+    },
+    {
+      "id": "req_0051",
+      "method": "GET",
+      "url": "http://weak-page:3009/api/products/1/related",
+      "path": "/api/products/1/related",
+      "request_line": "GET /api/products/1/related HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "fetch",
+      "request_headers": {
+        "accept": "*/*",
+        "referer": "http://weak-page:3009/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "access-control-allow-origin": "*",
+          "connection": "keep-alive",
+          "content-length": "949",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 02 Nov 2026 22:46:58 GMT",
+          "etag": "W/\"3b5-NjgJ81Qjse2geru3xl8mWW4lucI\"",
+          "keep-alive": "timeout=5",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": true,
+          "content_type": "application/json",
+          "data": [
+            {
+              "id": 2,
+              "name": "Tarta de fresa",
+              "category": "Tartas",
+              "price": 22,
+              "description": "Base de vainilla con fresas frescas y nata.",
+              "image": null,
+              "stock": 8,
+              "featured": 1,
+              "ingredients": "harina,huevo,fresa,nata",
+              "allergens": "gluten,huevo,lácteos"
+            },
+            {
+              "id": 3,
+              "name": "Cheesecake",
+              "category": "Tartas",
+              "price": 20,
+              "description": "Estilo Nueva York con base de galleta.",
+              "image": null,
+              "stock": 12,
+              "featured": 0,
+              "ingredients": "queso,galleta,huevo",
+              "allergens": "gluten,huevo,lácteos"
+            },
+            {
+              "id": 10,
+              "name": "Tarta de zanahoria",
+              "category": "Tartas",
+              "price": 24,
+              "description": "Con frosting de queso crema y nueces.",
+              "image": null,
+              "stock": 6,
+              "featured": 0,
+              "ingredients": "zanahoria,harina,nuez,queso",
+              "allergens": "gluten,huevo,lácteos,frutos secos"
+            },
+            {
+              "id": 12,
+              "name": "Tarta de limón",
+              "category": "Tartas",
+              "price": 23,
+              "description": "Base de sablé y crema de limón.",
+              "image": null,
+              "stock": 9,
+              "featured": 1,
+              "ingredients": "limón,harina,huevo,mantequilla",
+              "allergens": "gluten,huevo,lácteos"
+            }
+          ]
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/product/1"
+      ]
+    },
+    {
+      "id": "req_0052",
+      "method": "GET",
+      "url": "http://weak-page:3009/api/products/2",
+      "path": "/api/products/2",
+      "request_line": "GET /api/products/2 HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "fetch",
+      "request_headers": {
+        "accept": "*/*",
+        "referer": "http://weak-page:3009/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "access-control-allow-origin": "*",
+          "connection": "keep-alive",
+          "content-length": "235",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 02 Nov 2026 22:46:58 GMT",
+          "etag": "W/\"eb-T462RfaxhoszVvCSUZ7vvRCKOnU\"",
+          "keep-alive": "timeout=5",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": true,
+          "content_type": "application/json",
+          "data": {
+            "id": 2,
+            "name": "Tarta de fresa",
+            "category": "Tartas",
+            "price": 22,
+            "description": "Base de vainilla con fresas frescas y nata.",
+            "image": null,
+            "stock": 8,
+            "featured": 1,
+            "ingredients": "harina,huevo,fresa,nata",
+            "allergens": "gluten,huevo,lácteos"
+          }
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/product/2"
+      ]
+    },
+    {
+      "id": "req_0053",
+      "method": "GET",
+      "url": "http://weak-page:3009/api/products/2/related",
+      "path": "/api/products/2/related",
+      "request_line": "GET /api/products/2/related HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "fetch",
+      "request_headers": {
+        "accept": "*/*",
+        "referer": "http://weak-page:3009/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "access-control-allow-origin": "*",
+          "connection": "keep-alive",
+          "content-length": "962",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 02 Nov 2026 22:46:58 GMT",
+          "etag": "W/\"3c2-eDmSRcOGnmu5TlTwgml3pQzDUO8\"",
+          "keep-alive": "timeout=5",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": true,
+          "content_type": "application/json",
+          "data": [
+            {
+              "id": 1,
+              "name": "Tarta de chocolate",
+              "category": "Tartas",
+              "price": 25,
+              "description": "Bizcocho de cacao con ganache y virutas.",
+              "image": null,
+              "stock": 10,
+              "featured": 1,
+              "ingredients": "harina,huevo,chocolate,mantequilla",
+              "allergens": "gluten,huevo,lácteos"
+            },
+            {
+              "id": 3,
+              "name": "Cheesecake",
+              "category": "Tartas",
+              "price": 20,
+              "description": "Estilo Nueva York con base de galleta.",
+              "image": null,
+              "stock": 12,
+              "featured": 0,
+              "ingredients": "queso,galleta,huevo",
+              "allergens": "gluten,huevo,lácteos"
+            },
+            {
+              "id": 10,
+              "name": "Tarta de zanahoria",
+              "category": "Tartas",
+              "price": 24,
+              "description": "Con frosting de queso crema y nueces.",
+              "image": null,
+              "stock": 6,
+              "featured": 0,
+              "ingredients": "zanahoria,harina,nuez,queso",
+              "allergens": "gluten,huevo,lácteos,frutos secos"
+            },
+            {
+              "id": 12,
+              "name": "Tarta de limón",
+              "category": "Tartas",
+              "price": 23,
+              "description": "Base de sablé y crema de limón.",
+              "image": null,
+              "stock": 9,
+              "featured": 1,
+              "ingredients": "limón,harina,huevo,mantequilla",
+              "allergens": "gluten,huevo,lácteos"
+            }
+          ]
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/product/2"
+      ]
+    },
+    {
+      "id": "req_0054",
+      "method": "GET",
+      "url": "http://weak-page:3009/api/products/7",
+      "path": "/api/products/7",
+      "request_line": "GET /api/products/7 HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "fetch",
+      "request_headers": {
+        "accept": "*/*",
+        "referer": "http://weak-page:3009/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "access-control-allow-origin": "*",
+          "connection": "keep-alive",
+          "content-length": "232",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 02 Nov 2026 22:46:59 GMT",
+          "etag": "W/\"e8-rMpjgTL4h9dGw/0YYgTEMI58BM8\"",
+          "keep-alive": "timeout=5",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": true,
+          "content_type": "application/json",
+          "data": {
+            "id": 7,
+            "name": "Macarons (6u)",
+            "category": "Galletas",
+            "price": 12,
+            "description": "Surtido de frambuesa, pistacho y vainilla.",
+            "image": null,
+            "stock": 20,
+            "featured": 1,
+            "ingredients": "almendra,huevo,azúcar",
+            "allergens": "frutos secos,huevo"
+          }
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/product/7"
+      ]
+    },
+    {
+      "id": "req_0055",
+      "method": "GET",
+      "url": "http://weak-page:3009/api/products/7/related",
+      "path": "/api/products/7/related",
+      "request_line": "GET /api/products/7/related HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "fetch",
+      "request_headers": {
+        "accept": "*/*",
+        "referer": "http://weak-page:3009/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "access-control-allow-origin": "*",
+          "connection": "keep-alive",
+          "content-length": "469",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 02 Nov 2026 22:46:59 GMT",
+          "etag": "W/\"1d5-Va2pFVkoO/ElVTz9LVHgsr+obO8\"",
+          "keep-alive": "timeout=5",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": true,
+          "content_type": "application/json",
+          "data": [
+            {
+              "id": 8,
+              "name": "Cookies de avena",
+              "category": "Galletas",
+              "price": 1.5,
+              "description": "Avena integral y chips de chocolate.",
+              "image": null,
+              "stock": 100,
+              "featured": 0,
+              "ingredients": "avena,mantequilla,chocolate",
+              "allergens": "gluten,lácteos"
+            },
+            {
+              "id": 9,
+              "name": "Brownie",
+              "category": "Galletas",
+              "price": 2.2,
+              "description": "Denso, fundente y con nueces.",
+              "image": null,
+              "stock": 60,
+              "featured": 0,
+              "ingredients": "chocolate,mantequilla,huevo,nuez",
+              "allergens": "huevo,lácteos,frutos secos"
+            }
+          ]
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/product/7"
+      ]
+    },
+    {
+      "id": "req_0056",
+      "method": "GET",
+      "url": "http://weak-page:3009/api/products/12",
+      "path": "/api/products/12",
+      "request_line": "GET /api/products/12 HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "fetch",
+      "request_headers": {
+        "accept": "*/*",
+        "referer": "http://weak-page:3009/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "access-control-allow-origin": "*",
+          "connection": "keep-alive",
+          "content-length": "235",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 02 Nov 2026 22:46:59 GMT",
+          "etag": "W/\"eb-/b1qmhw655RG99IuuNcU7GOxN0U\"",
+          "keep-alive": "timeout=5",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": true,
+          "content_type": "application/json",
+          "data": {
+            "id": 12,
+            "name": "Tarta de limón",
+            "category": "Tartas",
+            "price": 23,
+            "description": "Base de sablé y crema de limón.",
+            "image": null,
+            "stock": 9,
+            "featured": 1,
+            "ingredients": "limón,harina,huevo,mantequilla",
+            "allergens": "gluten,huevo,lácteos"
+          }
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/product/12"
+      ]
+    },
+    {
+      "id": "req_0057",
+      "method": "GET",
+      "url": "http://weak-page:3009/api/products/12/related",
+      "path": "/api/products/12/related",
+      "request_line": "GET /api/products/12/related HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "fetch",
+      "request_headers": {
+        "accept": "*/*",
+        "referer": "http://weak-page:3009/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "access-control-allow-origin": "*",
+          "connection": "keep-alive",
+          "content-length": "962",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 02 Nov 2026 22:46:59 GMT",
+          "etag": "W/\"3c2-wViZ05OCV1ajG3Q/WjQ4KJwXZ70\"",
+          "keep-alive": "timeout=5",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": true,
+          "content_type": "application/json",
+          "data": [
+            {
+              "id": 1,
+              "name": "Tarta de chocolate",
+              "category": "Tartas",
+              "price": 25,
+              "description": "Bizcocho de cacao con ganache y virutas.",
+              "image": null,
+              "stock": 10,
+              "featured": 1,
+              "ingredients": "harina,huevo,chocolate,mantequilla",
+              "allergens": "gluten,huevo,lácteos"
+            },
+            {
+              "id": 2,
+              "name": "Tarta de fresa",
+              "category": "Tartas",
+              "price": 22,
+              "description": "Base de vainilla con fresas frescas y nata.",
+              "image": null,
+              "stock": 8,
+              "featured": 1,
+              "ingredients": "harina,huevo,fresa,nata",
+              "allergens": "gluten,huevo,lácteos"
+            },
+            {
+              "id": 3,
+              "name": "Cheesecake",
+              "category": "Tartas",
+              "price": 20,
+              "description": "Estilo Nueva York con base de galleta.",
+              "image": null,
+              "stock": 12,
+              "featured": 0,
+              "ingredients": "queso,galleta,huevo",
+              "allergens": "gluten,huevo,lácteos"
+            },
+            {
+              "id": 10,
+              "name": "Tarta de zanahoria",
+              "category": "Tartas",
+              "price": 24,
+              "description": "Con frosting de queso crema y nueces.",
+              "image": null,
+              "stock": 6,
+              "featured": 0,
+              "ingredients": "zanahoria,harina,nuez,queso",
+              "allergens": "gluten,huevo,lácteos,frutos secos"
+            }
+          ]
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/product/12"
+      ]
+    },
+    {
+      "id": "req_0058",
+      "method": "GET",
+      "url": "http://weak-page:3009/api/products/3",
+      "path": "/api/products/3",
+      "request_line": "GET /api/products/3 HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "fetch",
+      "request_headers": {
+        "accept": "*/*",
+        "referer": "http://weak-page:3009/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "access-control-allow-origin": "*",
+          "connection": "keep-alive",
+          "content-length": "223",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 02 Nov 2026 22:46:59 GMT",
+          "etag": "W/\"df-8Kks2ulwSNNdAWhXQ0rr5vYlbcY\"",
+          "keep-alive": "timeout=5",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": true,
+          "content_type": "application/json",
+          "data": {
+            "id": 3,
+            "name": "Cheesecake",
+            "category": "Tartas",
+            "price": 20,
+            "description": "Estilo Nueva York con base de galleta.",
+            "image": null,
+            "stock": 12,
+            "featured": 0,
+            "ingredients": "queso,galleta,huevo",
+            "allergens": "gluten,huevo,lácteos"
+          }
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/product/3"
+      ]
+    },
+    {
+      "id": "req_0059",
+      "method": "GET",
+      "url": "http://weak-page:3009/api/products/3/related",
+      "path": "/api/products/3/related",
+      "request_line": "GET /api/products/3/related HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "fetch",
+      "request_headers": {
+        "accept": "*/*",
+        "referer": "http://weak-page:3009/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "access-control-allow-origin": "*",
+          "connection": "keep-alive",
+          "content-length": "974",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 02 Nov 2026 22:46:59 GMT",
+          "etag": "W/\"3ce-sot0IT1NX4Ovo6uAPycTIfRXDfo\"",
+          "keep-alive": "timeout=5",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": true,
+          "content_type": "application/json",
+          "data": [
+            {
+              "id": 1,
+              "name": "Tarta de chocolate",
+              "category": "Tartas",
+              "price": 25,
+              "description": "Bizcocho de cacao con ganache y virutas.",
+              "image": null,
+              "stock": 10,
+              "featured": 1,
+              "ingredients": "harina,huevo,chocolate,mantequilla",
+              "allergens": "gluten,huevo,lácteos"
+            },
+            {
+              "id": 2,
+              "name": "Tarta de fresa",
+              "category": "Tartas",
+              "price": 22,
+              "description": "Base de vainilla con fresas frescas y nata.",
+              "image": null,
+              "stock": 8,
+              "featured": 1,
+              "ingredients": "harina,huevo,fresa,nata",
+              "allergens": "gluten,huevo,lácteos"
+            },
+            {
+              "id": 10,
+              "name": "Tarta de zanahoria",
+              "category": "Tartas",
+              "price": 24,
+              "description": "Con frosting de queso crema y nueces.",
+              "image": null,
+              "stock": 6,
+              "featured": 0,
+              "ingredients": "zanahoria,harina,nuez,queso",
+              "allergens": "gluten,huevo,lácteos,frutos secos"
+            },
+            {
+              "id": 12,
+              "name": "Tarta de limón",
+              "category": "Tartas",
+              "price": 23,
+              "description": "Base de sablé y crema de limón.",
+              "image": null,
+              "stock": 9,
+              "featured": 1,
+              "ingredients": "limón,harina,huevo,mantequilla",
+              "allergens": "gluten,huevo,lácteos"
+            }
+          ]
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/product/3"
+      ]
+    },
+    {
+      "id": "req_0060",
+      "method": "GET",
+      "url": "http://weak-page:3009/api/products/4",
+      "path": "/api/products/4",
+      "request_line": "GET /api/products/4 HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "fetch",
+      "request_headers": {
+        "accept": "*/*",
+        "referer": "http://weak-page:3009/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "access-control-allow-origin": "*",
+          "connection": "keep-alive",
+          "content-length": "227",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 02 Nov 2026 22:46:59 GMT",
+          "etag": "W/\"e3-cENnEOtsnzgaHtKtPzR102nrpwk\"",
+          "keep-alive": "timeout=5",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": true,
+          "content_type": "application/json",
+          "data": {
+            "id": 4,
+            "name": "Croissant",
+            "category": "Bollería",
+            "price": 2.5,
+            "description": "Mantequilla francesa, hojaldrado 72h.",
+            "image": null,
+            "stock": 50,
+            "featured": 0,
+            "ingredients": "harina,mantequilla,levadura",
+            "allergens": "gluten,lácteos"
+          }
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/product/4"
+      ]
+    },
+    {
+      "id": "req_0061",
+      "method": "GET",
+      "url": "http://weak-page:3009/api/products/4/related",
+      "path": "/api/products/4/related",
+      "request_line": "GET /api/products/4/related HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "fetch",
+      "request_headers": {
+        "accept": "*/*",
+        "referer": "http://weak-page:3009/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "access-control-allow-origin": "*",
+          "connection": "keep-alive",
+          "content-length": "698",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 02 Nov 2026 22:46:59 GMT",
+          "etag": "W/\"2ba-lf5UpV0ZYpK44m7lJUZWTAZ/yAg\"",
+          "keep-alive": "timeout=5",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": true,
+          "content_type": "application/json",
+          "data": [
+            {
+              "id": 5,
+              "name": "Napolitana de chocolate",
+              "category": "Bollería",
+              "price": 3,
+              "description": "Hojaldre relleno de chocolate negro.",
+              "image": null,
+              "stock": 40,
+              "featured": 0,
+              "ingredients": "harina,mantequilla,chocolate",
+              "allergens": "gluten,lácteos"
+            },
+            {
+              "id": 6,
+              "name": "Ensaimada",
+              "category": "Bollería",
+              "price": 2.8,
+              "description": "Tradicional mallorquina con azúcar glas.",
+              "image": null,
+              "stock": 30,
+              "featured": 0,
+              "ingredients": "harina,manteca,azúcar",
+              "allergens": "gluten,lácteos"
+            },
+            {
+              "id": 11,
+              "name": "Eclair de café",
+              "category": "Bollería",
+              "price": 3.5,
+              "description": "Masa choux con crema de café.",
+              "image": null,
+              "stock": 25,
+              "featured": 0,
+              "ingredients": "harina,huevo,café,nata",
+              "allergens": "gluten,huevo,lácteos"
+            }
+          ]
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/product/4"
+      ]
+    },
+    {
+      "id": "req_0062",
+      "method": "GET",
+      "url": "http://weak-page:3009/api/products/5",
+      "path": "/api/products/5",
+      "request_line": "GET /api/products/5 HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "fetch",
+      "request_headers": {
+        "accept": "*/*",
+        "referer": "http://weak-page:3009/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "access-control-allow-origin": "*",
+          "connection": "keep-alive",
+          "content-length": "239",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 02 Nov 2026 22:47:00 GMT",
+          "etag": "W/\"ef-WubCXQIfA7a+/nejP8Aqol9CboA\"",
+          "keep-alive": "timeout=5",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": true,
+          "content_type": "application/json",
+          "data": {
+            "id": 5,
+            "name": "Napolitana de chocolate",
+            "category": "Bollería",
+            "price": 3,
+            "description": "Hojaldre relleno de chocolate negro.",
+            "image": null,
+            "stock": 40,
+            "featured": 0,
+            "ingredients": "harina,mantequilla,chocolate",
+            "allergens": "gluten,lácteos"
+          }
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/product/5"
+      ]
+    },
+    {
+      "id": "req_0063",
+      "method": "GET",
+      "url": "http://weak-page:3009/api/products/5/related",
+      "path": "/api/products/5/related",
+      "request_line": "GET /api/products/5/related HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "fetch",
+      "request_headers": {
+        "accept": "*/*",
+        "referer": "http://weak-page:3009/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "access-control-allow-origin": "*",
+          "connection": "keep-alive",
+          "content-length": "686",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 02 Nov 2026 22:47:00 GMT",
+          "etag": "W/\"2ae-/AlhnFpx4IoS5tr5C+k1Pplcwog\"",
+          "keep-alive": "timeout=5",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": true,
+          "content_type": "application/json",
+          "data": [
+            {
+              "id": 4,
+              "name": "Croissant",
+              "category": "Bollería",
+              "price": 2.5,
+              "description": "Mantequilla francesa, hojaldrado 72h.",
+              "image": null,
+              "stock": 50,
+              "featured": 0,
+              "ingredients": "harina,mantequilla,levadura",
+              "allergens": "gluten,lácteos"
+            },
+            {
+              "id": 6,
+              "name": "Ensaimada",
+              "category": "Bollería",
+              "price": 2.8,
+              "description": "Tradicional mallorquina con azúcar glas.",
+              "image": null,
+              "stock": 30,
+              "featured": 0,
+              "ingredients": "harina,manteca,azúcar",
+              "allergens": "gluten,lácteos"
+            },
+            {
+              "id": 11,
+              "name": "Eclair de café",
+              "category": "Bollería",
+              "price": 3.5,
+              "description": "Masa choux con crema de café.",
+              "image": null,
+              "stock": 25,
+              "featured": 0,
+              "ingredients": "harina,huevo,café,nata",
+              "allergens": "gluten,huevo,lácteos"
+            }
+          ]
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/product/5"
+      ]
+    },
+    {
+      "id": "req_0064",
+      "method": "GET",
+      "url": "http://weak-page:3009/api/products/6",
+      "path": "/api/products/6",
+      "request_line": "GET /api/products/6 HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "fetch",
+      "request_headers": {
+        "accept": "*/*",
+        "referer": "http://weak-page:3009/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "access-control-allow-origin": "*",
+          "connection": "keep-alive",
+          "content-length": "226",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 02 Nov 2026 22:47:00 GMT",
+          "etag": "W/\"e2-gg6kzOeq6NYRUNVfaipwhjAJhr0\"",
+          "keep-alive": "timeout=5",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": true,
+          "content_type": "application/json",
+          "data": {
+            "id": 6,
+            "name": "Ensaimada",
+            "category": "Bollería",
+            "price": 2.8,
+            "description": "Tradicional mallorquina con azúcar glas.",
+            "image": null,
+            "stock": 30,
+            "featured": 0,
+            "ingredients": "harina,manteca,azúcar",
+            "allergens": "gluten,lácteos"
+          }
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/product/6"
+      ]
+    },
+    {
+      "id": "req_0065",
+      "method": "GET",
+      "url": "http://weak-page:3009/api/products/6/related",
+      "path": "/api/products/6/related",
+      "request_line": "GET /api/products/6/related HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "fetch",
+      "request_headers": {
+        "accept": "*/*",
+        "referer": "http://weak-page:3009/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "access-control-allow-origin": "*",
+          "connection": "keep-alive",
+          "content-length": "699",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 02 Nov 2026 22:47:00 GMT",
+          "etag": "W/\"2bb-dnBkT16M0/LPrs+yompE/rivoQs\"",
+          "keep-alive": "timeout=5",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": true,
+          "content_type": "application/json",
+          "data": [
+            {
+              "id": 4,
+              "name": "Croissant",
+              "category": "Bollería",
+              "price": 2.5,
+              "description": "Mantequilla francesa, hojaldrado 72h.",
+              "image": null,
+              "stock": 50,
+              "featured": 0,
+              "ingredients": "harina,mantequilla,levadura",
+              "allergens": "gluten,lácteos"
+            },
+            {
+              "id": 5,
+              "name": "Napolitana de chocolate",
+              "category": "Bollería",
+              "price": 3,
+              "description": "Hojaldre relleno de chocolate negro.",
+              "image": null,
+              "stock": 40,
+              "featured": 0,
+              "ingredients": "harina,mantequilla,chocolate",
+              "allergens": "gluten,lácteos"
+            },
+            {
+              "id": 11,
+              "name": "Eclair de café",
+              "category": "Bollería",
+              "price": 3.5,
+              "description": "Masa choux con crema de café.",
+              "image": null,
+              "stock": 25,
+              "featured": 0,
+              "ingredients": "harina,huevo,café,nata",
+              "allergens": "gluten,huevo,lácteos"
+            }
+          ]
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/product/6"
+      ]
+    },
+    {
+      "id": "req_0066",
+      "method": "GET",
+      "url": "http://weak-page:3009/api/products/8",
+      "path": "/api/products/8",
+      "request_line": "GET /api/products/8 HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "fetch",
+      "request_headers": {
+        "accept": "*/*",
+        "referer": "http://weak-page:3009/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "access-control-allow-origin": "*",
+          "connection": "keep-alive",
+          "content-length": "233",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 02 Nov 2026 22:47:00 GMT",
+          "etag": "W/\"e9-wMGbjSKPIT4P4WZ21BeSb1mW+ao\"",
+          "keep-alive": "timeout=5",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": true,
+          "content_type": "application/json",
+          "data": {
+            "id": 8,
+            "name": "Cookies de avena",
+            "category": "Galletas",
+            "price": 1.5,
+            "description": "Avena integral y chips de chocolate.",
+            "image": null,
+            "stock": 100,
+            "featured": 0,
+            "ingredients": "avena,mantequilla,chocolate",
+            "allergens": "gluten,lácteos"
+          }
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/product/8"
+      ]
+    },
+    {
+      "id": "req_0067",
+      "method": "GET",
+      "url": "http://weak-page:3009/api/products/8/related",
+      "path": "/api/products/8/related",
+      "request_line": "GET /api/products/8/related HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "fetch",
+      "request_headers": {
+        "accept": "*/*",
+        "referer": "http://weak-page:3009/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "access-control-allow-origin": "*",
+          "connection": "keep-alive",
+          "content-length": "468",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 02 Nov 2026 22:47:00 GMT",
+          "etag": "W/\"1d4-eClgL0hhjpAZjBW38UnVV6DO+TU\"",
+          "keep-alive": "timeout=5",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": true,
+          "content_type": "application/json",
+          "data": [
+            {
+              "id": 7,
+              "name": "Macarons (6u)",
+              "category": "Galletas",
+              "price": 12,
+              "description": "Surtido de frambuesa, pistacho y vainilla.",
+              "image": null,
+              "stock": 20,
+              "featured": 1,
+              "ingredients": "almendra,huevo,azúcar",
+              "allergens": "frutos secos,huevo"
+            },
+            {
+              "id": 9,
+              "name": "Brownie",
+              "category": "Galletas",
+              "price": 2.2,
+              "description": "Denso, fundente y con nueces.",
+              "image": null,
+              "stock": 60,
+              "featured": 0,
+              "ingredients": "chocolate,mantequilla,huevo,nuez",
+              "allergens": "huevo,lácteos,frutos secos"
+            }
+          ]
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/product/8"
+      ]
+    },
+    {
+      "id": "req_0068",
+      "method": "GET",
+      "url": "http://weak-page:3009/api/products/9",
+      "path": "/api/products/9",
+      "request_line": "GET /api/products/9 HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "fetch",
+      "request_headers": {
+        "accept": "*/*",
+        "referer": "http://weak-page:3009/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "access-control-allow-origin": "*",
+          "connection": "keep-alive",
+          "content-length": "233",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 02 Nov 2026 22:47:00 GMT",
+          "etag": "W/\"e9-xLlDoGUEXLhTwQK2sMAM9P3UiZY\"",
+          "keep-alive": "timeout=5",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": true,
+          "content_type": "application/json",
+          "data": {
+            "id": 9,
+            "name": "Brownie",
+            "category": "Galletas",
+            "price": 2.2,
+            "description": "Denso, fundente y con nueces.",
+            "image": null,
+            "stock": 60,
+            "featured": 0,
+            "ingredients": "chocolate,mantequilla,huevo,nuez",
+            "allergens": "huevo,lácteos,frutos secos"
+          }
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/product/9"
+      ]
+    },
+    {
+      "id": "req_0069",
+      "method": "GET",
+      "url": "http://weak-page:3009/api/products/9/related",
+      "path": "/api/products/9/related",
+      "request_line": "GET /api/products/9/related HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "fetch",
+      "request_headers": {
+        "accept": "*/*",
+        "referer": "http://weak-page:3009/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "access-control-allow-origin": "*",
+          "connection": "keep-alive",
+          "content-length": "468",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 02 Nov 2026 22:47:00 GMT",
+          "etag": "W/\"1d4-ajIL5Y0PclzTWnyQbqY85KyQ8k0\"",
+          "keep-alive": "timeout=5",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": true,
+          "content_type": "application/json",
+          "data": [
+            {
+              "id": 7,
+              "name": "Macarons (6u)",
+              "category": "Galletas",
+              "price": 12,
+              "description": "Surtido de frambuesa, pistacho y vainilla.",
+              "image": null,
+              "stock": 20,
+              "featured": 1,
+              "ingredients": "almendra,huevo,azúcar",
+              "allergens": "frutos secos,huevo"
+            },
+            {
+              "id": 8,
+              "name": "Cookies de avena",
+              "category": "Galletas",
+              "price": 1.5,
+              "description": "Avena integral y chips de chocolate.",
+              "image": null,
+              "stock": 100,
+              "featured": 0,
+              "ingredients": "avena,mantequilla,chocolate",
+              "allergens": "gluten,lácteos"
+            }
+          ]
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/product/9"
+      ]
+    },
+    {
+      "id": "req_0070",
+      "method": "GET",
+      "url": "http://weak-page:3009/api/products/10",
+      "path": "/api/products/10",
+      "request_line": "GET /api/products/10 HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "fetch",
+      "request_headers": {
+        "accept": "*/*",
+        "referer": "http://weak-page:3009/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "access-control-allow-origin": "*",
+          "connection": "keep-alive",
+          "content-length": "251",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 02 Nov 2026 22:47:01 GMT",
+          "etag": "W/\"fb-xMOV5xN8pIfsn2Xbxl9xujRa/zY\"",
+          "keep-alive": "timeout=5",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": true,
+          "content_type": "application/json",
+          "data": {
+            "id": 10,
+            "name": "Tarta de zanahoria",
+            "category": "Tartas",
+            "price": 24,
+            "description": "Con frosting de queso crema y nueces.",
+            "image": null,
+            "stock": 6,
+            "featured": 0,
+            "ingredients": "zanahoria,harina,nuez,queso",
+            "allergens": "gluten,huevo,lácteos,frutos secos"
+          }
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/product/10"
+      ]
+    },
+    {
+      "id": "req_0071",
+      "method": "GET",
+      "url": "http://weak-page:3009/api/products/10/related",
+      "path": "/api/products/10/related",
+      "request_line": "GET /api/products/10/related HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "fetch",
+      "request_headers": {
+        "accept": "*/*",
+        "referer": "http://weak-page:3009/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "access-control-allow-origin": "*",
+          "connection": "keep-alive",
+          "content-length": "946",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 02 Nov 2026 22:47:01 GMT",
+          "etag": "W/\"3b2-BuYSPAQTWo/r0wyn2jEMlHaioNA\"",
+          "keep-alive": "timeout=5",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": true,
+          "content_type": "application/json",
+          "data": [
+            {
+              "id": 1,
+              "name": "Tarta de chocolate",
+              "category": "Tartas",
+              "price": 25,
+              "description": "Bizcocho de cacao con ganache y virutas.",
+              "image": null,
+              "stock": 10,
+              "featured": 1,
+              "ingredients": "harina,huevo,chocolate,mantequilla",
+              "allergens": "gluten,huevo,lácteos"
+            },
+            {
+              "id": 2,
+              "name": "Tarta de fresa",
+              "category": "Tartas",
+              "price": 22,
+              "description": "Base de vainilla con fresas frescas y nata.",
+              "image": null,
+              "stock": 8,
+              "featured": 1,
+              "ingredients": "harina,huevo,fresa,nata",
+              "allergens": "gluten,huevo,lácteos"
+            },
+            {
+              "id": 3,
+              "name": "Cheesecake",
+              "category": "Tartas",
+              "price": 20,
+              "description": "Estilo Nueva York con base de galleta.",
+              "image": null,
+              "stock": 12,
+              "featured": 0,
+              "ingredients": "queso,galleta,huevo",
+              "allergens": "gluten,huevo,lácteos"
+            },
+            {
+              "id": 12,
+              "name": "Tarta de limón",
+              "category": "Tartas",
+              "price": 23,
+              "description": "Base de sablé y crema de limón.",
+              "image": null,
+              "stock": 9,
+              "featured": 1,
+              "ingredients": "limón,harina,huevo,mantequilla",
+              "allergens": "gluten,huevo,lácteos"
+            }
+          ]
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/product/10"
+      ]
+    },
+    {
+      "id": "req_0072",
+      "method": "GET",
+      "url": "http://weak-page:3009/api/products/11",
+      "path": "/api/products/11",
+      "request_line": "GET /api/products/11 HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "fetch",
+      "request_headers": {
+        "accept": "*/*",
+        "referer": "http://weak-page:3009/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "access-control-allow-origin": "*",
+          "connection": "keep-alive",
+          "content-length": "229",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 02 Nov 2026 22:47:01 GMT",
+          "etag": "W/\"e5-CLU7Gl9UvrumrAm2MImGTEo8KgQ\"",
+          "keep-alive": "timeout=5",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": true,
+          "content_type": "application/json",
+          "data": {
+            "id": 11,
+            "name": "Eclair de café",
+            "category": "Bollería",
+            "price": 3.5,
+            "description": "Masa choux con crema de café.",
+            "image": null,
+            "stock": 25,
+            "featured": 0,
+            "ingredients": "harina,huevo,café,nata",
+            "allergens": "gluten,huevo,lácteos"
+          }
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/product/11"
+      ]
+    },
+    {
+      "id": "req_0073",
+      "method": "GET",
+      "url": "http://weak-page:3009/api/products/11/related",
+      "path": "/api/products/11/related",
+      "request_line": "GET /api/products/11/related HTTP/1.1",
+      "query_parameters": [],
+      "query_values": {},
+      "resource_type": "fetch",
+      "request_headers": {
+        "accept": "*/*",
+        "referer": "http://weak-page:3009/",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36"
+      },
+      "request_body": null,
+      "response": {
+        "status": 200,
+        "status_text": "OK",
+        "headers": {
+          "access-control-allow-origin": "*",
+          "connection": "keep-alive",
+          "content-length": "696",
+          "content-type": "application/json; charset=utf-8",
+          "date": "Mon, 02 Nov 2026 22:47:01 GMT",
+          "etag": "W/\"2b8-5l5cufXdXG/+HnSHlaLM21B0Vvg\"",
+          "keep-alive": "timeout=5",
+          "x-powered-by": "Express"
+        },
+        "body": {
+          "captured": true,
+          "content_type": "application/json",
+          "data": [
+            {
+              "id": 4,
+              "name": "Croissant",
+              "category": "Bollería",
+              "price": 2.5,
+              "description": "Mantequilla francesa, hojaldrado 72h.",
+              "image": null,
+              "stock": 50,
+              "featured": 0,
+              "ingredients": "harina,mantequilla,levadura",
+              "allergens": "gluten,lácteos"
+            },
+            {
+              "id": 5,
+              "name": "Napolitana de chocolate",
+              "category": "Bollería",
+              "price": 3,
+              "description": "Hojaldre relleno de chocolate negro.",
+              "image": null,
+              "stock": 40,
+              "featured": 0,
+              "ingredients": "harina,mantequilla,chocolate",
+              "allergens": "gluten,lácteos"
+            },
+            {
+              "id": 6,
+              "name": "Ensaimada",
+              "category": "Bollería",
+              "price": 2.8,
+              "description": "Tradicional mallorquina con azúcar glas.",
+              "image": null,
+              "stock": 30,
+              "featured": 0,
+              "ingredients": "harina,manteca,azúcar",
+              "allergens": "gluten,lácteos"
+            }
+          ]
+        }
+      },
+      "observed_on": [
+        "http://weak-page:3009/#/product/11"
+      ]
+    }
+  ]
+}

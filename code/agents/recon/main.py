@@ -1,308 +1,466 @@
 import json
 import logging
-import aio_pika
-from datetime import datetime, timezone
-from llm_factory import get_llm
-from pydantic import ValidationError
-
-from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_core.exceptions import OutputParserException
+import re
+from urllib.parse import parse_qsl, urlsplit
 
 from attack_types import (
     is_access_control_attack,
     is_crypto_attack,
+    is_jwt_attack,
     is_sqli_attack,
     is_xss_attack,
-    is_jwt_attack
+    normalize_attack_type,
 )
-from contract_schemas import ReconPlannerOutput, ReconSummary, HighPriorityTarget
+from contract_schemas import HighPriorityTarget, ReconPlannerOutput, ReconSummary
 
-from helpers import (
-    build_recon_output_from_dict,
-    build_sqli_recon_context,
-    build_sqli_fallback_output,
-    build_xss_recon_context,
-    build_crypto_recon_context,
-    build_crypto_fallback_output,
-    ensure_crypto_entry_point_coverage,
-    ensure_access_control_target_coverage,
-    deduplicate_urls,
-    ensure_sqli_entry_point_coverage,
-    extract_urls_from_crawler,
-    extract_urls_from_deep_crawler,
-    ensure_xss_entry_point_coverage,
-    normalize_weak_page_crawler_report,
-    update_recon_context_snapshot,
-    write_recon_context_snapshot,
-    build_access_control_recon_context,
+logger = logging.getLogger("recon-stage")
+MAX_TARGETS = 50
+ACCESS_CONTROL_KEYWORDS = (
+    "admin",
+    "user",
+    "account",
+    "profile",
+    "basket",
+    "order",
+    "cart",
+    "invoice",
+    "document",
+    "file",
+    "api",
+    "rest",
 )
-from mcp_skills import call_mcp_skill, get_mcp_catalog
-from recon_prompts import get_system_prompt
+CRYPTO_KEYWORDS = (
+    "config",
+    "auth",
+    "token",
+    "secret",
+    "crypto",
+    "key",
+    "certificate",
+)
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("recon-agent-worker")
 
-
-llm = get_llm("recon")
-structured_llm = llm.with_structured_output(ReconPlannerOutput, method="json_schema",)
-# Recon solo analiza; Validate ejecutará las herramientas de seguridad después.
-logger.info("🟢 [RECON] Cargando LLM de reconocimiento")
-
-# ============================================================================
-# FLUJO PRINCIPAL DE RECONOCIMIENTO
-# ============================================================================
-
-async def process_recon_task(channel: aio_pika.Channel,target_url: str, attack_type_filter: str = "full",) -> tuple[ReconPlannerOutput, str, list[dict]]:
-
-    started_at = datetime.now(timezone.utc).isoformat()
-    is_sqli = is_sqli_attack(attack_type_filter)
-    is_xss = is_xss_attack(attack_type_filter)
-    is_crypto = is_crypto_attack(attack_type_filter)
-    is_access_control = is_access_control_attack(attack_type_filter)
-    tool_timings: list[dict] = []
-
-    is_jwt = is_jwt_attack(attack_type_filter)
-
-    if is_jwt:
-        # JWT no requiere crawling: jwt_tool autodescubre el endpoint protegido.
-        # Devolvemos un único target apuntando a la raíz para no romper el contrato
-        # ReconPlannerOutput que espera el orquestador.
-        logger.info("[RECON] JWT fast-path: skipping crawl for %s", target_url)
-        return (
-            ReconPlannerOutput(
-                recon_summary=ReconSummary(
-                    target_url=target_url,
-                    attack_type_filter=attack_type_filter,
-                    total_targets_identified=1,
-                    total_requests_captured=0,
-                ),
-                high_priority_targets=[
-                    HighPriorityTarget(
-                        target_id="target_001",
-                        request_id="",
-                        vulnerability_target="JWT authentication analysis (A07)",
-                        endpoint=target_url,
-                        method="GET",
-                        request=None,
-                        recommended_tool="jwt_tool",
-                    )
-                ],
-            ),
-            "clean",
-            [],
-        )
-
-    logger.info("🟡 [RECON] Inicio target=%s attack_type=%s started_at=%s",target_url,attack_type_filter,started_at)
-
-    #Obtenemos el catálogo de herramientas disponibles en MCP
-    catalog = await get_mcp_catalog(channel, tool_timings)
-
-    deep_crawler_data = None
-    deep_crawler_urls = []
-    is_weak_page = target_url == "http://weak-page:3009"
-    if is_weak_page:
-        weak_page_output = await call_mcp_skill(
-            channel, "weakPageCrawler", {}, tool_timings
-        )
-        try:
-            weak_page_report = json.loads(weak_page_output)
-        except json.JSONDecodeError as error:
-            raise RuntimeError(
-                f"weakPageCrawler no devolvió JSON válido: {error}"
-            ) from error
-        if not isinstance(weak_page_report, dict):
-            raise RuntimeError(
-                "weakPageCrawler devolvió un informe inválido: "
-                "se esperaba un objeto JSON"
-            )
-        if weak_page_report.get("error"):
-            raise RuntimeError(
-                f"weakPageCrawler falló: {weak_page_report['error']}"
-            )
-        crawler_data, deep_crawler_data = normalize_weak_page_crawler_report(
-            weak_page_report, target_url
-        )
-        crawler_urls = extract_urls_from_crawler(crawler_data)
-        deep_crawler_urls = extract_urls_from_deep_crawler(deep_crawler_data)
-        logger.info(
-            "[RECON] weakPageCrawler completado requests=%d urls=%d",
-            len(deep_crawler_data["entry_points"]),
-            len(crawler_urls),
-        )
-    else:
-        # Herramienta mandatoria de ejecucion para objetivos distintos al laboratorio.
-        crawler_output = await call_mcp_skill(
-            channel, "crawler", {"target_url": target_url}, tool_timings
-        )
-        try:
-            crawler_data = json.loads(crawler_output)
-        except json.JSONDecodeError as error:
-            raise RuntimeError(f"crawler no devolvió JSON válido: {error}") from error
-
-        crawler_urls = extract_urls_from_crawler(crawler_data)
-        logger.info("[RECON] crawler completado urls=%d", len(crawler_urls))
-
-    discovered_urls = deduplicate_urls(crawler_urls, deep_crawler_urls)
-
-    available_tools = [
-        {
-            "name": tool.get("name"),
-            "description": tool.get("description", ""),
-        }
-        for tool in catalog
-        if tool.get("name") not in {"crawler", "deep_crawler", "weakPageCrawler"}
-    ]
-
-    if (is_sqli or is_xss or is_crypto or is_access_control) and deep_crawler_data is None:
-        logger.info(
-            "[RECON] %s: ejecutando deep_crawler con la salida efímera de crawler",
-            attack_type_filter,
-        )
-
-        deep_crawler_output = await call_mcp_skill(
-            channel,
-            "deep_crawler",
-            {"crawler_report": crawler_data},
-            tool_timings,
-        )
-
-        try:
-            deep_crawler_data = json.loads(deep_crawler_output)
-        except json.JSONDecodeError as error:
-            raise RuntimeError(f"deep_crawler no devolvió JSON válido: {error}") from error
-        
-        deep_crawler_urls = extract_urls_from_deep_crawler(deep_crawler_data)
-         
-        logger.info("[RECON] deep_crawler completado entry_points=%d urls=%d", len(deep_crawler_data.get("entry_points", [])), len(deep_crawler_urls),)
-        #Fase de limpieza del contexto para que el agente pueda consumirlo
-        discovered_urls = deduplicate_urls(crawler_urls, deep_crawler_urls)
-
-    if is_sqli:
-        recon_sources = build_sqli_recon_context(
-            crawler_data, deep_crawler_data, discovered_urls, available_tools
-        )
-    elif is_xss:
-        recon_sources = build_xss_recon_context(
-            crawler_data, deep_crawler_data, discovered_urls, available_tools
-        )
-    elif is_crypto:
-        recon_sources = build_crypto_recon_context(
-            crawler_data, deep_crawler_data, discovered_urls, available_tools
-        )
-    elif is_access_control:
-        recon_sources = build_access_control_recon_context(
-            crawler_data, deep_crawler_data, discovered_urls, available_tools
-        )
-    else:
-        recon_sources = {
-            "crawler_endpoints": crawler_data.get("navigation", {}).get("endpoints", [])[:50],
-            "deduplicated_urls": discovered_urls[:100],
-            "available_validation_tools": available_tools,
-        }
-
-    context_path = None
+def _origin(url: str) -> tuple[str, str, int | None]:
     try:
-        context_path = write_recon_context_snapshot(
-            target_url,
-            attack_type_filter,
-            recon_sources,
-            crawler_report=crawler_data,
-            deep_crawler_report=deep_crawler_data,
-            tool_timings=tool_timings,
+        parsed = urlsplit(url)
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.hostname
+            or parsed.username
+            or parsed.password
+        ):
+            raise ValueError
+        port = parsed.port
+    except ValueError as error:
+        raise ValueError(f"URL inválida en el reporte de scraping: {url}") from error
+    if port is None:
+        port = 443 if parsed.scheme == "https" else 80
+    return parsed.scheme.casefold(), parsed.hostname.casefold(), port
+
+
+def _validate_scraping_report(scraping_report: dict, target_url: str) -> dict:
+    if not isinstance(scraping_report, dict):
+        raise ValueError("scraping_report debe ser un objeto JSON")
+    report_target = scraping_report.get("target")
+    if not isinstance(report_target, str) or not report_target.strip():
+        raise ValueError("scraping_report.target debe ser una URL")
+    if _origin(report_target.strip()) != _origin(target_url):
+        raise ValueError(
+            "scraping_report.target debe pertenecer al mismo origen que target_url"
         )
 
-        logger.info("[RECON] Contexto LLM guardado en %s", context_path)
-    except OSError:
-        logger.exception("[RECON] No se pudo guardar el contexto LLM")
-    logger.info("[RECON] Fuentes consolidadas crawler=%d deep_crawler=%d deduplicadas=%d",len(crawler_urls),len(deep_crawler_urls),len(discovered_urls),)
+    observed_endpoints = scraping_report.get("observed_endpoints")
+    requests = scraping_report.get("requests")
+    if not isinstance(observed_endpoints, list):
+        raise ValueError("scraping_report.observed_endpoints debe ser una lista")
+    if not isinstance(requests, list):
+        raise ValueError("scraping_report.requests debe ser una lista")
 
-    system_prompt = SystemMessage(content=get_system_prompt(attack_type_filter))
-
-    user_message = HumanMessage(
-        content=(
-            f"Analiza la superficie del objetivo '{target_url}' y planifica el siguiente paso.\n\n"
-            "Fuentes obligatorias de reconocimiento ya ejecutadas:\n"
-            f"{json.dumps(recon_sources, ensure_ascii=False, indent=2)}\n\n"
-            "Usa únicamente los datos JSON proporcionados; no dependas de archivos compartidos."
+    cleaned_endpoints = []
+    seen_endpoints = set()
+    for index, endpoint in enumerate(observed_endpoints):
+        if not isinstance(endpoint, dict):
+            raise ValueError(
+                f"scraping_report.observed_endpoints[{index}] debe ser un objeto"
+            )
+        method = endpoint.get("method")
+        path = endpoint.get("path")
+        query_parameters = endpoint.get("query_parameters")
+        if not isinstance(method, str) or not method.strip():
+            raise ValueError(
+                f"scraping_report.observed_endpoints[{index}].method debe ser texto"
+            )
+        if not isinstance(path, str) or not path.strip():
+            raise ValueError(
+                f"scraping_report.observed_endpoints[{index}].path debe ser texto"
+            )
+        if not isinstance(query_parameters, list) or not all(
+            isinstance(parameter, str) for parameter in query_parameters
+        ):
+            raise ValueError(
+                f"scraping_report.observed_endpoints[{index}].query_parameters "
+                "debe ser una lista de textos"
+            )
+        signature = (
+            method.strip().upper(),
+            path.strip(),
+            tuple(sorted(set(query_parameters))),
         )
-    )
-
-    logger.info("[RECON] Contexto compacto para LLM chars=%d",len(json.dumps(recon_sources, ensure_ascii=False)),)
-
-    llm_output = {}
-    try:
-        # Salida estructurada del LLM
-        structured_output = await structured_llm.ainvoke([system_prompt, user_message])
-
-    except (OutputParserException, ValidationError) as error:
-        if not (is_sqli or is_crypto or is_xss):
-            raise
-        logger.warning(
-            "[RECON] El LLM no devolvio una salida compatible con ReconPlannerOutput "
-            "(%s); usando cobertura basada en peticiones observadas.",
-            error,
-        )
-        if is_sqli:
-            parsed_dict = build_sqli_fallback_output(target_url, deep_crawler_data)
-        elif is_crypto:
-            parsed_dict = build_crypto_fallback_output(target_url, deep_crawler_data, discovered_urls)
-        else:
-            parsed_dict = {
-                "recon_summary": {
-                    "target_url": target_url,
-                    "attack_type_filter": attack_type_filter,
-                },
-                "high_priority_targets": [],
+        if signature in seen_endpoints:
+            continue
+        seen_endpoints.add(signature)
+        cleaned_endpoints.append(
+            {
+                "method": signature[0],
+                "path": signature[1],
+                "query_parameters": list(signature[2]),
             }
-        llm_output = {"error": str(error), "fallback": "deep_crawler_coverage"}
-    else:
-        if not isinstance(structured_output, ReconPlannerOutput):
-            raise TypeError("El LLM estructurado no devolvió una instancia de ReconPlannerOutput")
-        
-        logger.info("[RECON] Salida original del agente antes del procesamiento:\n%s",structured_output.model_dump_json(indent=2),)
-        
-        parsed_dict = structured_output.model_dump()
-        llm_output = parsed_dict
-
-    if is_weak_page:
-        summary = dict(parsed_dict.get("recon_summary", {}))
-        summary["total_requests_captured"] = len(
-            deep_crawler_data["entry_points"]
         )
-        parsed_dict["recon_summary"] = summary
 
-    if is_sqli:
-        parsed_dict = ensure_sqli_entry_point_coverage(parsed_dict, deep_crawler_data)
-
-    elif is_crypto:
-        parsed_dict = ensure_crypto_entry_point_coverage(parsed_dict, deep_crawler_data, target_url, discovered_urls)
-
-    elif is_access_control:
-        parsed_dict = ensure_access_control_target_coverage(
-            parsed_dict, deep_crawler_data, target_url, discovered_urls)
-
-    elif is_xss:
-            parsed_dict = ensure_xss_entry_point_coverage(parsed_dict, deep_crawler_data)
-    
-
-    recon_output = build_recon_output_from_dict(
-        parsed_dict,
-        target_url,
-        attack_type_filter,
-        deep_crawler_data
-        if (is_sqli or is_xss or is_crypto or is_access_control)
-        else None,
-    )
-    logger.info("[RECON] Plan JSON validado targets=%d ", len(recon_output.high_priority_targets),)
-
-    if context_path is not None:
-        try:
-            update_recon_context_snapshot(
-                context_path,
-                llm_output,
-                recon_output.model_dump(),
+    cleaned_requests = []
+    seen_requests = {}
+    for index, request in enumerate(requests):
+        if not isinstance(request, dict):
+            raise ValueError(f"scraping_report.requests[{index}] debe ser un objeto")
+        request_id = request.get("id")
+        method = request.get("method")
+        url = request.get("url")
+        if not isinstance(request_id, str) or not request_id.strip():
+            raise ValueError(f"scraping_report.requests[{index}].id debe ser texto")
+        if not isinstance(method, str) or not method.strip():
+            raise ValueError(
+                f"scraping_report.requests[{index}].method debe ser texto"
             )
-        except OSError:
-            logger.exception("[RECON] No se pudo completar el contexto guardado")
+        if not isinstance(url, str) or not url.strip():
+            raise ValueError(f"scraping_report.requests[{index}].url debe ser texto")
+        if _origin(url.strip()) != _origin(target_url):
+            logger.warning(
+                "Recon omite request fuera del origen objetivo: %s", request_id
+            )
+            continue
+        for field in ("path", "request_line", "resource_type"):
+            if not isinstance(request.get(field), str):
+                raise ValueError(
+                    f"scraping_report.requests[{index}].{field} debe ser texto"
+                )
+        if not isinstance(request.get("request_headers"), dict):
+            raise ValueError(
+                f"scraping_report.requests[{index}].request_headers debe ser objeto"
+            )
+        if not isinstance(request.get("query_values"), dict):
+            raise ValueError(
+                f"scraping_report.requests[{index}].query_values debe ser objeto"
+            )
+        query_parameters = request.get("query_parameters")
+        if not isinstance(query_parameters, list) or not all(
+            isinstance(parameter, str) for parameter in query_parameters
+        ):
+            raise ValueError(
+                f"scraping_report.requests[{index}].query_parameters debe ser lista"
+            )
+        observed_on = request.get("observed_on")
+        if not isinstance(observed_on, list) or not all(
+            isinstance(item, str) for item in observed_on
+        ):
+            raise ValueError(
+                f"scraping_report.requests[{index}].observed_on debe ser lista"
+            )
+        request_body = request.get("request_body")
+        if request_body is not None and not isinstance(request_body, dict):
+            raise ValueError(
+                f"scraping_report.requests[{index}].request_body debe ser objeto o null"
+            )
+        response = request.get("response")
+        if not isinstance(response, dict):
+            raise ValueError(
+                f"scraping_report.requests[{index}].response debe ser objeto"
+            )
+        status = response.get("status")
+        if status is not None and (
+            not isinstance(status, (int, float)) or isinstance(status, bool)
+        ):
+            raise ValueError(
+                f"scraping_report.requests[{index}].response.status "
+                "debe ser numérico o null"
+            )
+        if (
+            not isinstance(response.get("status_text"), str)
+            or not isinstance(response.get("headers"), dict)
+        ):
+            raise ValueError(
+                f"scraping_report.requests[{index}].response está mal formado"
+            )
+        response_body = response.get("body")
+        if (
+            not isinstance(response_body, dict)
+            or not isinstance(response_body.get("captured"), bool)
+            or not isinstance(response_body.get("content_type"), str)
+            or "data" not in response_body
+        ):
+            raise ValueError(
+                f"scraping_report.requests[{index}].response.body está mal formado"
+            )
 
-    return recon_output, "clean", tool_timings
+        normalized = {
+            **request,
+            "id": request_id.strip(),
+            "method": method.strip().upper(),
+            "url": url.strip(),
+            "observed_on": list(dict.fromkeys(item for item in observed_on if item)),
+        }
+        signature = json.dumps(
+            {
+                key: normalized[key]
+                for key in (
+                    "method",
+                    "url",
+                    "query_parameters",
+                    "query_values",
+                    "request_headers",
+                    "request_body",
+                )
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        duplicate_index = seen_requests.get(signature)
+        if duplicate_index is None:
+            seen_requests[signature] = len(cleaned_requests)
+            cleaned_requests.append(normalized)
+            continue
+        original = cleaned_requests[duplicate_index]
+        original["observed_on"] = list(
+            dict.fromkeys([*original["observed_on"], *normalized["observed_on"]])
+        )
+        original_body = original["response"].get("body", {})
+        duplicate_body = normalized["response"].get("body", {})
+        if not original_body.get("captured") and duplicate_body.get("captured"):
+            original["response"] = normalized["response"]
+
+    return {
+        "target": report_target.strip(),
+        "observed_endpoints": cleaned_endpoints,
+        "requests": cleaned_requests,
+    }
+
+
+def _captured_request(request: dict, attack_type: str = "") -> dict:
+    raw_body = request.get("request_body")
+    if isinstance(raw_body, dict) and isinstance(raw_body.get("captured"), bool):
+        body = raw_body.get("data") if raw_body["captured"] else None
+    else:
+        body = raw_body
+    if is_xss_attack(attack_type):
+        allowed_headers = {"content-type", "accept"}
+    elif is_access_control_attack(attack_type) or is_crypto_attack(attack_type):
+        allowed_headers = {
+            "authorization",
+            "cookie",
+            "content-type",
+            "accept",
+            "x-auth-token",
+        }
+    else:
+        allowed_headers = {
+            "host",
+            "content-type",
+            "accept",
+            "referer",
+            "user-agent",
+        }
+    headers = request.get("request_headers", {})
+    headers = headers if isinstance(headers, dict) else {}
+    return {
+        "id": request["id"],
+        "method": request["method"],
+        "url": request["url"],
+        "headers": {
+            name: value
+            for name, value in headers.items()
+            if isinstance(name, str) and name.casefold() in allowed_headers
+        },
+        "body": body,
+        "observed_on": request.get("observed_on", []),
+        "observed_pages": request.get("observed_pages", []),
+        "reflected_parameters": request.get("reflected_parameters", []),
+    }
+
+
+def _query_values(request: dict) -> dict:
+    values = request.get("query_values")
+    if values:
+        return values
+    return {
+        name: value
+        for name, value in parse_qsl(
+            urlsplit(request["url"]).query,
+            keep_blank_values=True,
+        )
+    }
+
+
+def _has_input(request: dict) -> bool:
+    body = _captured_request(request)["body"]
+    return bool(_query_values(request) or body)
+
+
+def _is_id_bearing_url(url: str) -> bool:
+    path = urlsplit(url).path
+    return bool(
+        "{id}" in url
+        or re.search(r"/\d+(?:/|$)", path)
+        or re.search(
+            r"/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+            r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}(?:/|$)",
+            path,
+        )
+    )
+
+
+def _reflected_parameters(request: dict) -> list[str]:
+    """Parámetros cuyo valor observado aparece reflejado en la respuesta capturada."""
+    response = request.get("response")
+    response = response if isinstance(response, dict) else {}
+    body = response.get("body")
+    body = body if isinstance(body, dict) else {}
+    data = body.get("data")
+    if data is None:
+        return []
+    try:
+        serialized = json.dumps(data, ensure_ascii=False)
+    except (TypeError, ValueError):
+        return []
+    reflected = []
+    for name, value in _query_values(request).items():
+        if value and str(value) in serialized:
+            reflected.append(name)
+    return reflected
+
+
+def _pages_by_path(requests: list[dict]) -> dict[str, list[str]]:
+    """Páginas observadas por ruta de API, correlacionando todas las peticiones."""
+    pages: dict[str, list[str]] = {}
+    for request in requests:
+        path = urlsplit(request["url"]).path.rstrip("/") or "/"
+        bucket = pages.setdefault(path, [])
+        for page in request.get("observed_on", []):
+            if page not in bucket:
+                bucket.append(page)
+    return pages
+
+
+def _make_target(
+    request: dict,
+    index: int,
+    attack_type: str,
+    reason: str,
+) -> HighPriorityTarget:
+    captured = _captured_request(request, attack_type)
+    if attack_type == "sqli":
+        tool = "sqlmap"
+    elif attack_type == "xss":
+        # El validador de navegador ofrece una confirmación más fuerte que
+        # Dalfox para XSS reflejados/almacenados, sin quedarse acotado a la
+        # lab weak_page específica.
+        tool = "browserXssValidator"
+    elif is_access_control_attack(attack_type):
+        tool = "access_control_prober"
+    else:
+        tool = "crypto_inspector"
+    return HighPriorityTarget(
+        target_id=f"target_{index:03d}",
+        request_id=captured["id"],
+        vulnerability_target=reason,
+        endpoint=captured["url"],
+        method=captured["method"],
+        request=captured,
+        recommended_tool=tool,
+    )
+
+
+def build_recon_output(
+    target_url: str,
+    attack_type_filter: str,
+    scraping_report: dict,
+) -> ReconPlannerOutput:
+    """Build validation targets deterministically from the normalized scrape."""
+    report = _validate_scraping_report(scraping_report, target_url)
+    requests = report["requests"]
+    normalized_attack = normalize_attack_type(attack_type_filter)
+    target_inputs = []
+
+    if is_sqli_attack(attack_type_filter):
+        target_inputs = [
+            request
+            for request in requests
+            if _has_input(request)
+        ]
+    elif is_xss_attack(attack_type_filter):
+        target_inputs = [
+            request
+            for request in requests
+            if _has_input(request)
+        ]
+    elif is_access_control_attack(attack_type_filter):
+        target_inputs = [
+            request
+            for request in requests
+            if _is_id_bearing_url(request["url"])
+            or any(keyword in request["url"].casefold() for keyword in ACCESS_CONTROL_KEYWORDS)
+        ]
+    elif is_crypto_attack(attack_type_filter):
+        target_inputs = [
+            request
+            for request in requests
+            if any(keyword in request["url"].casefold() for keyword in CRYPTO_KEYWORDS)
+        ]
+    elif is_jwt_attack(attack_type_filter):
+        target_inputs = []
+    else:
+        target_inputs = []
+
+    xss_pages = _pages_by_path(requests) if is_xss_attack(attack_type_filter) else {}
+    targets = []
+    for request in target_inputs[:MAX_TARGETS]:
+        if is_xss_attack(attack_type_filter):
+            path = urlsplit(request["url"]).path.rstrip("/") or "/"
+            request = {
+                **request,
+                "observed_pages": xss_pages.get(path, []),
+                "reflected_parameters": _reflected_parameters(request),
+            }
+        if is_sqli_attack(attack_type_filter):
+            reason = "Solicitud observada con datos de entrada; validar posible SQLi"
+        elif is_xss_attack(attack_type_filter):
+            reason = "Solicitud observada con datos de entrada; validar posible XSS"
+        elif is_access_control_attack(attack_type_filter):
+            reason = "Request observada sobre una ruta relevante para control de acceso"
+        else:
+            reason = "Request observada en una superficie criptográfica relevante"
+        targets.append(
+            _make_target(
+                request,
+                len(targets) + 1,
+                normalized_attack,
+                reason,
+            )
+        )
+
+    summary = ReconSummary(
+        target_url=target_url,
+        attack_type_filter=normalized_attack,
+        total_targets_identified=len(targets),
+        total_requests_captured=len(requests),
+    )
+    result = ReconPlannerOutput(
+        recon_summary=summary,
+        high_priority_targets=targets,
+    )
+    logger.info(
+        "Recon determinístico completado attack_type=%s requests=%d targets=%d",
+        normalized_attack,
+        len(requests),
+        len(targets),
+    )
+    return result

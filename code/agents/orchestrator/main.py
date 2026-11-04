@@ -60,7 +60,6 @@ async def execute_orchestration_flow(payload: dict, channel: aio_pika.Channel):
     target_url = payload.get("target_url")
     attack_type = payload.get("attack_type", "full")
 
-    # Métricas de tiempo (merge: main tenía estas, David no las traía)
     flow_started = time.perf_counter()
     queue_wait_ms = 0.0
     queued_at = payload.get("queued_at")
@@ -93,6 +92,7 @@ async def execute_orchestration_flow(payload: dict, channel: aio_pika.Channel):
         "recon_recovery_mode": None,
         "validate_recovery_mode": None,
         "token": payload.get("token"),
+        "scraping_report": payload.get("scraping_report"),
         "timings": {"queueWaitMs": round(queue_wait_ms, 2), "stages": {}},
     }
 
@@ -108,14 +108,14 @@ async def execute_orchestration_flow(payload: dict, channel: aio_pika.Channel):
         llm = get_llm("orchestrator")
 
         tools = create_orchestrator_tools(channel)
-        logger.info(f"Agentes cargados en LangChain: {[t.name for t in tools]}")
+        logger.info(f"Herramientas cargadas en LangChain: {[t.name for t in tools]}")
 
         system_prompt = SystemMessage(
             content=(
                 "Eres el Agente Orquestador Principal de Ciberseguridad.\n"
-                "Tu función única es coordinar la ejecución en secuencia estricta de los 3 agentes especializados invocando sus herramientas pasando únicamente el 'task_id':\n\n"
+                "Coordina la ejecución en secuencia estricta de las etapas del pipeline invocando sus herramientas y pasando únicamente el 'task_id':\n\n"
                 "SECUENCIA OBLIGATORIA DE HERRAMIENTAS:\n"
-                "1. Llama a 'recon_agent' con 'task_id'.\n"
+                "1. Llama a 'prepare_targets' con 'task_id' para preparar localmente los objetivos desde el reporte de scraping.\n"
                 "2. Llama a 'validate_agent' con 'task_id'.\n"
                 "3. Llama a 'reporter_agent' con 'task_id'.\n"
                 "4. Una vez que 'reporter_agent' confirme la generación del informe, emite como tu MENSAJE FINAL ÚNICAMENTE la frase: 'Pipeline completado'.\n\n"
