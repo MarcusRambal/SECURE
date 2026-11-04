@@ -1,22 +1,40 @@
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: rgba(21, 0, 26, 0.96);
+  border-bottom: 1px solid rgba(243, 184, 255, 0.2);
+}
+
 .navBar {
   display: flex;
   align-items: center;
-  gap: clamp(1.5rem, 4vw, 3rem);
-  background: var(--color-purple-950);
-  padding: 30px;
+  justify-content: space-between;
+  gap: 1rem;
+  width: min(100% - 3rem, 1100px);
+  min-height: 76px;
+  margin: 0 auto;
+}
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
 }
 
 .tab {
   background: none;
-  border: none;
-  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  min-height: 44px;
+  padding: 0.7rem 1rem;
   cursor: pointer;
   font-family: var(--font-geist-sans), Arial, sans-serif;
-  font-size: clamp(1rem, 2vw, 1.2rem);
+  font-size: 1rem;
   font-weight: 600;
   letter-spacing: 0.02em;
-  color: var(--color-purple-200);
-  transition: color 0.2s ease;
+  color: #fff;
+  transition: color 0.2s ease, background 0.2s ease;
 }
 
 .tab:hover,
@@ -25,10 +43,59 @@
 }
 
 .tabActive {
-  color: var(--color-purple-400);
+  background: #710088;
+  border-color: #e45cff;
+  color: #fff;
 }
 
 .tabActive:hover,
 .tabActive:focus-visible {
-  color: var(--color-purple-400);
+  background: #8800a3;
+  color: #fff;
+}
+
+.homeLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+  color: #ffd2f4;
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-decoration: none;
+  text-shadow: 0 0 10px rgba(255, 122, 220, 0.65);
+}
+
+.homeLink:hover {
+  color: var(--color-purple-200);
+}
+
+.homeLink:focus-visible,
+.tab:focus-visible {
+  outline: 2px solid var(--color-purple-100);
+  outline-offset: 4px;
+}
+
+.logo {
+  filter: invert(1) drop-shadow(0 0 5px rgba(243, 184, 255, 0.6));
+}
+
+@media (max-width: 640px) {
+  .navBar {
+    flex-wrap: wrap;
+    width: calc(100% - 2rem);
+    gap: 0.5rem;
+    padding: 0.75rem 0;
+  }
+
+  .tabs {
+    width: 100%;
+  }
+
+  .tab {
+    min-height: 36px;
+    padding: 0.4rem 0.75rem;
+    font-size: 0.875rem;
+  }
 }

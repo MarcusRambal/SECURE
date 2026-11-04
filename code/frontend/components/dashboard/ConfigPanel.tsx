@@ -250,14 +250,6 @@ export const ConfigPanel = ({ onTaskCreated }: ConfigPanelProps) => {
           <label htmlFor="sessionToken" className={styles.label}>
             Token JWT / Sesión {needsToken ? "(Requerido)" : "(Opcional)"}
           </label>
-          <button
-            type="button"
-            onClick={handlePasteToken}
-            className={styles.pasteButton}
-            disabled={!canPasteToken}
-          >
-            Pegar desde Portapapeles
-          </button>
         </div>
         <input
           id="sessionToken"

@@ -262,8 +262,7 @@
 
 .methodBadge,
 .endpointState,
-.severityBadge,
-.confidence {
+.severityBadge {
   display: inline-flex;
   align-items: center;
   border-radius: 999px;
@@ -343,20 +342,11 @@
   color: #86efac;
 }
 
-.severityINFO {
-  color: #93c5fd;
-}
-
 .severityBadge {
   padding: 0.3rem 0.55rem;
   border: 1px solid currentColor;
 }
 
-.confidence {
-  color: var(--color-purple-200);
-  letter-spacing: 0;
-  font-weight: 550;
-}
 
 .vulnerabilityTitle {
   margin: 0.75rem 0 0;

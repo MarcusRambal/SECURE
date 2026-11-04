@@ -202,7 +202,11 @@ export const PanelView = ({
           ? "En proceso"
           : "Conectando";
   const endpoints = getEndpoints(events);
-  const severityCounts = vulnerabilities.reduce<Record<string, number>>(
+  const visibleVulnerabilities = vulnerabilities.filter(
+    (vulnerability) => vulnerability.severity !== "INFO",
+  );
+  const informationalCount = vulnerabilities.length - visibleVulnerabilities.length;
+  const severityCounts = visibleVulnerabilities.reduce<Record<string, number>>(
     (counts, vulnerability) => {
       counts[vulnerability.severity] = (counts[vulnerability.severity] ?? 0) + 1;
       return counts;
@@ -284,6 +288,13 @@ export const PanelView = ({
                           ? "Preparando la tarea..."
                           : "Pendiente")}
                   </span>
+                  {stage.id === "validate" &&
+                    stageEvent?.eventType === "TOOL_EXECUTION" &&
+                    informationalCount > 0 && (
+                      <span className={styles.stageMessage}>
+                        Incluye {informationalCount} hallazgo{informationalCount === 1 ? "" : "s"} informativo{informationalCount === 1 ? "" : "s"} no mostrado{informationalCount === 1 ? "" : "s"} en el listado.
+                      </span>
+                    )}
                   {stageEvent?.durationMs !== undefined && (
                     <span className={styles.stageDuration}>
                       {formatDuration(stageEvent.durationMs)}
@@ -346,13 +357,13 @@ export const PanelView = ({
               <h2 className={styles.sectionTitle}>Vulnerabilidades</h2>
             </div>
             <span className={`${styles.countBadge} ${styles.vulnerabilityCount}`}>
-              {vulnerabilities.length}
+              {visibleVulnerabilities.length}
             </span>
           </div>
 
-          {vulnerabilities.length > 0 && (
+          {visibleVulnerabilities.length > 0 && (
             <div className={styles.severitySummary} aria-label="Resumen por severidad">
-              {["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"].map((severity) => (
+              {["CRITICAL", "HIGH", "MEDIUM", "LOW"].map((severity) => (
                 <span
                   className={`${styles.severityChip} ${styles[`severity${severity}`]}`}
                   key={severity}
@@ -363,9 +374,9 @@ export const PanelView = ({
             </div>
           )}
 
-          {vulnerabilities.length > 0 ? (
+          {visibleVulnerabilities.length > 0 ? (
             <ul className={styles.vulnerabilityList}>
-              {vulnerabilities.map((vulnerability, index) => (
+              {visibleVulnerabilities.map((vulnerability, index) => (
                 <li
                   className={styles.vulnerabilityItem}
                   key={[
@@ -384,11 +395,6 @@ export const PanelView = ({
                     >
                       {vulnerability.severity}
                     </span>
-                    {vulnerability.confidence && (
-                      <span className={styles.confidence}>
-                        Confianza {vulnerability.confidence}
-                      </span>
-                    )}
                   </div>
                   <h3 className={styles.vulnerabilityTitle}>{vulnerability.title}</h3>
                   {vulnerability.endpoint && (
@@ -430,7 +436,7 @@ export const PanelView = ({
           ) : (
             <p className={styles.emptyState}>
               {isFinished
-                ? "La validación terminó sin vulnerabilidades confirmadas."
+                ? "La validación terminó sin vulnerabilidades confirmadas de las severidades mostradas."
                 : "Los hallazgos confirmados aparecerán aquí durante la validación."}
             </p>
           )}

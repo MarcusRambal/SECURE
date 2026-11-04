@@ -1,25 +1,53 @@
 .dashboardContainer {
   min-height: 100vh;
-  background: #000;
+  background: radial-gradient(ellipse at 50% 0%, #3c0047 0%, var(--color-purple-950) 55%);
   color: var(--color-purple-50);
   font-family: var(--font-geist-sans), Arial, sans-serif;
   padding-bottom: 3rem;
 }
 
 .configSection {
-  width: min(100% - 48px, 640px);
-  margin-left: 30px;
-  margin-top: 40px;
+  width: min(100% - 3rem, 760px);
+  margin: clamp(2rem, 5vw, 4rem) auto 0;
+  padding: clamp(1.5rem, 4vw, 3rem);
+  border: 1px solid rgba(243, 184, 255, 0.25);
+  border-radius: 20px;
+  background: rgba(27, 0, 32, 0.96);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.18);
+}
 
+.configHeader {
+  margin-bottom: 2rem;
+}
+
+.eyebrow {
+  margin-bottom: 0.7rem;
+  color: #f3b8ff;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.configHeader h1 {
+  margin-bottom: 0.75rem;
+  color: #fff;
+  font-size: clamp(1.6rem, 3vw, 2.2rem);
+}
+
+.configHeader > p:last-child {
+  color: #f3e5f6;
+  line-height: 1.7;
 }
 
 .panelSection {
-  width: min(calc(100% - clamp(32px, 5vw, 96px)), 1800px);
+  width: min(100% - 3rem, 1100px);
   margin: clamp(24px, 3vw, 40px) auto 0;
 }
 
 @media (max-width: 640px) {
-  .panelSection {
+  .panelSection,
+  .configSection {
     width: calc(100% - 32px);
     margin-top: 24px;
   }
