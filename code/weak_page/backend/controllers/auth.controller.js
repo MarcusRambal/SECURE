@@ -11,12 +11,17 @@ const md5 = (s) => crypto.createHash("md5").update(s).digest("hex");
 
 /**
  * Emite un JWT respetando A2 (secreto débil) y A3 (sin expiración).
+ * El algoritmo HS256 se declara explícitamente para que `jwt.verify` con
+ * `algorithms: ["HS256"]` en el middleware no dependa de defaults.
  */
 function issueToken(user, req) {
   const secret = isVulnerable("JWT_WEAK_SECRET", req)
     ? "secret"
     : process.env.JWT_SECRET;
-  const options = isVulnerable("JWT_NO_EXPIRY", req) ? {} : { expiresIn: "1h" };
+  const options = {
+    algorithm: "HS256",
+    ...(isVulnerable("JWT_NO_EXPIRY", req) ? {} : { expiresIn: "1h" }),
+  };
   return jwt.sign({ id: user.id, role: user.role }, secret, options);
 }
 
@@ -53,15 +58,13 @@ export async function login(req, res, next) {
       }
     }
 
-    // A4: enumeración de usuarios
+    // A4: enumeración de usuarios (independiente de SQLI_LOGIN)
     if (!user) {
-      if (isVulnerable("USER_ENUMERATION", req) && isVulnerable("SQLI_LOGIN", req)) {
-        try {
-          const exists = db.prepare(`SELECT id FROM users WHERE email = '${email}'`).get();
-          return res.status(401).json({
-            message: exists ? "Contraseña incorrecta" : "Usuario no existe"
-          });
-        } catch { /* si el email rompía la SQL, caemos al genérico */ }
+      if (isVulnerable("USER_ENUMERATION", req)) {
+        const exists = findUserByEmail(email);
+        return res.status(401).json({
+          message: exists ? "Contraseña incorrecta" : "Usuario no existe"
+        });
       }
       return res.status(401).json({ message: "Credenciales inválidas" });
     }
@@ -130,6 +133,21 @@ export async function me(req, res, next) {
       return res.status(401).json({ message: "No autenticado" });
     }
     const user = findUserById(req.user.id);
+    if (!user) return res.status(404).json({ message: "Usuario no encontrado" });
+    return res.json({ user: safeUser(user) });
+  } catch (err) { next(err); }
+}
+
+// ─────────────────────────────────────────────────────────────
+// GET /api/auth/whoami
+// Endpoint estable para pruebas JWT (jwt_tool / SECURE).
+// - Siempre exige token (requireStrictAuth NO cae al bypass de MISSING_AUTH_ME).
+// - Devuelve 401 sin token, 200 con token válido o forjado (según flags).
+// - No depende de ningún flag de BAC ni de Categorías de otro grupo.
+// ─────────────────────────────────────────────────────────────
+export async function whoami(req, res, next) {
+  try {
+    const user = findUserById(req.user?.id);
     if (!user) return res.status(404).json({ message: "Usuario no encontrado" });
     return res.json({ user: safeUser(user) });
   } catch (err) { next(err); }

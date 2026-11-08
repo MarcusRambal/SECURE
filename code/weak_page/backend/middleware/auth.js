@@ -2,6 +2,30 @@ import jwt from "jsonwebtoken";
 import { isVulnerable } from "../config/securityMode.js";
 
 /**
+ * Verificación compartida por requireAuth y requireStrictAuth.
+ * - A1 JWT_ALG_NONE:    acepta tokens sin firma (alg:none).
+ * - A2 JWT_WEAK_SECRET: verifica con "secret" en vez de process.env.JWT_SECRET.
+ * - HS256 se declara explícitamente en `verify` para no depender de defaults.
+ */
+function _verifyToken(req, token) {
+  if (isVulnerable("JWT_ALG_NONE", req)) {
+    const decoded = jwt.decode(token, { complete: true });
+    if (decoded?.header?.alg?.toLowerCase() === "none") {
+      return { ok: true, user: decoded.payload };
+    }
+  }
+  try {
+    const secret = isVulnerable("JWT_WEAK_SECRET", req)
+      ? "secret"
+      : process.env.JWT_SECRET;
+    const user = jwt.verify(token, secret, { algorithms: ["HS256"] });
+    return { ok: true, user };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
+
+/**
  * Middleware de autenticación con comportamiento dependiente de flags.
  *
  *   - B2 MISSING_AUTH_ME: si no hay token, deja pasar con req.user = null
@@ -19,24 +43,30 @@ export function requireAuth(req, res, next) {
   const token = header.startsWith("Bearer ") ? header.slice(7) : null;
   if (!token) return res.status(401).json({ message: "Token requerido" });
 
-  try {
-    // A1: aceptar alg:none ANTES de verificar
-    if (isVulnerable("JWT_ALG_NONE", req)) {
-      const decoded = jwt.decode(token, { complete: true });
-      if (decoded?.header?.alg?.toLowerCase() === "none") {
-        req.user = decoded.payload;
-        return next();
-      }
-    }
-    // A2: secreto débil
-    const secret = isVulnerable("JWT_WEAK_SECRET", req)
-      ? "secret"
-      : process.env.JWT_SECRET;
-    req.user = jwt.verify(token, secret);
-    return next();
-  } catch (err) {
-    return res.status(401).json({ message: "Token inválido", detail: err.message });
+  const result = _verifyToken(req, token);
+  if (!result.ok) {
+    return res.status(401).json({ message: "Token inválido", detail: result.error });
   }
+  req.user = result.user;
+  return next();
+}
+
+/**
+ * Auth estricta para endpoints que NUNCA deben caer al bypass de
+ * MISSING_AUTH_ME (BAC). Es la variante que usa /api/auth/whoami para
+ * pruebas JWT de SECURE / jwt_tool.
+ */
+export function requireStrictAuth(req, res, next) {
+  const header = req.headers.authorization || "";
+  const token = header.startsWith("Bearer ") ? header.slice(7) : null;
+  if (!token) return res.status(401).json({ message: "Token requerido" });
+
+  const result = _verifyToken(req, token);
+  if (!result.ok) {
+    return res.status(401).json({ message: "Token inválido", detail: result.error });
+  }
+  req.user = result.user;
+  return next();
 }
 
 /**

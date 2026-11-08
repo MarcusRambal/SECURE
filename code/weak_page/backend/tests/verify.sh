@@ -32,7 +32,6 @@ echo "════════════════════════�
 echo "  Dulce Nube — Verificación de los 20 retos"
 echo "═══════════════════════════════════════════"
 
-# Reset opcional (SKIP_RESET=1 para saltar)
 if [ "${SKIP_RESET:-0}" != "1" ]; then
   SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
   echo ""
@@ -102,7 +101,6 @@ assert "C1 mitigado: bcrypt" "true" \
 assert "C2: admin es MD5" "true" \
   "$(body $BASE/api/admin/users | jq -r '.items[] | select(.email=="admin@dulcenube.com") | .password | test("^[a-f0-9]{32}$")')"
 
-# C3 — usuario dedicado
 body -X POST $BASE/api/auth/register -H "Content-Type: application/json" \
   -d '{"name":"C3","email":"c3-target@test.lab","password":"Original123"}' > /dev/null
 EXPECTED=$(printf '%s' 'c3-target@test.lab' | md5sum | awk '{print $1}')
@@ -118,7 +116,6 @@ assert "C3 mitigado: sin debug" "false" \
   "$(body -X POST $BASE/api/auth/forgot -H "Content-Type: application/json" -H "$OV: PREDICTABLE_RESET_TOKEN=false" \
     -d '{"email":"c3-target@test.lab"}' | jq 'has("_debug_token")')"
 
-# C4 — crear pedidos nuevos
 ORDER_V=$(body -X POST $BASE/api/orders -H "Content-Type: application/json" \
   -H "Authorization: Bearer $T_MARIA" \
   -d '{"customer":{"name":"C4v","address":"x","phone":"x"},"items":[{"productId":1,"price":25,"quantity":1}],"paymentMethod":"x"}')
@@ -201,6 +198,26 @@ MSG_S1=$(body -X POST $BASE/api/auth/login -H 'Content-Type: application/json' -
 MSG_S2=$(body -X POST $BASE/api/auth/login -H 'Content-Type: application/json' -H "$OV: USER_ENUMERATION=false" \
   -d '{"email":"nadie@nada.lab","password":"x"}' | jq -r '.message')
 assert "A4 mitigado: mismo" "true" "$([ "$MSG_S1" = "$MSG_S2" ] && echo true)"
+
+MSG_I1_OFF_V1=$(body -X POST $BASE/api/auth/login -H 'Content-Type: application/json' \
+  -H "$OV: SQLI_LOGIN=false,USER_ENUMERATION=true" \
+  -d '{"email":"admin@dulcenube.com","password":"x"}' | jq -r '.message')
+MSG_I1_OFF_V2=$(body -X POST $BASE/api/auth/login -H 'Content-Type: application/json' \
+  -H "$OV: SQLI_LOGIN=false,USER_ENUMERATION=true" \
+  -d '{"email":"nadie@nada.lab","password":"x"}' | jq -r '.message')
+assert "A4 vulnerable independent from I1" "true" \
+  "$([ "$MSG_I1_OFF_V1" != "$MSG_I1_OFF_V2" ] && echo true)"
+
+MSG_I1_OFF_S1=$(body -X POST $BASE/api/auth/login -H 'Content-Type: application/json' \
+  -H "$OV: SQLI_LOGIN=false,USER_ENUMERATION=false" \
+  -d '{"email":"admin@dulcenube.com","password":"x"}' | jq -r '.message')
+MSG_I1_OFF_S2=$(body -X POST $BASE/api/auth/login -H 'Content-Type: application/json' \
+  -H "$OV: SQLI_LOGIN=false,USER_ENUMERATION=false" \
+  -d '{"email":"nadie@nada.lab","password":"x"}' | jq -r '.message')
+assert "A4 mitigado independent from I1" "Credenciales inválidas" \
+  "$MSG_I1_OFF_S1"
+assert "A4 mitigado independent from I1 (unknown user)" "Credenciales inválidas" \
+  "$MSG_I1_OFF_S2"
 
 assert "A5 vulnerable: acepta '1'" "201" \
   "$(code -X POST $BASE/api/auth/register -H 'Content-Type: application/json' \

@@ -10,8 +10,7 @@ networks:
 
 services:
 
-
-  frontend: 
+  frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile.frontend
@@ -19,9 +18,9 @@ services:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
     container_name: frontend
     ports:
-     - "3000:3000"  
+     - "3000:3000"
     networks:
-      - "public-net" 
+      - "public-net"
     environment:
       - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
       - INTERNAL_API_URL=http://api:8000
@@ -134,7 +133,7 @@ services:
       - sec-net
       - internal-net
     extra_hosts:
-      - "host.docker.internal:host-gateway" # Docker Engine nativo en Linux no lo resuelve solo
+      - "host.docker.internal:host-gateway"
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -151,7 +150,7 @@ services:
       - sec-net
       - internal-net
     extra_hosts:
-      - "host.docker.internal:host-gateway" # Docker Engine nativo en Linux no lo resuelve solo
+      - "host.docker.internal:host-gateway"
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -176,7 +175,7 @@ services:
       dockerfile: docker_images/Dockerfile.crypto_inspector
     image: local-crypto-inspector:latest
     command: ["--help"]
-     
+
   build-jwt:
     build:
       context: ./skills_controller
@@ -191,7 +190,6 @@ services:
     image: local-access-control-prober:latest
     command: ["--help"]
 
-
 # Entornos Vulnerables
 
   juice-shop:
@@ -205,7 +203,6 @@ services:
       - "3001:3000"
     networks:
       - sec-net
-  
 
   wackopicko:
     image: adamdoupe/wackopicko:latest
@@ -227,6 +224,11 @@ services:
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
+    environment:
+      # Necesario para que jwt.sign/verify use un secreto fuerte cuando
+      # JWT_WEAK_SECRET=false. Sin esta variable, process.env.JWT_SECRET
+      # es undefined y jwt.sign lanza "secretOrPrivateKey must have a value".
+      - JWT_SECRET=${JWT_SECRET:-e425a1eba9c184000244f0e4c2e11c92ed545e2ff75daab84a7c8bbce678f6dc}
     ports:
       - "127.0.0.1:3009:3009"
     volumes:

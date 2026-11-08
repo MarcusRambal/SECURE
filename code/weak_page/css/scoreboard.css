@@ -12,6 +12,30 @@
   font-size: 0.9rem;
 }
 
+.scoreboard-banner-info {
+  background: #e7f3ff;
+  border-color: #3b82f6;
+  color: #1e40af;
+  line-height: 1.55;
+}
+
+.scoreboard-banner-info strong {
+  color: #0c2d8c;
+}
+
+.scoreboard-banner-info code {
+  background: #dbeafe;
+  padding: 0.05rem 0.3rem;
+  border-radius: 3px;
+  color: #1e3a8a;
+  font-family: ui-monospace, "Courier New", monospace;
+  font-size: 0.85em;
+}
+
+.scoreboard-banner-info .button {
+  vertical-align: middle;
+}
+
 .master-toggle {
   text-align: center;
   margin: 2rem 0 3rem;
