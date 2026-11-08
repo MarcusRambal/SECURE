@@ -2,6 +2,7 @@ import { Router } from "express";
 import rateLimit from "express-rate-limit";
 import * as auth from "../controllers/auth.controller.js";
 import { isVulnerable } from "../config/securityMode.js";
+import { requireStrictAuth } from "../middleware/auth.js";
 
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -22,5 +23,9 @@ router.post("/register", auth.register);
 router.post("/logout", auth.logout);
 router.post("/forgot", auth.forgotPassword);
 router.post("/reset-password", auth.resetPassword);
+
+// Endpoint estable para validación JWT (A1/A2/A3). NO depende de
+// MISSING_AUTH_ME (BAC): siempre exige token.
+router.get("/whoami", requireStrictAuth, auth.whoami);
 
 export default router;
