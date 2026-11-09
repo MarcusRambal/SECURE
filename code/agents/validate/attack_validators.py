@@ -1584,6 +1584,7 @@ def get_validation_strategy(attack_type: str) -> ValidationStrategy:
 
 ACCESS_CONTROL_TOOL = "access_control_prober"
 ACCESS_CONTROL_LOGIN_PATH = os.getenv("ACCESS_CONTROL_LOGIN_PATH", "/rest/user/login")
+ACCESS_CONTROL_REGISTER_PATH = os.getenv("ACCESS_CONTROL_REGISTER_PATH", "/api/auth/register")
 ACCESS_CONTROL_VICTIM_EMAIL = os.getenv(
     "ACCESS_CONTROL_VICTIM_EMAIL", "admin@juice-sh.op"
 )
@@ -1646,11 +1647,42 @@ def _login_token(base_url: str, email: str, password: str) -> str:
         )
         return ""
 
+def _register_user(base_url: str, email: str, password: str, name: str = "Test User") -> bool:
+    """Intenta registrar un usuario. Devuelve True si se creó o si ya existía."""
+    if not email or not password:
+        return False
+    
+    register_url = urljoin(f"{base_url.rstrip('/')}/", ACCESS_CONTROL_REGISTER_PATH.lstrip("/"))
+    body = json.dumps({"email": email, "password": password, "name": name}).encode("utf-8")
+    request = urllib_request.Request(
+        register_url,
+        data=body,
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+    )
+    try:
+        context = ssl._create_unverified_context()
+        with urllib_request.urlopen(request, timeout=15, context=context) as response:
+            if response.status in (200, 201):
+                logger.info("[VALIDATE] Usuario %s registrado exitosamente.", email)
+                return True
+    except HTTPError as e:
+        # 400 o 409 significa que el usuario ya existe, lo cual está bien.
+        if e.code in (400, 409):
+            return True
+        logger.warning("[VALIDATE] Error HTTP %s al registrar %s", e.code, email)
+    except Exception as e:
+        logger.warning("[VALIDATE] Falló el registro de %s: %s", email, e)
+    return False
+
 
 def _resolve_access_control_tokens(
     targets: list[dict], target_url: str = ""
 ) -> tuple[str, str]:
-    """Prioriza tokens de entorno y, si faltan, autentica con credenciales de laboratorio."""
+    """Prioriza tokens de entorno y, si faltan, autentica (o registra) las credenciales."""
     victim_token = os.getenv("ACCESS_CONTROL_VICTIM_TOKEN", "").strip()
     attacker_token = os.getenv("ACCESS_CONTROL_ATTACKER_TOKEN", "").strip()
 
@@ -1668,8 +1700,6 @@ def _resolve_access_control_tokens(
             if attacker_token:
                 break
 
-    # FIX: Los targets vienen simplificados SIN 'url', así que sacamos el origen
-    # del endpoint o del target_url original.
     first = targets[0] if targets else {}
     raw_url = ""
     if isinstance(first, dict):
@@ -1681,14 +1711,26 @@ def _resolve_access_control_tokens(
     raw_url = raw_url or target_url
     base_url = _origin_of(str(raw_url or ""))
 
+    # Lógica para VÍCTIMA (Login -> Si falla, Registro -> Login)
     if not victim_token and base_url:
         victim_token = _login_token(
             base_url, ACCESS_CONTROL_VICTIM_EMAIL, ACCESS_CONTROL_VICTIM_PASSWORD
         )
+        if not victim_token:
+            logger.info("[VALIDATE] Víctima no encontrada. Intentando auto-registro...")
+            if _register_user(base_url, ACCESS_CONTROL_VICTIM_EMAIL, ACCESS_CONTROL_VICTIM_PASSWORD, "Victima"):
+                victim_token = _login_token(base_url, ACCESS_CONTROL_VICTIM_EMAIL, ACCESS_CONTROL_VICTIM_PASSWORD)
+
+    # Lógica para ATACANTE (Login -> Si falla, Registro -> Login)
     if not attacker_token and base_url:
         attacker_token = _login_token(
             base_url, ACCESS_CONTROL_ATTACKER_EMAIL, ACCESS_CONTROL_ATTACKER_PASSWORD
         )
+        if not attacker_token:
+            logger.info("[VALIDATE] Atacante no encontrado. Intentando auto-registro...")
+            if _register_user(base_url, ACCESS_CONTROL_ATTACKER_EMAIL, ACCESS_CONTROL_ATTACKER_PASSWORD, "Atacante"):
+                attacker_token = _login_token(base_url, ACCESS_CONTROL_ATTACKER_EMAIL, ACCESS_CONTROL_ATTACKER_PASSWORD)
+
     return victim_token, attacker_token
 
 
