@@ -13,7 +13,7 @@ export const ATTACK_CATEGORIES = {
   },
   broken_access: {
     label: "Acceso Roto",
-    attacks: [{ id: "bac_default", label: "Proximamente / General" }],
+    attacks: [{ id: "bac_default", label: "Access control prober" }],
   },
   auth_failure: {
     label: "Authentication Failure",
