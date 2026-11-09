@@ -128,6 +128,11 @@ services:
       - .env
     environment:
       - VALIDATE_CONTEXT_OUTPUT_DIR=/app/validate_context
+      - ACCESS_CONTROL_LOGIN_PATH=/api/auth/login
+      - ACCESS_CONTROL_VICTIM_EMAIL=victim@test.local
+      - ACCESS_CONTROL_VICTIM_PASSWORD=victim123
+      - ACCESS_CONTROL_ATTACKER_EMAIL=attacker@test.local
+      - ACCESS_CONTROL_ATTACKER_PASSWORD=attacker123
     volumes:
       - ./agents/validate/validate_context:/app/validate_context:Z
     networks:

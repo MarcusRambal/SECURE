@@ -7,7 +7,7 @@ import docker
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_NETWORK = os.getenv("DOCKER_NETWORK", "sec-net")
+DEFAULT_NETWORK = os.getenv("DOCKER_NETWORK", "internal-net")
 
 
 class EphemeralDockerRunner:

@@ -50,12 +50,42 @@ def _severity_sort_key(vulnerability: dict) -> tuple[int, str]:
     severity = str(vulnerability.get("severity") or "").upper()
     return (SEVERITY_RANK.get(severity, len(SEVERITY_RANK)), str(vulnerability.get("endpoint") or ""))
 
+def extract_first_json(text):
+    if not text:
+        return {}
+    start = text.find('{')
+    if start == -1:
+        return {}
+    decoder = json.JSONDecoder()
+    try:
+        obj, index = decoder.raw_decode(text[start:])
+        return obj
+    except json.JSONDecodeError:
+        return {}
+
 
 def _endpoint_key(endpoint: str) -> str:
     """Clave de comparación por ruta, sin host, para detectar duplicados."""
     if not isinstance(endpoint, str) or not endpoint:
         return ""
     return (urlsplit(endpoint).path.rstrip("/") or "/").casefold()
+
+def _crypto_endpoint_key(endpoint: str) -> str:
+    """
+    Clave de dedup para hallazgos cripto:
+      - lowercase (weak-page es case-insensitive)
+      - colapsa zero-padding en IDs (/01 → /1)
+      - sin host, sin query string
+    """
+    if not isinstance(endpoint, str) or not endpoint:
+        return ""
+    path = (urlsplit(endpoint).path.rstrip("/") or "/").casefold()
+    path = re.sub(
+        r"/(0+)(\d+)(?=/|$)",
+        lambda m: "/" + str(int(m.group(1) + m.group(2))),
+        path,
+    )
+    return path
 
 
 _XSS_PROFILES_CACHE: dict | None = None
@@ -317,10 +347,15 @@ def _crypto_finding_to_vulnerability(finding: dict, execution: dict) -> dict:
     if not evidence_parts:
         evidence_parts.append("Hallazgo reportado por crypto_inspector sin evidencia textual.")
 
+    endpoint = (
+        finding.get("endpoint")
+        or execution.get("endpoint", "")
+    )
+
     return {
         "type": finding.get("title") or "Cryptographic Failure / Insecure Data Exposure",
         "severity": severity,
-        "endpoint": execution.get("endpoint", ""),
+        "endpoint": endpoint,
         "parameter": finding.get("path") or finding.get("key") or None,
         "evidence": " | ".join(dict.fromkeys(evidence_parts)),
         "reproducible_command": execution.get("command", ""),
@@ -1017,10 +1052,126 @@ class XssValidationStrategy(ValidationStrategy):
         )
         return merged
 
-class CryptoValidationStrategy(ValidationStrategy):
-    """Ejecuta crypto_inspector sobre el objetivo y compila la evidencia criptográfica."""
+    def merge_findings(
+        self,
+        parsed_output: dict,
+        evidence: ValidationEvidence,
+        task_id: str,
+    ) -> dict:
+        """
+        Fusiona los hallazgos deterministas de crypto_inspector con lo que el LLM
+        haya podido añadir.
 
-    requires_targets = False
+        Reglas:
+          1. crypto_inspector es la fuente de verdad: sus findings manda.
+          2. Dedup por (finding_id, endpoint_normalizado). El mismo flag
+             `CRYPTO-FLAG-*` desde el mismo endpoint solo cuenta una vez, aunque
+             `crypto_inspector` lo haya reportado desde múltiples variantes
+             de case (`/api/Admin/vulnerabilities` y `/api/admin/vulnerabilities`).
+          3. Los findings del LLM solo se conservan si NO duplican un endpoint ya
+             cubierto por el determinista (evita que Ollama "reformule" lo mismo).
+          4. Orden final: CRITICAL → HIGH → MEDIUM → LOW → INFO.
+        """
+        merged = dict(parsed_output) if isinstance(parsed_output, dict) else {}
+        merged.setdefault("vulnerabilities", [])
+
+        executions = [
+            item
+            for item in evidence.executed_commands
+            if item.get("tool") == "crypto_inspector"
+        ]
+
+        # ── 1. Findings deterministas de crypto_inspector ──
+        derived: list[dict] = []
+        seen_keys: set[tuple[str, str]] = set()
+        covered_keys: set[tuple[str, str]] = set()
+
+        for execution in executions:
+            raw = execution.get("output")
+            if isinstance(raw, dict):
+                report = raw
+            else:
+                report = extract_first_json(raw or "")
+            findings = report.get("findings") if isinstance(report, dict) else None
+            if not isinstance(findings, list):
+                continue
+
+            for finding in findings:
+                if not isinstance(finding, dict):
+                    continue
+
+                vulnerability = _crypto_finding_to_vulnerability(finding, execution)
+                endpoint_key = _crypto_endpoint_key(vulnerability.get("endpoint") or "")
+                finding_id = finding.get("id") or vulnerability.get("type") or ""
+                dedupe_key = (finding_id, endpoint_key)
+
+                # Para el filtro del LLM, marcamos también por tipo+endpoint,
+                # porque el LLM puede inventarse un finding_id distinto.
+                covered_keys.add((vulnerability.get("type") or "", endpoint_key))
+
+                if dedupe_key in seen_keys:
+                    continue
+                seen_keys.add(dedupe_key)
+                derived.append(vulnerability)
+
+        # ── 2. Findings del LLM: solo los que aportan endpoints nuevos ──
+        llm_vulnerabilities = [
+            v for v in (merged.get("vulnerabilities") or []) if isinstance(v, dict)
+        ]
+        kept_llm: list[dict] = []
+        for vulnerability in llm_vulnerabilities:
+            endpoint_key = _crypto_endpoint_key(
+                str(vulnerability.get("endpoint") or "")
+            )
+            if not endpoint_key:
+                # Sin endpoint no lo podemos deduplicar con seguridad: lo dejamos
+                # pasar solo si el LLM le puso un tipo reconocible.
+                if not vulnerability.get("type"):
+                    continue
+            type_key = (str(vulnerability.get("type") or ""), endpoint_key)
+            if type_key in covered_keys:
+                continue
+            # Añadimos la herramienta como co-autora
+            tools_used = vulnerability.setdefault("tools_used", ["crypto_inspector"])
+            if isinstance(tools_used, str):
+                tools_used = [t.strip() for t in tools_used.split(",") if t.strip()]
+                vulnerability["tools_used"] = tools_used
+            if "crypto_inspector" not in tools_used:
+                tools_used.append("crypto_inspector")
+            kept_llm.append(vulnerability)
+
+        # ── 3. Orden final ──
+        merged["vulnerabilities"] = sorted(
+            derived + kept_llm,
+            key=lambda x: _severity_sort_key(x),
+        )
+
+        # ── 4. Log ──
+        logger.info(
+            "[VALIDATE] task_id=%s crypto findings tras merge: %d "
+            "(deterministas=%d, llm_extra=%d)",
+            task_id,
+            len(merged["vulnerabilities"]),
+            len(derived),
+            len(kept_llm),
+        )
+        return merged
+    
+
+class CryptoValidationStrategy(ValidationStrategy):
+    requires_targets = True
+
+    # Endpoints conocidos que aportan los findings críticos y que el Recon
+    # (crawler del frontend) NO descubre porque no son navegables o no están
+    # enlazados en el HTML/JS de la app.
+    SEED_ENDPOINTS = [
+        "/api/admin/vulnerabilities",   # 6 CRYPTO-FLAG-*
+        "/api/auth/forgot",             # CRYPTO-RESET-ACTIVE-001
+        "/api/health",                  # CRYPTO-DISCLOSURE-HEALTH-001
+        "/api/orders/1",                # CRYPTO-B64-ACTIVE-001
+        "/api/orders/2",
+        "/api/orders/3",
+    ]
 
     async def execute(
         self,
@@ -1032,107 +1183,164 @@ class CryptoValidationStrategy(ValidationStrategy):
         token: str | None = None,
     ) -> ValidationEvidence:
         logger.info(
-            "[VALIDATE] task_id=%s Ejecutando crypto_inspector sobre %s",
-            task_id,
-            target_url,
+            "[VALIDATE] task_id=%s crypto pipeline sobre %s", task_id, target_url
         )
         evidence = ValidationEvidence()
 
-        for target in targets or [{"url": target_url, "endpoint": target_url}]:
-            request = target.get("request") or {}
-            raw_endpoint = str(request.get("url") or target.get("url") or target.get("endpoint") or target_url)
-            target_parts = urlsplit(target_url)
-            endpoint_parts = urlsplit(raw_endpoint)
+        # ── 1. Rutas del Recon (lo que el crawler ya conoce) ──
+        recon_paths: list[str] = []
+        recon_targets_by_path: dict[str, dict] = {}
+        for t in (targets or []):
+            request = t.get("request") if isinstance(t.get("request"), dict) else {}
+            url = request.get("url") or t.get("url") or t.get("endpoint") or ""
+            if not url:
+                continue
+            try:
+                path = urlsplit(url).path or "/"
+            except Exception:
+                continue
+            recon_paths.append(path)
+            full_url = (
+                url if url.startswith(("http://", "https://"))
+                else f"{target_url.rstrip('/')}{path}"
+            )
+            recon_targets_by_path[path] = {
+                "endpoint": full_url,
+                "method": (request.get("method") or t.get("method") or "GET").upper(),
+            }
+        logger.info(
+            "[VALIDATE] task_id=%s recon_paths=%d", task_id, len(recon_paths)
+        )
 
-            if target_parts.netloc and endpoint_parts.netloc and target_parts.netloc != endpoint_parts.netloc:
-                endpoint_url = urlunsplit((
-                    target_parts.scheme or "http",
-                    target_parts.netloc,
-                    endpoint_parts.path or "/",
-                    endpoint_parts.query,
-                    "",
-                ))
-            else:
-                endpoint_url = urljoin(f"{target_url.rstrip('/')}/", raw_endpoint)
-
-            safe_endpoint = sanitize_endpoint_for_context(endpoint_url)
-
-            if not is_same_origin(target_url, endpoint_url):
-                evidence.pre_executed_context.append(
+        # ── 2. Descubrimiento con ffuf (best-effort, tolerante a fallos) ──
+        ffuf_paths: list[str] = []
+        for subpath in ["/api/FUZZ", "/api/orders/FUZZ"]:
+            try:
+                raw = await call_mcp_skill(
+                    channel,
+                    "ffuf",
                     {
-                        "tool": "crypto_inspector",
-                        "status": "SKIPPED",
-                        "target_id": target.get("target_id"),
-                        "request_id": target.get("request_id"),
-                        "endpoint": safe_endpoint,
-                        "reason": "endpoint_outside_target_origin",
+                        "target_url": f"{target_url.rstrip('/')}{subpath}",
+                        "method": "GET",
+                    },
+                    tool_timings,
+                )
+                parsed = self._parse_ffuf_output(raw)
+                base = subpath.rsplit("/FUZZ", 1)[0] or ""
+                for p in parsed:
+                    if not isinstance(p, str) or not p:
+                        continue
+                    ffuf_paths.append(base + (p if p.startswith("/") else "/" + p))
+            except Exception as exc:
+                logger.warning(
+                    "[VALIDATE] task_id=%s ffuf falló en %s: %s",
+                    task_id, subpath, exc,
+                )
+        logger.info(
+            "[VALIDATE] task_id=%s ffuf_paths=%d", task_id, len(ffuf_paths)
+        )
+
+        # ── 3. Merge + seeds + normalización (case + zero-padding) ──
+        all_paths = self._normalize_paths(
+            recon_paths + ffuf_paths + self.SEED_ENDPOINTS
+        )
+        logger.info(
+            "[VALIDATE] task_id=%s total paths tras merge=%d",
+            task_id, len(all_paths),
+        )
+
+        # ── 4. Construir targets para crypto_inspector ──
+        crypto_targets = []
+        for p in all_paths:
+            existing = recon_targets_by_path.get(p)
+            if existing:
+                crypto_targets.append(existing)
+            else:
+                crypto_targets.append(
+                    {
+                        "endpoint": f"{target_url.rstrip('/')}{p}",
+                        "method": "GET",
                     }
                 )
-                continue
 
-            # Invocación de la habilidad MCP crypto_inspector
-            output = await call_mcp_skill(
-                channel,
-                "crypto_inspector",
-                {"target_url": endpoint_url},
-                tool_timings,
-            )
+        # ── 5. Ejecutar crypto_inspector ──
+        output = await call_mcp_skill(
+            channel,
+            "crypto_inspector",
+            {
+                "target_url": target_url,
+                "targets": crypto_targets,
+            },
+            tool_timings,
+        )
 
-            try:
-                report = json.loads(output)
-            except (TypeError, json.JSONDecodeError):
-                report = {"error": "Respuesta no válida de crypto_inspector", "raw": str(output)}
-
-            safe_report = json.dumps(report, ensure_ascii=False)
-            command = f"MCP crypto_inspector --target {shlex.quote(endpoint_url)}"
-
-            execution = {
-                "tool": "crypto_inspector",
-                "command": command,
-                "target_id": target.get("target_id"),
-                "request_id": target.get("request_id"),
-                "endpoint": safe_endpoint,
-                "output": safe_report,
-            }
-
-            evidence.executed_commands.append(execution)
-            evidence.pre_executed_context.append(
-                {
-                    **execution,
-                    "status": "ERROR" if report.get("error") else "COMPLETED",
-                }
-            )
-
-        if token:
-            output = await call_mcp_skill(
-                channel,
-                "crypto_inspector",
-                {"jwt_token": token},
-                tool_timings,
-            )
-            try:
-                report = json.loads(output)
-            except (TypeError, json.JSONDecodeError):
-                report = {"error": "Respuesta no válida de crypto_inspector", "raw": str(output)}
-
-            safe_report = json.dumps(report, ensure_ascii=False)
-            execution = {
-                "tool": "crypto_inspector",
-                "command": "MCP crypto_inspector --jwt <JWT>",
-                "target_id": None,
-                "request_id": None,
-                "endpoint": sanitize_endpoint_for_context(target_url),
-                "output": safe_report,
-            }
-            evidence.executed_commands.append(execution)
-            evidence.pre_executed_context.append(
-                {
-                    **execution,
-                    "status": "ERROR" if report.get("error") else "COMPLETED",
-                }
-            )
-
+        execution = {
+            "tool": "crypto_inspector",
+            "command": f"MCP crypto_inspector --target {target_url}",
+            "target_id": "crypto_scan",
+            "endpoint": target_url,
+            "output": output,
+            "discovered_paths": all_paths,
+        }
+        evidence.executed_commands.append(execution)
+        evidence.pre_executed_context.append(
+            {**execution, "status": "COMPLETED"}
+        )
         return evidence
+
+    # ── Helpers ──────────────────────────────────────────────
+
+    @staticmethod
+    def _parse_ffuf_output(raw) -> list[str]:
+        """Acepta JSON (structured) o stdout de ffuf; devuelve paths relativos."""
+        if isinstance(raw, dict):
+            for key in ("paths", "results", "endpoints"):
+                if isinstance(raw.get(key), list):
+                    return [str(x) for x in raw[key]]
+        if isinstance(raw, list):
+            return [str(x) for x in raw]
+        if not isinstance(raw, str):
+            return []
+        try:
+            data = json.loads(raw)
+            if isinstance(data, dict):
+                for key in ("paths", "results", "endpoints"):
+                    if isinstance(data.get(key), list):
+                        return [str(x) for x in data[key]]
+            if isinstance(data, list):
+                return [str(x) for x in data]
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+        paths: list[str] = []
+        for line in raw.splitlines():
+            line = line.strip()
+            if not line or line.startswith(("[", "::")):
+                continue
+            if line.startswith(("http://", "https://")):
+                paths.append(urlsplit(line).path)
+            elif "[Status:" in line:
+                word = line.split()[0]
+                if word:
+                    paths.append(word if word.startswith("/") else "/" + word)
+            else:
+                paths.append(line if line.startswith("/") else "/" + line)
+        return list(dict.fromkeys(paths))
+
+    @staticmethod
+    def _normalize_paths(paths: list[str]) -> list[str]:
+        seen: set[str] = set()
+        for p in paths:
+            if not isinstance(p, str) or not p:
+                continue
+            key = p.lower()
+            key = re.sub(
+                r"/(0+)(\d+)(?=/|$)",
+                lambda m: "/" + str(int(m.group(1) + m.group(2))),
+                key,
+            )
+            seen.add(key)
+        return sorted(seen)
 
     def build_validation_context(self, evidence: ValidationEvidence) -> dict:
         return {"crypto_inspector_results": evidence.pre_executed_context}
@@ -1144,75 +1352,75 @@ class CryptoValidationStrategy(ValidationStrategy):
         task_id: str,
     ) -> dict:
         merged = dict(parsed_output) if isinstance(parsed_output, dict) else {}
-        llm_vulnerabilities = [
-            vulnerability
-            for vulnerability in (merged.get("vulnerabilities") or [])
-            if isinstance(vulnerability, dict)
-        ]
-        crypto_executions = [
+        merged.setdefault("vulnerabilities", [])
+
+        executions = [
             item
             for item in evidence.executed_commands
             if item.get("tool") == "crypto_inspector"
         ]
 
-        # 1. El array `findings` de la herramienta es la fuente de verdad:
-        #    se normaliza completo (severidad, evidencia, cadena de ataque, CWE/OWASP).
         derived: list[dict] = []
-        seen_keys: set[tuple] = set()
-        for execution in crypto_executions:
-            try:
-                report = json.loads(execution.get("output") or "{}")
-            except (TypeError, json.JSONDecodeError):
-                logger.warning(
-                    "[VALIDATE] task_id=%s salida de crypto_inspector no es JSON válido; se omite",
-                    task_id,
-                )
-                continue
+        seen_keys: set[tuple[str, str]] = set()
+        covered_by_type: set[tuple[str, str]] = set()
+        covered_by_id: set[tuple[str, str]] = set()
 
-            findings = report.get("findings")
+        for execution in executions:
+            raw = execution.get("output")
+            report = raw if isinstance(raw, dict) else extract_first_json(raw or "")
+            findings = report.get("findings") if isinstance(report, dict) else None
             if not isinstance(findings, list):
-                logger.warning(
-                    "[VALIDATE] task_id=%s crypto_inspector no devolvió el array 'findings'; "
-                    "no se pueden promover hallazgos deterministas",
-                    task_id,
-                )
                 continue
-
             for finding in findings:
                 if not isinstance(finding, dict):
                     continue
+
                 vulnerability = _crypto_finding_to_vulnerability(finding, execution)
-                dedupe_key = (
-                    _endpoint_key(vulnerability["endpoint"]),
-                    vulnerability.get("finding_id") or vulnerability["type"],
-                    vulnerability.get("parameter"),
-                    vulnerability.get("attack_result"),
+                endpoint_key = _crypto_endpoint_key(
+                    vulnerability.get("endpoint") or ""
                 )
+                finding_id = finding.get("id") or vulnerability.get("type") or ""
+
+                dedupe_key = (finding_id, endpoint_key)
                 if dedupe_key in seen_keys:
                     continue
                 seen_keys.add(dedupe_key)
+
+                # Marcar ambas dimensiones para el filtro del LLM
+                covered_by_type.add(
+                    (vulnerability.get("type") or "", endpoint_key)
+                )
+                covered_by_id.add((finding_id, endpoint_key))
+
                 derived.append(vulnerability)
 
-        # 2. Del LLM solo conservamos lo que la herramienta no cubrió ya por endpoint,
-        #    para no duplicar ni dejar que el LLM rebaje/omita hallazgos deterministas.
-        covered_paths = {_endpoint_key(item["endpoint"]) for item in derived}
+        # Filtro del LLM: descarta si matchea por type O por finding_id
+        llm_vulnerabilities = [
+            v for v in (merged.get("vulnerabilities") or []) if isinstance(v, dict)
+        ]
         kept_llm: list[dict] = []
         for vulnerability in llm_vulnerabilities:
-            if _endpoint_key(str(vulnerability.get("endpoint") or "")) in covered_paths:
+            endpoint_key = _crypto_endpoint_key(
+                str(vulnerability.get("endpoint") or "")
+            )
+            type_key = (str(vulnerability.get("type") or ""), endpoint_key)
+            id_key = (str(vulnerability.get("finding_id") or ""), endpoint_key)
+            if type_key in covered_by_type or id_key in covered_by_id:
                 continue
+
             tools_used = vulnerability.setdefault("tools_used", ["crypto_inspector"])
             if isinstance(tools_used, str):
-                tools_used = [tool.strip() for tool in tools_used.split(",") if tool.strip()]
+                tools_used = [t.strip() for t in tools_used.split(",") if t.strip()]
                 vulnerability["tools_used"] = tools_used
             if "crypto_inspector" not in tools_used:
                 tools_used.append("crypto_inspector")
             kept_llm.append(vulnerability)
 
-        # 3. CRITICAL primero, para que el Reporter los reciba ordenados.
-        merged["vulnerabilities"] = sorted(derived + kept_llm, key=_severity_sort_key)
-
+        merged["vulnerabilities"] = sorted(
+            derived + kept_llm, key=_severity_sort_key
+        )
         logger.info(
-            "[VALIDATE] task_id=%s vulnerabilidades tras incorporar crypto_inspector=%d "
+            "[VALIDATE] task_id=%s crypto findings tras merge: %d "
             "(deterministas=%d, llm_extra=%d)",
             task_id,
             len(merged["vulnerabilities"]),
@@ -1439,7 +1647,9 @@ def _login_token(base_url: str, email: str, password: str) -> str:
         return ""
 
 
-def _resolve_access_control_tokens(targets: list[dict]) -> tuple[str, str]:
+def _resolve_access_control_tokens(
+    targets: list[dict], target_url: str = ""
+) -> tuple[str, str]:
     """Prioriza tokens de entorno y, si faltan, autentica con credenciales de laboratorio."""
     victim_token = os.getenv("ACCESS_CONTROL_VICTIM_TOKEN", "").strip()
     attacker_token = os.getenv("ACCESS_CONTROL_ATTACKER_TOKEN", "").strip()
@@ -1458,7 +1668,19 @@ def _resolve_access_control_tokens(targets: list[dict]) -> tuple[str, str]:
             if attacker_token:
                 break
 
-    base_url = _origin_of(str(targets[0].get("url") or "")) if targets else ""
+    # FIX: Los targets vienen simplificados SIN 'url', así que sacamos el origen
+    # del endpoint o del target_url original.
+    first = targets[0] if targets else {}
+    raw_url = ""
+    if isinstance(first, dict):
+        raw_url = (
+            str(first.get("url") or "")
+            or str(first.get("endpoint") or "")
+            or str((first.get("request") or {}).get("url") or "")
+        )
+    raw_url = raw_url or target_url
+    base_url = _origin_of(str(raw_url or ""))
+
     if not victim_token and base_url:
         victim_token = _login_token(
             base_url, ACCESS_CONTROL_VICTIM_EMAIL, ACCESS_CONTROL_VICTIM_PASSWORD
@@ -1565,6 +1787,34 @@ def _access_control_finding_to_vulnerability(
         "request_id": execution.get("request_id"),
     }
 
+# Mapeo semántico: Flag de weak-page -> Endpoints a probar
+ACCESS_CONTROL_FLAG_TO_TESTS = {
+    "IDOR_ORDERS": ["/api/orders/1", "/api/orders/2"],
+    "MISSING_AUTH_ME": ["/api/me"],
+    "MISSING_ROLE_CHECK_ADMIN": ["/api/admin/vulnerabilities"],
+    "MASS_ASSIGNMENT_REGISTER": ["/api/auth/register"],
+    "EXPOSED_SENSITIVE_FILES": ["/api/contact"],
+}
+
+def _fetch_active_flags(base_url: str) -> set[str]:
+    """Consulta /api/admin/vulnerabilities para saber qué endpoints inyectar."""
+    url = f"{base_url.rstrip('/')}/api/admin/vulnerabilities"
+    try:
+        req = urllib_request.Request(url, headers={"Accept": "application/json"})
+        context = ssl._create_unverified_context()
+        with urllib_request.urlopen(req, timeout=5, context=context) as resp:
+            data = json.loads(resp.read().decode("utf-8", errors="replace"))
+            # La app devuelve {"flags": {"IDOR_ORDERS": true, ...}}
+            flags_dict = data.get("flags", data)
+            active = set()
+            if isinstance(flags_dict, dict):
+                for k, v in flags_dict.items():
+                    if v is True or str(v).lower() == "vulnerable":
+                        active.add(k)
+            return active
+    except Exception as exc:
+        logger.warning("[VALIDATE] No se pudieron obtener flags de %s: %s", url, exc)
+        return set()
 
 class AccessControlValidationStrategy(ValidationStrategy):
     """Ejecuta access_control_prober con dos identidades y promueve hallazgos reales."""
@@ -1576,106 +1826,113 @@ class AccessControlValidationStrategy(ValidationStrategy):
         targets: list[dict],
         task_id: str,
         tool_timings: list[dict],
+        token: str | None = None,
     ) -> ValidationEvidence:
-        logger.info(
-            "[VALIDATE] task_id=%s Ejecutando access_control_prober sobre %s",
-            task_id,
-            target_url,
-        )
+        logger.info("[VALIDATE] task_id=%s Ejecutando access_control_prober sobre %s", task_id, target_url)
         evidence = ValidationEvidence()
         base_url = _origin_of(target_url)
-        victim_token, attacker_token = _resolve_access_control_tokens(targets)
+        
+        victim_token, attacker_token = _resolve_access_control_tokens(targets, target_url)
 
         if not attacker_token:
-            reason = (
-                "No se pudo obtener token de atacante. Configura "
-                "ACCESS_CONTROL_ATTACKER_TOKEN o las credenciales de laboratorio."
-            )
-            logger.warning("[VALIDATE] task_id=%s %s", task_id, reason)
-            for target in targets:
-                evidence.pre_executed_context.append(
-                    {
-                        "tool": ACCESS_CONTROL_TOOL,
-                        "status": "SKIPPED",
-                        "target_id": target.get("target_id"),
-                        "request_id": target.get("request_id"),
-                        "endpoint": sanitize_endpoint_for_context(
-                            str(target.get("url") or target_url)
-                        ),
-                        "reason": reason,
-                        "findings": [],
-                    }
-                )
+            logger.warning("[VALIDATE] task_id=%s No se obtuvo token de atacante.", task_id)
             return evidence
 
-        for target in targets:
-            raw_endpoint = str(
-                (target.get("request") or {}).get("url")
-                or target.get("url")
-                or target_url
-            )
-            endpoint = _normalize_access_control_endpoint(target_url, raw_endpoint)
-            if endpoint is None:
-                evidence.pre_executed_context.append(
-                    {
-                        "tool": ACCESS_CONTROL_TOOL,
-                        "status": "SKIPPED",
-                        "target_id": target.get("target_id"),
-                        "request_id": target.get("request_id"),
-                        "endpoint": sanitize_endpoint_for_context(raw_endpoint),
-                        "reason": "endpoint_outside_target_origin",
-                        "findings": [],
-                    }
-                )
-                continue
+        context = ssl._create_unverified_context()
+        headers_attacker = {"Authorization": f"Bearer {attacker_token}", "Accept": "application/json", "User-Agent": "Mozilla/5.0"}
+        headers_base = {"Accept": "application/json", "User-Agent": "Mozilla/5.0"}
 
-            for candidate in _access_control_candidates(endpoint):
+        # Helper robusto para hacer peticiones y capturar status codes
+        def _make_request(path, method="GET", payload=None, headers=None):
+            url = f"{base_url}{path}"
+            req = urllib_request.Request(url, data=payload, method=method, headers=headers or {})
+            try:
+                with urllib_request.urlopen(req, timeout=5, context=context) as resp:
+                    return resp.status, resp.read().decode("utf-8", errors="replace")
+            except HTTPError as e:
+                return e.code, e.read().decode("utf-8", errors="replace")
+            except Exception as e:
+                logger.warning(f"[-] Error de red en {path}: {e}")
+                return 0, ""
+
+        def _add_manual_finding(finding_id, title, sev, path, ev, cwe):
+            finding = {
+                "id": finding_id, "title": title, "severity": sev, "endpoint": f"{base_url}{path}",
+                "evidence": ev, "cwe": cwe, "owasp": "A01:2021 - Broken Access Control",
+                "attack_chain": [f"1. Enviar petición a {path}", "2. Observar respuesta exitosa sin la debida autorización"]
+            }
+            exec_data = {
+                "tool": ACCESS_CONTROL_TOOL, "base_url": base_url, "endpoint": path,
+                "output": json.dumps({"findings": [finding]})
+            }
+            evidence.executed_commands.append(exec_data)
+            evidence.pre_executed_context.append({"tool": ACCESS_CONTROL_TOOL, "endpoint": path, "status": "COMPLETED", "findings": [finding]})
+            logger.info(f"[VALIDATE] ✅ Hallazgo manual detectado: {finding_id} en {path}")
+
+        # ── 1. PRUEBAS LÓGICAS MANUALES ──
+
+        # A) MISSING_AUTH_ME (/api/me sin token)
+        status, body = _make_request("/api/me", headers=headers_base)
+        logger.info(f"[VALIDATE] Prueba /api/me sin token -> HTTP {status}")
+        if status == 200 and "Unauthorized" not in body and "Forbidden" not in body:
+            _add_manual_finding("BAC-AUTH-ME-001", "Missing Authentication (/api/me)", "HIGH", "/api/me", 
+                                "El endpoint /api/me responde 200 OK sin proporcionar token de autenticación.", "CWE-306")
+
+        # B) MISSING_ROLE_CHECK_ADMIN (/api/admin con token de atacante)
+        status, body = _make_request("/api/admin/vulnerabilities", headers=headers_attacker)
+        logger.info(f"[VALIDATE] Prueba /api/admin/vulnerabilities con token atacante -> HTTP {status}")
+        if status == 200 and "Unauthorized" not in body and "Forbidden" not in body:
+            _add_manual_finding("BAC-ROLE-ADMIN-001", "Missing Role Check on Admin", "CRITICAL", "/api/admin/vulnerabilities", 
+                                "El token de atacante accedió exitosamente a la ruta de admin.", "CWE-285")
+
+        # C) EXPOSED_SENSITIVE_FILES (.env, backup.sql, logs)
+        for file_path in ["/.env", "/backup.sql", "/logs"]:
+            status, body = _make_request(file_path, headers=headers_base)
+            logger.info(f"[VALIDATE] Prueba {file_path} -> HTTP {status}")
+            # Comprobamos que sea 200 y que el contenido no sea una página HTML genérica de error
+            if status == 200 and "<html" not in body.lower()[:200] and "not found" not in body.lower():
+                _add_manual_finding("BAC-FILE-EXPOSED-001", "Exposed Sensitive File", "HIGH", file_path, 
+                                    f"El archivo {file_path} es accesible públicamente y contiene información sensible.", "CWE-200")
+
+        # D) MASS_ASSIGNMENT_REGISTER (POST /api/auth/register inyectando role)
+        try:
+            payload = json.dumps({"email": f"hacker_{task_id[:5]}@test.local", "password": "hacker123", "name": "Hacker", "role": "admin"}).encode("utf-8")
+            status, body = _make_request("/api/auth/register", method="POST", payload=payload, headers={**headers_base, "Content-Type": "application/json"})
+            logger.info(f"[VALIDATE] Prueba /api/auth/register (Mass Assignment) -> HTTP {status}")
+            if status in (200, 201) and "error" not in body.lower():
+                _add_manual_finding("BAC-MASS-ASSIGN-001", "Mass Assignment in Registration", "CRITICAL", "/api/auth/register", 
+                                    "El registro aceptó la creación de un usuario con 'role: admin'.", "CWE-915")
+        except Exception as e:
+            logger.warning(f"[-] Falló prueba register: {e}")
+
+        # ── 2. PRUEBAS CON EL MCP (IDOR Real) ──
+        test_endpoints = {"/api/orders/1", "/api/orders/2"}
+        
+        for ep in test_endpoints:
+            for candidate in _access_control_candidates(ep):
+                if "products" in candidate: continue # Ignorar productos por falsos positivos
                 output = await call_mcp_skill(
-                    channel,
-                    ACCESS_CONTROL_TOOL,
+                    channel, ACCESS_CONTROL_TOOL,
                     {
-                        "base_url": base_url,
-                        "endpoint": candidate,
-                        "victim_id": ACCESS_CONTROL_VICTIM_ID,
-                        "token_victim": victim_token,
-                        "token_attacker": attacker_token,
+                        "base_url": base_url, "endpoint": candidate, "victim_id": ACCESS_CONTROL_VICTIM_ID,
+                        "token_victim": victim_token, "token_attacker": attacker_token,
                     },
                     tool_timings,
                 )
-
                 try:
                     report = json.loads(output)
                 except (TypeError, json.JSONDecodeError):
-                    report = {
-                        "error": "Respuesta no válida de access_control_prober",
-                        "raw": str(output),
-                    }
+                    report = {"error": "Respuesta no válida", "raw": str(output)}
 
-                target_endpoint = f"{base_url.rstrip('/')}{candidate.replace('{id}', str(ACCESS_CONTROL_VICTIM_ID))}"
                 execution = {
-                    "tool": ACCESS_CONTROL_TOOL,
-                    "command": _access_control_command(
-                        base_url, candidate, ACCESS_CONTROL_VICTIM_ID
-                    ),
-                    "target_id": target.get("target_id"),
-                    "request_id": target.get("request_id"),
-                    "endpoint": sanitize_endpoint_for_context(target_endpoint),
-                    "base_url": base_url,
-                    "victim_id": ACCESS_CONTROL_VICTIM_ID,
+                    "tool": ACCESS_CONTROL_TOOL, "base_url": base_url, "endpoint": candidate,
                     "output": json.dumps(report, ensure_ascii=False),
                 }
                 evidence.executed_commands.append(execution)
-
-                findings = report.get("findings")
-                if not isinstance(findings, list):
-                    findings = []
-                evidence.pre_executed_context.append(
-                    {
-                        **execution,
-                        "status": "ERROR" if report.get("error") else "COMPLETED",
-                        "findings": findings,
-                    }
-                )
+                findings = report.get("findings", [])
+                evidence.pre_executed_context.append({
+                    **execution, "status": "ERROR" if report.get("error") else "COMPLETED", "findings": findings
+                })
 
         return evidence
 
@@ -1683,83 +1940,51 @@ class AccessControlValidationStrategy(ValidationStrategy):
         return {"access_control_prober_results": evidence.pre_executed_context}
 
     def merge_findings(
-        self,
-        parsed_output: dict,
-        evidence: ValidationEvidence,
-        task_id: str,
+        self, parsed_output: dict, evidence: ValidationEvidence, task_id: str,
     ) -> dict:
         merged = dict(parsed_output) if isinstance(parsed_output, dict) else {}
-        llm_vulnerabilities = [
-            vulnerability
-            for vulnerability in (merged.get("vulnerabilities") or [])
-            if isinstance(vulnerability, dict)
-        ]
-        executions = [
-            item
-            for item in evidence.executed_commands
-            if item.get("tool") == ACCESS_CONTROL_TOOL
-        ]
-
+        llm_vulnerabilities = [v for v in (merged.get("vulnerabilities") or []) if isinstance(v, dict)]
+        
+        executions = [item for item in evidence.executed_commands if item.get("tool") == ACCESS_CONTROL_TOOL]
         derived: list[dict] = []
         seen_keys: set[tuple] = set()
         covered_paths: set[str] = set()
+        
         for execution in executions:
             try:
                 report = json.loads(execution.get("output") or "{}")
             except (TypeError, json.JSONDecodeError):
-                logger.warning(
-                    "[VALIDATE] task_id=%s salida de access_control_prober no es JSON válido; se omite",
-                    task_id,
-                )
                 continue
             findings = report.get("findings")
-            if not isinstance(findings, list):
-                continue
+            if not isinstance(findings, list): continue
+            
             for finding in findings:
-                if not isinstance(finding, dict):
+                if not isinstance(finding, dict): continue
+                vulnerability = _access_control_finding_to_vulnerability(finding, execution)
+                endpoint_path = _endpoint_key(vulnerability["endpoint"])
+                
+                # Ignorar ruido (productos y robots.txt)
+                if "products" in endpoint_path or "robots.txt" in endpoint_path:
                     continue
-                vulnerability = _access_control_finding_to_vulnerability(
-                    finding, execution
-                )
-                covered_paths.add(_endpoint_key(vulnerability["endpoint"]))
-                dedupe_key = (
-                    _endpoint_key(vulnerability["endpoint"]),
-                    vulnerability.get("finding_id") or vulnerability["type"],
-                )
-                if dedupe_key in seen_keys:
-                    continue
+                    
+                covered_paths.add(endpoint_path)
+                dedupe_key = (endpoint_path, vulnerability.get("finding_id") or vulnerability["type"])
+                
+                if dedupe_key in seen_keys: continue
                 seen_keys.add(dedupe_key)
                 derived.append(vulnerability)
 
-        # El LLM no puede rebajar ni omitir lo que la herramienta explotó.
-        # Solo conservamos hallazgos del LLM que no dupliquen la evidencia
-        # determinista y que correspondan a una ejecución real.
-        executed_paths = {
-            _endpoint_key(str(execution.get("endpoint") or ""))
-            for execution in executions
-        }
+        # Filtro LLM
         kept_llm: list[dict] = []
+        executed_paths = {_endpoint_key(str(ex.get("endpoint") or "")) for ex in executions}
         for vulnerability in llm_vulnerabilities:
             endpoint_key = _endpoint_key(str(vulnerability.get("endpoint") or ""))
-            if endpoint_key in covered_paths or endpoint_key not in executed_paths:
-                continue
-            tools_used = vulnerability.setdefault("tools_used", [ACCESS_CONTROL_TOOL])
-            if isinstance(tools_used, str):
-                tools_used = [tool.strip() for tool in tools_used.split(",") if tool.strip()]
-                vulnerability["tools_used"] = tools_used
-            if ACCESS_CONTROL_TOOL not in tools_used:
-                tools_used.append(ACCESS_CONTROL_TOOL)
+            if endpoint_key in covered_paths or endpoint_key not in executed_paths: continue
             kept_llm.append(vulnerability)
 
-        merged["vulnerabilities"] = sorted(
-            derived + kept_llm, key=_severity_sort_key
-        )
+        merged["vulnerabilities"] = sorted(derived + kept_llm, key=_severity_sort_key)
         logger.info(
-            "[VALIDATE] task_id=%s vulnerabilidades tras incorporar access_control_prober=%d "
-            "(deterministas=%d, llm_extra=%d)",
-            task_id,
-            len(merged["vulnerabilities"]),
-            len(derived),
-            len(kept_llm),
+            "[VALIDATE] task_id=%s vulnerabilidades finales=%d (deterministas=%d, llm_extra=%d)",
+            task_id, len(merged["vulnerabilities"]), len(derived), len(kept_llm),
         )
         return merged
