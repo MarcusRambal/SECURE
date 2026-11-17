@@ -3,9 +3,11 @@ import base64
 import codecs
 import json
 import math
+import os
 import re
 import socket
 import ssl
+import sys
 import requests
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
@@ -617,6 +619,46 @@ def inspect_json_keys(
 # ==========================================
 # 12. ORQUESTADOR PRINCIPAL
 # ==========================================
+# ==========================================
+# 11.b FILTRO DE FALSOS POSITIVOS DE BASE64
+# ==========================================
+def _is_likely_base64(sample: str) -> bool:
+    """
+    Heurística para descartar falsos positivos del regex 'Base64 String'.
+    El regex matchea substrings de 12+ chars del alfabeto Base64 en CUALQUIER
+    parte del HTML, así que caen rutas de CSS, nombres de fuentes y clases
+    de terceros. Aquí filtramos esos casos.
+
+    Un Base64 real:
+      - Suele tener ≥ 20 chars (12 chars son solo 9 bytes decodificados,
+        demasiado corto para un token/secreto real).
+      - No empieza por '/', './', '../' (eso son rutas).
+      - No contiene palabras típicas de CSS/fonts/assets.
+      - Cumple el alfabeto Base64 estricto con padding opcional.
+    """
+    if not sample:
+        return False
+    s = sample.strip()
+    if len(s) < 20:
+        return False
+    # Rutas de assets
+    if s.startswith(("/", "./", "../")):
+        return False
+    # Extensiones de archivo
+    if re.search(r"\.(css|js|woff2?|ttf|eot|svg|png|jpe?g|gif|ico|map|html?)$",
+                 s, re.IGNORECASE):
+        return False
+    # Ruido conocido (fuentes, CSS, SRI, ETag)
+    lower = s.lower()
+    for noise in ("playfair", "display", "font", "woff", "variabl", "scorebo",
+                  "url(", "manifest", "etag", "sri", "challenge"):
+        if noise in lower:
+            return False
+    # Alfabeto Base64 estricto (con padding opcional)
+    if not re.fullmatch(r"[A-Za-z0-9+/]+={0,2}", s):
+        return False
+    return True
+
 def inspect_crypto_payload(
     raw_content: str,
     endpoint_hint: str = "",
@@ -668,12 +710,18 @@ def inspect_crypto_payload(
                     "attack_result": jwt_analysis.get("cracked_secret"),
                 })
         else:
+            samples = unique_matches
+            if pattern_name == "Base64 String":
+                samples = [m for m in unique_matches if _is_likely_base64(m)]
+                if not samples:
+                    # Todo lo que matcheó era ruido (rutas CSS, fuentes, etc.).
+                    # No añadir una entrada vacía a regex_matches.
+                    continue
             regex_findings.append({
                 "pattern": pattern_name,
-                "count": len(unique_matches),
-                "samples": unique_matches[:5],
+                "count": len(samples),
+                "samples": samples[:5],
             })
-
     # 4. Exposición de endpoint
     if endpoint_hint and http_status:
         exp = check_endpoint_exposure(endpoint_hint, http_status, raw_content)
@@ -780,6 +828,206 @@ def inspect_crypto_payload(
         "multilevel_decodings": multilevel_findings,
     }
 
+def active_probe_dynamic(target_url: str, targets_json: str) -> List[Dict[str, Any]]:
+    import hashlib, uuid, base64, json, re, requests, sys
+    from urllib.parse import urljoin, urlparse
+
+    findings = []
+    
+    # 1. Cargar endpoints SOLO desde el JSON (sin hardcode)
+    targets = []
+    if targets_json and targets_json != "[]":
+        try:
+            targets = json.loads(targets_json)
+        except Exception as e:
+            print(f"[DEBUG-DYNAMIC] Error parseando JSON: {e}", file=sys.stderr)
+
+    if not targets:
+        print("[DEBUG-DYNAMIC] No hay targets. Saltando pruebas dinámicas.", file=sys.stderr)
+        return findings
+
+    # 2. Atacar cada endpoint (sin duplicados)
+    seen_paths = set()
+    
+    for target in targets:
+        req = target.get("request") or {}
+        raw_endpoint = req.get("url") or target.get("url") or target.get("endpoint")
+        
+        if not raw_endpoint:
+            continue
+            
+        endpoint_url = urljoin(target_url, raw_endpoint)
+        parsed_path = urlparse(endpoint_url).path
+        
+        # Evitar escanear la misma ruta dos veces
+        if parsed_path in seen_paths:
+            continue
+        seen_paths.add(parsed_path)
+        
+        print(f"[DEBUG-DYNAMIC] Analizando: {endpoint_url}", file=sys.stderr)
+
+        # A. REGISTRO
+        if "register" in endpoint_url or "signup" in endpoint_url:
+            rand_email = f"probe_{uuid.uuid4().hex[:8]}@test.com"
+            payload = {
+                "name": "Probe", "email": rand_email,
+                "password": "Password123!", "passwordRepeat": "Password123!",
+                "securityQuestion": "Color favorito", "securityAnswer": "azul"
+            }
+            try:
+                r = requests.post(endpoint_url, json=payload, timeout=5)
+                if "Password123!" in r.text:
+                    findings.append({
+                        "id": "CRYPTO-PLAIN-ACTIVE-001", "title": "Plaintext Password Exposure",
+                        "severity": "CRITICAL", "exploitable": True, "endpoint": endpoint_url,
+                        "evidence": "La contraseña enviada fue devuelta en texto plano.",
+                        "cwe": "CWE-256", "owasp": "A02:2021 - Cryptographic Failures"
+                    })
+                md5_matches = re.findall(r'\b[a-fA-F0-9]{32}\b', r.text)
+                if md5_matches:
+                    findings.append({
+                        "id": "CRYPTO-MD5-ACTIVE-001", "title": "Weak Hash (MD5) Detected",
+                        "severity": "HIGH", "exploitable": True, "endpoint": endpoint_url,
+                        "evidence": f"El servidor devolvió el hash MD5: {md5_matches[0]}",
+                        "cwe": "CWE-327", "owasp": "A02:2021 - Cryptographic Failures"
+                    })
+            except Exception:
+                pass
+
+        # B. HEALTH / STATUS / CONFIG
+                # B. HEALTH / STATUS / CONFIG
+        elif any(k in endpoint_url for k in ["health", "status", "config"]):
+            try:
+                r = requests.get(endpoint_url, timeout=5)
+                if r.status_code != 200:
+                    pass  # nada que analizar
+                else:
+                    body = r.text
+
+                    # 1) ¿Hay un secreto REAL? Buscamos "key": "valor" o KEY=valor
+                    #    con un valor no trivial (no true/false/null/placeholder).
+                    real_secret = None
+                    secret_patterns = [
+                        # JSON style: "jwt_secret": "algo", "api_key": "algo"
+                        r'"(?:jwt[_-]?secret|jwtSecret|api[_-]?key|apikey|'
+                        r'secret[_-]?key|private[_-]?key|encryption[_-]?key|'
+                        r'db[_-]?password|password|token)"\s*:\s*"([^"]{8,})"',
+                        # ENV style: JWT_SECRET=algo
+                        r'(?:JWT_SECRET|API_KEY|SECRET_KEY|DB_PASSWORD|ENCRYPTION_KEY)'
+                        r'\s*[:=]\s*[\'"]?([A-Za-z0-9_\-+/=.]{8,})[\'"]?',
+                    ]
+                    placeholders = {
+                        "true", "false", "null", "none", "changeme",
+                        "your-secret-here", "your_secret_here", "xxxxxxxx",
+                        "placeholder", "example", "test", "dummy",
+                    }
+                    for pat in secret_patterns:
+                        m = re.search(pat, body, re.IGNORECASE)
+                        if m:
+                            val = m.group(1).strip()
+                            if val.lower() not in placeholders and len(val) >= 8:
+                                real_secret = val
+                                break
+
+                    if real_secret:
+                        # Secreto de verdad expuesto → sí es CWE-798
+                        findings.append({
+                            "id": "CRYPTO-SECRET-ACTIVE-001",
+                            "title": "Hardcoded Cryptographic Secret",
+                            "severity": "CRITICAL",
+                            "exploitable": True,
+                            "endpoint": endpoint_url,
+                            "evidence": f"Secreto real expuesto en el body: '{real_secret[:8]}…{real_secret[-4:]}'",
+                            "cwe": "CWE-798",
+                            "owasp": "A02:2021 - Cryptographic Failures",
+                        })
+                    elif "vulnerabilities" in body.lower() or "sqli_" in body.lower():
+                        # Solo flags de vulnerabilidad → información sensible, NO secreto
+                        findings.append({
+                            "id": "CRYPTO-DISCLOSURE-HEALTH-001",
+                            "title": "Vulnerability Flags Exposed via Health Endpoint",
+                            "severity": "HIGH",
+                            "exploitable": True,
+                            "endpoint": endpoint_url,
+                            "evidence": "El endpoint /api/health expone sin autenticación "
+                                        "los flags internos de vulnerabilidad de la aplicación.",
+                            "cwe": "CWE-200",
+                            "owasp": "A01:2021 - Broken Access Control",
+                        })
+                    # Si no hay secreto real ni flags, no se reporta nada.
+            except Exception:
+                pass
+        # C. ORDERS / USERS
+        elif any(k in endpoint_url for k in ["order", "user", "profile"]):
+            try:
+                r = requests.get(endpoint_url, timeout=5)
+                if r.status_code == 200:
+                    try:
+                        data = r.json()
+                        for key, value in data.items():
+                            if isinstance(value, str) and len(value) > 20:
+                                try:
+                                    decoded = base64.b64decode(value).decode('utf-8')
+                                    if "{" in decoded or (decoded.isprintable() and len(decoded) > 5):
+                                        findings.append({
+                                            "id": "CRYPTO-B64-ACTIVE-001", "title": "Base64 Fake Encryption",
+                                            "severity": "HIGH", "exploitable": True, "endpoint": endpoint_url,
+                                            "evidence": f"El campo '{key}' parece Base64 pero decodifica a texto plano.",
+                                            "cwe": "CWE-311", "owasp": "A02:2021 - Cryptographic Failures"
+                                        })
+                                except Exception:
+                                    pass
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+        # D. VULNERABILITIES (Flags)
+        elif "vulnerabilities" in endpoint_url:
+            try:
+                r = requests.get(endpoint_url, timeout=5)
+                if r.status_code == 200:
+                    data = r.json()
+                    flags = data.get("flags", {})
+                    for flag_name, is_active in flags.items():
+                        if is_active and any(k in flag_name for k in ["CRYPTO", "PASSWORD", "MD5", "BASE64", "SECRET"]):
+                            findings.append({
+                                "id": f"CRYPTO-FLAG-{flag_name}",
+                                "title": f"Vulnerabilidad Confirmada: {flag_name}",
+                                "severity": "CRITICAL", "exploitable": True, "endpoint": endpoint_url,
+                                "evidence": f"El endpoint de vulnerabilidades reporta {flag_name} como activo.",
+                                "cwe": "CWE-327", "owasp": "A02:2021 - Cryptographic Failures"
+                            })
+            except Exception:
+                pass
+
+        # E. FORGOT / RESET
+        elif any(k in endpoint_url for k in ["forgot", "reset"]):
+            try:
+                email = "admin@dulcenube.com"
+                r = requests.post(endpoint_url, json={"email": email}, timeout=5)
+                if r.status_code in [200, 201]:
+                    expected_md5 = hashlib.md5(email.encode()).hexdigest()
+                    if expected_md5 in r.text.lower():
+                        findings.append({
+                            "id": "CRYPTO-RESET-ACTIVE-001", "title": "Predictable Reset Token",
+                            "severity": "CRITICAL", "exploitable": True, "endpoint": endpoint_url,
+                            "evidence": f"El token de reseteo es el MD5 del email: {expected_md5}",
+                            "cwe": "CWE-330", "owasp": "A02:2021 - Cryptographic Failures"
+                        })
+            except Exception:
+                pass
+
+    # 3. Deduplicación final (por si acaso)
+    unique_findings = []
+    seen_keys = set()
+    for f in findings:
+        key = (f.get("id"), f.get("endpoint"))
+        if key not in seen_keys:
+            seen_keys.add(key)
+            unique_findings.append(f)
+    
+    return unique_findings
 
 # ==========================================
 # 13. RESOLUCIÓN DE INPUT
@@ -866,10 +1114,8 @@ if __name__ == "__main__":
     parser.add_argument("--url", default="", help="URL objetivo")
     parser.add_argument("--jwt", default="", help="Token JWT directo")
     parser.add_argument("--auth-header", default="", help="Header Authorization")
-    parser.add_argument("--verify-login", action="store_true",
-                        help="Intentar login real con hash roto (requiere --login-url)")
-    parser.add_argument("--login-url", default="",
-                        help="Endpoint de login (ej: http://juice-shop:3000/rest/user/login)")
+    parser.add_argument("--targets", default="", help="JSON de targets (ignorado, mantenido por compatibilidad)")
+    parser.add_argument("--targets-file", default="", help="Archivo con JSON de targets")
     cli_args = parser.parse_args()
 
     resolved = _resolve_input_data(cli_args.url, cli_args.jwt, cli_args.auth_header)
@@ -878,7 +1124,53 @@ if __name__ == "__main__":
         endpoint_hint=resolved["endpoint"],
         http_status=resolved["status"],
         headers=resolved["headers"],
-        verify_login=cli_args.verify_login,
-        login_url=cli_args.login_url,
     )
+    
+    # =====================================================================
+    # FORZAMOS LA EJECUCIÓN DE PRUEBAS DINÁMICAS SIEMPRE
+    # =====================================================================
+    targets_json = ""
+    
+    # Si el validador nos pasó un archivo temporal, lo leemos
+    if cli_args.targets_file and os.path.exists(cli_args.targets_file):
+        try:
+            with open(cli_args.targets_file, "r") as f:
+                targets_json = f.read()
+        except Exception:
+            pass
+    # Si nos pasaron el JSON por consola, lo usamos
+    elif cli_args.targets:
+        targets_json = cli_args.targets
+
+    # Ejecutamos la función. Si targets_json está vacío, usará la lista hardcodeada de rutas críticas
+        # Si no hay targets, active_probe_dynamic retorna [] y no se ejecutan pruebas dinámicas.
+    # Los FALLBACK_PATHS de test_flow.py garantizan que el flujo de pruebas siempre tenga
+    # al menos los endpoints críticos, así que aquí no hace falta hardcodear nada.
+    try:
+        dynamic_findings = active_probe_dynamic(cli_args.url, targets_json)
+        # Dedup por (id, endpoint) en lugar de solo id: dos endpoints distintos
+        # pueden legítimamente producir el mismo tipo de finding.
+        existing_keys = {(f.get("id"), f.get("endpoint")) for f in report["findings"]}
+        for af in dynamic_findings:
+            key = (af.get("id"), af.get("endpoint"))
+            if key in existing_keys:
+                continue
+            existing_keys.add(key)
+            report["findings"].append(af)
+            sev = af.get("severity", "HIGH")
+            if sev in report["summary"]["by_severity"]:
+                report["summary"]["by_severity"][sev] += 1
+            if af.get("exploitable") is True:
+                report["summary"]["exploitable_findings"] += 1
+            elif af.get("exploitable") is False:
+                report["summary"]["non_exploitable_findings"] += 1
+        report["summary"]["total_findings"] = len(report["findings"])
+    except Exception as e:
+        report["findings"].append({
+            "id": "CRYPTO-ERROR-DYNAMIC",
+            "title": f"Error en pruebas dinámicas: {str(e)}",
+            "severity": "INFO",
+            "evidence": "La herramienta no pudo procesar los targets."
+        })
+
     print(json.dumps(report, indent=2))

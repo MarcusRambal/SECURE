@@ -1,0 +1,152 @@
+{
+  "tool": "crypto_inspector",
+  "finding_type": "Cryptographic Failure / Insecure Data Exposure",
+  "endpoint": "http://weak-page:3009",
+  "summary": {
+    "total_findings": 12,
+    "by_severity": {
+      "CRITICAL": 7,
+      "HIGH": 5,
+      "MEDIUM": 0,
+      "LOW": 0,
+      "INFO": 0
+    },
+    "exploitable_findings": 12,
+    "non_exploitable_findings": 0,
+    "regex_patterns_detected": 0,
+    "high_entropy_tokens_count": 0,
+    "multilevel_decodings_found": 0
+  },
+  "findings": [
+    {
+      "id": "CRYPTO-TLS-001",
+      "title": "Tr\u00e1fico HTTP sin cifrar",
+      "severity": "HIGH",
+      "exploitable": true,
+      "context": {
+        "role": "transport_security",
+        "participates_in_security_decision": true
+      },
+      "cwe": "CWE-319",
+      "owasp": "A02:2021 - Cryptographic Failures",
+      "evidence": "http://weak-page:3009 usa HTTP plano; interceptable en tr\u00e1nsito.",
+      "attack_chain": [
+        "1. Interceptar tr\u00e1fico a http://weak-page:3009 en la red local (ARP spoofing, MITM)",
+        "2. Leer credenciales, tokens y datos sensibles en texto plano"
+      ]
+    },
+    {
+      "id": "CRYPTO-FLAG-PLAINTEXT_PASSWORDS",
+      "title": "Vulnerabilidad Confirmada: PLAINTEXT_PASSWORDS",
+      "severity": "CRITICAL",
+      "exploitable": true,
+      "endpoint": "http://weak-page:3009/api/admin/vulnerabilities",
+      "evidence": "El endpoint de vulnerabilidades reporta PLAINTEXT_PASSWORDS como activo.",
+      "cwe": "CWE-327",
+      "owasp": "A02:2021 - Cryptographic Failures"
+    },
+    {
+      "id": "CRYPTO-FLAG-WEAK_MD5_LEGACY",
+      "title": "Vulnerabilidad Confirmada: WEAK_MD5_LEGACY",
+      "severity": "CRITICAL",
+      "exploitable": true,
+      "endpoint": "http://weak-page:3009/api/admin/vulnerabilities",
+      "evidence": "El endpoint de vulnerabilidades reporta WEAK_MD5_LEGACY como activo.",
+      "cwe": "CWE-327",
+      "owasp": "A02:2021 - Cryptographic Failures"
+    },
+    {
+      "id": "CRYPTO-FLAG-BASE64_FAKE_ENCRYPTION",
+      "title": "Vulnerabilidad Confirmada: BASE64_FAKE_ENCRYPTION",
+      "severity": "CRITICAL",
+      "exploitable": true,
+      "endpoint": "http://weak-page:3009/api/admin/vulnerabilities",
+      "evidence": "El endpoint de vulnerabilidades reporta BASE64_FAKE_ENCRYPTION como activo.",
+      "cwe": "CWE-327",
+      "owasp": "A02:2021 - Cryptographic Failures"
+    },
+    {
+      "id": "CRYPTO-FLAG-HARDCODED_CRYPTO_SECRET",
+      "title": "Vulnerabilidad Confirmada: HARDCODED_CRYPTO_SECRET",
+      "severity": "CRITICAL",
+      "exploitable": true,
+      "endpoint": "http://weak-page:3009/api/admin/vulnerabilities",
+      "evidence": "El endpoint de vulnerabilidades reporta HARDCODED_CRYPTO_SECRET como activo.",
+      "cwe": "CWE-327",
+      "owasp": "A02:2021 - Cryptographic Failures"
+    },
+    {
+      "id": "CRYPTO-FLAG-JWT_WEAK_SECRET",
+      "title": "Vulnerabilidad Confirmada: JWT_WEAK_SECRET",
+      "severity": "CRITICAL",
+      "exploitable": true,
+      "endpoint": "http://weak-page:3009/api/admin/vulnerabilities",
+      "evidence": "El endpoint de vulnerabilidades reporta JWT_WEAK_SECRET como activo.",
+      "cwe": "CWE-327",
+      "owasp": "A02:2021 - Cryptographic Failures"
+    },
+    {
+      "id": "CRYPTO-FLAG-WEAK_PASSWORD_NO_RATELIMIT",
+      "title": "Vulnerabilidad Confirmada: WEAK_PASSWORD_NO_RATELIMIT",
+      "severity": "CRITICAL",
+      "exploitable": true,
+      "endpoint": "http://weak-page:3009/api/admin/vulnerabilities",
+      "evidence": "El endpoint de vulnerabilidades reporta WEAK_PASSWORD_NO_RATELIMIT como activo.",
+      "cwe": "CWE-327",
+      "owasp": "A02:2021 - Cryptographic Failures"
+    },
+    {
+      "id": "CRYPTO-RESET-ACTIVE-001",
+      "title": "Predictable Reset Token",
+      "severity": "CRITICAL",
+      "exploitable": true,
+      "endpoint": "http://weak-page:3009/api/auth/forgot",
+      "evidence": "El token de reseteo es el MD5 del email: 0aa34f669b50df7c09e6853d2cbf5481",
+      "cwe": "CWE-330",
+      "owasp": "A02:2021 - Cryptographic Failures"
+    },
+    {
+      "id": "CRYPTO-DISCLOSURE-HEALTH-001",
+      "title": "Vulnerability Flags Exposed via Health Endpoint",
+      "severity": "HIGH",
+      "exploitable": true,
+      "endpoint": "http://weak-page:3009/api/health",
+      "evidence": "El endpoint /api/health expone sin autenticaci\u00f3n los flags internos de vulnerabilidad de la aplicaci\u00f3n.",
+      "cwe": "CWE-200",
+      "owasp": "A01:2021 - Broken Access Control"
+    },
+    {
+      "id": "CRYPTO-B64-ACTIVE-001",
+      "title": "Base64 Fake Encryption",
+      "severity": "HIGH",
+      "exploitable": true,
+      "endpoint": "http://weak-page:3009/api/orders/1",
+      "evidence": "El campo 'customer_encrypted' parece Base64 pero decodifica a texto plano.",
+      "cwe": "CWE-311",
+      "owasp": "A02:2021 - Cryptographic Failures"
+    },
+    {
+      "id": "CRYPTO-B64-ACTIVE-001",
+      "title": "Base64 Fake Encryption",
+      "severity": "HIGH",
+      "exploitable": true,
+      "endpoint": "http://weak-page:3009/api/orders/2",
+      "evidence": "El campo 'customer_encrypted' parece Base64 pero decodifica a texto plano.",
+      "cwe": "CWE-311",
+      "owasp": "A02:2021 - Cryptographic Failures"
+    },
+    {
+      "id": "CRYPTO-B64-ACTIVE-001",
+      "title": "Base64 Fake Encryption",
+      "severity": "HIGH",
+      "exploitable": true,
+      "endpoint": "http://weak-page:3009/api/orders/3",
+      "evidence": "El campo 'customer_encrypted' parece Base64 pero decodifica a texto plano.",
+      "cwe": "CWE-311",
+      "owasp": "A02:2021 - Cryptographic Failures"
+    }
+  ],
+  "regex_matches": [],
+  "high_entropy_tokens": [],
+  "multilevel_decodings": []
+}

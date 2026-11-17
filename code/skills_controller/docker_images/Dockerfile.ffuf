@@ -1,14 +1,21 @@
-FROM golang:1.22-alpine AS builder
-RUN go install github.com/ffuf/ffuf/v2@latest
+FROM secsi/ffuf:latest
 
-FROM alpine:latest
-RUN apk add --no-cache ca-certificates curl
-COPY --from=builder /go/bin/ffuf /usr/local/bin/ffuf
+USER root
 
-# Crear directorio y descargar / crear wordlists estándar
-RUN mkdir -p /wordlists && \
-    curl -sL https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/Web-Content/common.txt \
-    -o /wordlists/common.txt && \
-    printf "admin@juice-sh.op\nadmin\nuser@juice-sh.op\ntest\n" > /wordlists/users_small.txt
+# Instalar git (necesario para clonar SecLists) y herramientas básicas
+RUN apk add --no-cache git bash
+
+# Descargar SecLists y copiar las wordlists que usamos
+RUN git clone --depth 1 https://github.com/danielmiessler/SecLists.git /tmp/seclists && \
+    mkdir -p /wordlists && \
+    cp /tmp/seclists/Discovery/Web-Content/common.txt                      /wordlists/ && \
+    cp /tmp/seclists/Discovery/Web-Content/api/api-endpoints.txt           /wordlists/ && \
+    cp /tmp/seclists/Discovery/Web-Content/raft-medium-directories.txt     /wordlists/ && \
+    cp /tmp/seclists/Usernames/top-usernames-shortlist.txt                 /wordlists/users_small.txt && \
+    printf '# backup files placeholder\n' > /wordlists/backup-files.txt && \
+    rm -rf /tmp/seclists && \
+    wc -l /wordlists/*.txt
+
+WORKDIR /app
 
 ENTRYPOINT ["ffuf"]
