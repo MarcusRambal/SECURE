@@ -97,6 +97,16 @@ services:
       build-browser-xss-validator:
         condition: service_completed_successfully
 
+  portainer:
+    image: portainer/portainer-ce:lts
+    container_name: portainer
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9443:9443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+
   # 4. Orquestador Principal (LLM Router)
   orchestrator:
     build:
@@ -197,30 +207,6 @@ services:
 
 # Entornos Vulnerables
 
-  juice-shop:
-    image: bkimminich/juice-shop:latest
-    container_name: juice-shop-target
-    init: true
-    restart: unless-stopped
-    security_opt:
-      - no-new-privileges:true
-    ports:
-      - "3001:3000"
-    networks:
-      - sec-net
-
-  wackopicko:
-    image: adamdoupe/wackopicko:latest
-    container_name: wackopicko-target
-    init: true
-    restart: unless-stopped
-    security_opt:
-      - no-new-privileges:true
-    ports:
-      - "127.0.0.1:3003:80"
-    networks:
-      - sec-net
-
   weak-page:
     build:
       context: ./weak_page
@@ -256,4 +242,5 @@ services:
         condition: service_started
 
 volumes:
+  portainer_data:
   weak-page-db:

@@ -4,6 +4,55 @@ from output_guard import guard_validate_output
 
 
 class ValidateOutputGuardTests(unittest.TestCase):
+    def test_merges_table_evidence_for_duplicate_sqli_findings(self):
+        output = {
+            "vulnerabilities": [
+                {
+                    "type": "SQL Injection",
+                    "severity": "HIGH",
+                    "endpoint": "https://example.test/search",
+                    "parameter": "q",
+                    "evidence": "SQLi confirmed",
+                    "table_evidence": [{
+                        "database": "SQLite",
+                        "table": "users",
+                        "row_count": 1,
+                        "columns": ["email"],
+                        "preview": [["private@example.test"]],
+                    }],
+                },
+                {
+                    "type": "SQL Injection",
+                    "severity": "HIGH",
+                    "endpoint": "https://example.test/search",
+                    "parameter": "filter",
+                    "evidence": "SQLi also confirmed",
+                    "table_evidence": [{
+                        "database": "SQLite",
+                        "table": "orders",
+                        "row_count": 2,
+                        "columns": ["total"],
+                        "preview": [["99.00"]],
+                    }],
+                },
+            ],
+        }
+
+        guarded, removed = guard_validate_output(output)
+
+        self.assertEqual(removed, 1)
+        finding = guarded["vulnerabilities"][0]
+        self.assertEqual(
+            [table["table"] for table in finding["table_evidence"]],
+            ["users", "orders"],
+        )
+        self.assertEqual(
+            finding["table_evidence"][0]["preview"],
+            [["private@example.test"]],
+        )
+        self.assertIn("private@example.test", str(guarded))
+        self.assertIn("99.00", str(guarded))
+
     def test_merges_xss_aliases_and_payload_urls_for_the_same_parameter(self):
         output = {
             "target_url": "http://wackopicko",

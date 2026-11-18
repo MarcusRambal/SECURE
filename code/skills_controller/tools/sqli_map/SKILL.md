@@ -13,6 +13,13 @@ confirms injection, it lists database and table names to provide schema context.
 It does not enumerate columns, check privileges, or retrieve table rows. The
 standalone `detect` action performs detection only.
 
+Extraction reports keep table names, observed columns, row counts, and truncation
+status, with up to three recovered rows as evidence. Repeated extraction for a
+target reuses this limited preview from `.dump_state.json` and skips another
+table dump. Existing state that contains only masked previews is refreshed once
+without requiring the state file to be deleted; the previous list-based state
+format also remains readable.
+
 ### Step 1: Identify Potential Injection Points
 
 Manually browse the application and identify parameters that interact with the database. Use Burp Suite to capture requests.

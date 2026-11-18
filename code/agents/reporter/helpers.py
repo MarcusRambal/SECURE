@@ -379,9 +379,103 @@ def _finding_context_payload(vulnerability) -> dict:
         ),
         "broken_hash": _is_broken_hash(vulnerability),
         "evidence": _evidence_for_report(vulnerability),
+        "table_evidence": _table_evidence_for_report(vulnerability),
         "verification_steps": getattr(vulnerability, "verification_steps", None),
         "reproducible_command": getattr(vulnerability, "reproducible_command", ""),
     }
+
+
+def _table_evidence_for_report(vulnerability) -> list[dict]:
+    tables = getattr(vulnerability, "table_evidence", []) or []
+    sanitized = []
+    for table in tables:
+        database = getattr(table, "database", None)
+        name = getattr(table, "table", None)
+        if not isinstance(name, str) or not name:
+            continue
+        columns = getattr(table, "columns", []) or []
+        columns = [column for column in columns if isinstance(column, str)]
+        raw_preview = getattr(table, "preview", []) or []
+        preview_count = min(len(raw_preview), 3) if isinstance(raw_preview, list) else 0
+        row_count = getattr(table, "row_count", 0)
+        sanitized.append({
+            "database": database if isinstance(database, str) else None,
+            "table": name,
+            "row_count": row_count if isinstance(row_count, int) and row_count >= 0 else 0,
+            "truncated": getattr(table, "truncated", False) is True,
+            "columns": columns[:100],
+            "preview": [
+                [str(value) for value in row[:100]]
+                for row in raw_preview[:preview_count]
+                if isinstance(row, list)
+            ],
+            "status": getattr(table, "status", "retrieved"),
+            "values_redacted": getattr(table, "values_redacted", False) is True,
+        })
+    return sanitized
+
+
+def _append_table_evidence_markdown(markdown_text: str, findings: list) -> str:
+    evidence_groups = [
+        (finding, _table_evidence_for_report(finding))
+        for finding in findings
+    ]
+    evidence_groups = [(finding, tables) for finding, tables in evidence_groups if tables]
+    if not evidence_groups:
+        return markdown_text
+
+    def cell(value: str) -> str:
+        return value.replace("\r", " ").replace("\n", " ").replace("|", r"\|")
+
+    parts = [
+        markdown_text.rstrip(),
+        "",
+        "---",
+        "",
+        "## Evidencia tabular SQLMap",
+        "",
+        "Se muestran hasta tres filas recuperadas por SQLMap como evidencia.",
+        "",
+    ]
+    for finding, tables in evidence_groups:
+        parts.append(f"### {getattr(finding, 'type', 'SQL Injection')}")
+        endpoint = getattr(finding, "endpoint", None)
+        if endpoint:
+            parts.append(f"- **Endpoint:** `{endpoint}`")
+        for table in tables:
+            table_name = (
+                f"{table['database']}.{table['table']}"
+                if table["database"]
+                else table["table"]
+            )
+            parts.append(f"**Tabla:** {cell(table_name)}")
+            parts.append(
+                f"- **Filas observadas:** {table['row_count']}"
+                + (" o más" if table["truncated"] else "")
+            )
+            parts.append(f"- **Estado:** `{table['status']}`")
+            columns = table["columns"]
+            if not columns:
+                parts.append("- **Columnas:** no disponibles")
+                parts.append("")
+                continue
+            parts.append("")
+            parts.append("| " + " | ".join(cell(column) for column in columns) + " |")
+            parts.append("| " + " | ".join("---" for _ in columns) + " |")
+            for row in table["preview"]:
+                values = list(row[:len(columns)])
+                values.extend([""] * (len(columns) - len(values)))
+                parts.append(
+                    "| " + " | ".join(
+                        cell(str(value)) for value in values
+                    ) + " |"
+                )
+            if not table["preview"]:
+                parts.append(
+                    f"| {' | '.join('—' for _ in columns)} |"
+                )
+            parts.append("")
+    return "\n".join(parts).rstrip() + "\n"
 
 
 def _render_finding_markdown(vulnerability, index: int) -> list[str]:
@@ -810,7 +904,7 @@ def finalize_report_markdown(
     missing, incomplete = analyze(text_folded, body_folded)
 
     if not needs_summary and not missing and not incomplete:
-        return markdown_text
+        return _append_table_evidence_markdown(markdown_text, findings)
 
     if needs_summary:
         markdown_text = _insert_executive_summary(
@@ -822,7 +916,7 @@ def finalize_report_markdown(
         missing, incomplete = analyze(text_folded, body_folded)
 
     if not missing and not incomplete:
-        return markdown_text
+        return _append_table_evidence_markdown(markdown_text, findings)
 
     parts = [
         markdown_text.rstrip(),
@@ -863,7 +957,7 @@ def finalize_report_markdown(
                     parts.append(f"  {step}")
             parts.append("")
 
-    return "\n".join(parts)
+    return _append_table_evidence_markdown("\n".join(parts), findings)
 
 
 def build_fallback_reporter_input(payload: dict) -> ReporterInput:

@@ -562,7 +562,7 @@ class SqliValidationStrategy(ValidationStrategy):
                         "target_url": job["endpoint"],
                         "request": job["request"],
                         "param": job["parameter"],
-                        "action": "validate",
+                        "action": "extract",
                     },
                     tool_timings,
                 )

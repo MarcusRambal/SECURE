@@ -64,6 +64,49 @@ def payload():
 
 
 class ReportFlowTests(unittest.IsolatedAsyncioTestCase):
+    def test_sqli_table_evidence_is_in_context_and_final_markdown(self):
+        private_email = "customer@example.test"
+        private_password = "plaintext-secret"
+        data = payload()
+        data["validation_data"]["vulnerabilities"] = [{
+            "type": "SQL Injection",
+            "severity": "HIGH",
+            "endpoint": "https://example.test/api/users",
+            "method": "GET",
+            "parameter": "id",
+            "evidence": "SQLMap confirmed SQL injection.",
+            "confidence": "HIGH",
+            "tools_used": ["sqli_map"],
+            "reproducible_command": "MCP sqli_map --action extract --param id",
+            "table_evidence": [{
+                "database": "SQLite",
+                "table": "users",
+                "row_count": 1,
+                "truncated": False,
+                "columns": ["email", "password"],
+                "preview": [[private_email, private_password]],
+                "status": "retrieved",
+                "values_redacted": False,
+            }],
+        }]
+        reporter_input = ReporterInput.model_validate(data)
+
+        context = json.loads(build_reporter_context(reporter_input))
+        table_evidence = context["validation_summary"]["findings"][0]["table_evidence"]
+        report = finalize_report_markdown(
+            "## Resumen Ejecutivo\n\nSe confirmó SQL Injection.",
+            reporter_input,
+        )
+
+        self.assertEqual(table_evidence[0]["table"], "users")
+        self.assertEqual(table_evidence[0]["preview"], [[private_email, private_password]])
+        self.assertIn("## Evidencia tabular SQLMap", report)
+        self.assertIn("| email | password |", report)
+        self.assertIn(
+            f"| {private_email} | {private_password} |",
+            report,
+        )
+
     async def test_reporter_receives_deduplicated_findings_and_builds_clear_fallback(self):
         data = payload()
         llm = AsyncMock()

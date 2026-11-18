@@ -278,6 +278,74 @@ class SqliAgentFindingTests(unittest.TestCase):
 
 
 class SqliMapFindingTests(unittest.TestCase):
+    def test_extracts_real_table_evidence_for_validated_finding(self):
+        private_email = "customer@example.test"
+        private_password = "plaintext-secret"
+        executions = [{
+            "tool": "sqli_map",
+            "endpoint": "http://juice-shop:3000/api/users",
+            "parameter": "id",
+            "output": json.dumps({
+                "result": {
+                    "injectable": True,
+                    "database": "SQLite",
+                    "techniques": ["error-based"],
+                    "summary": ["Parameter: id (GET)"],
+                },
+                "dumps": [{
+                    "database": "SQLite",
+                    "table": "users",
+                    "row_count": 1,
+                    "truncated": False,
+                    "rows": [{
+                        "email": private_email,
+                        "password": private_password,
+                        "id": "7",
+                    }],
+                }],
+            }),
+        }]
+        model_output = {
+            "vulnerabilities": [{
+                "type": "SQL Injection",
+                "severity": "HIGH",
+                "endpoint": executions[0]["endpoint"],
+                "parameter": "id",
+                "evidence": "SQLMap confirmed SQL injection.",
+                "table_evidence": [{
+                    "table": "invented",
+                    "row_count": 500,
+                    "columns": ["secret"],
+                    "preview": [["should-not-survive"]],
+                }],
+            }]
+        }
+
+        finding = extract_sqli_map_findings(executions)[0]
+        self.assertIn(private_email, json.dumps(finding))
+        self.assertIn(private_password, json.dumps(finding))
+        self.assertEqual(finding["table_evidence"][0]["table"], "users")
+        self.assertEqual(
+            finding["table_evidence"][0]["preview"],
+            [[private_email, "7", private_password]],
+        )
+        self.assertNotIn("should-not-survive", json.dumps(
+            merge_sqli_map_findings(model_output, executions)
+        ))
+
+        merged = merge_sqli_map_findings(model_output, executions)
+        result = build_validate_output_from_dict(
+            merged,
+            "http://juice-shop:3000",
+            "2026-10-14T10:00:00+00:00",
+            executions,
+        )
+        self.assertEqual(
+            result.vulnerabilities[0].table_evidence[0].table,
+            "users",
+        )
+        self.assertFalse(result.vulnerabilities[0].table_evidence[0].values_redacted)
+
     def test_keeps_only_positive_sqlmap_detection_reports(self):
         executions = [
             {

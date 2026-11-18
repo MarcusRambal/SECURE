@@ -54,6 +54,17 @@ class ReconPlannerOutput(BaseModel):
 # ============================================================================
 
 
+class SQLiTableEvidence(BaseModel):
+    database: Optional[str] = None
+    table: str
+    row_count: int = Field(ge=0)
+    truncated: bool = False
+    columns: List[str] = Field(default_factory=list)
+    preview: List[List[str]] = Field(default_factory=list)
+    status: Literal["error", "retrieved", "empty"] = "retrieved"
+    values_redacted: bool = False
+
+
 class Vulnerability(BaseModel):
     type: str = Field(
         ..., description="Tipo de vulnerabilidad (ej: SQL Injection, XSS, OS Command Injection)"
@@ -108,6 +119,10 @@ class Vulnerability(BaseModel):
     attack_chain: List[str] = Field(
         default_factory=list,
         description="Pasos de explotación documentados por la herramienta",
+    )
+    table_evidence: List[SQLiTableEvidence] = Field(
+        default_factory=list,
+        description="Resumen de tablas SQLMap con una muestra limitada de valores extraídos",
     )
     context_role: Optional[str] = Field(
         default=None,

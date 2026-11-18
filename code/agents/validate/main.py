@@ -19,7 +19,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("validate-agent-worker")
 
 logger.info("🟢 [VALIDATE] Cargando LLM de validación")
-llm = get_llm("MODEL_VALIDATE")
+llm = get_llm("validate")
 structured_llm = llm.with_structured_output(
     ValidateOutput,
     method="json_schema",
