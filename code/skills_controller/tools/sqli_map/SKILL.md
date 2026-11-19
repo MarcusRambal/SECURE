@@ -13,6 +13,17 @@ confirms injection, it lists database and table names to provide schema context.
 It does not enumerate columns, check privileges, or retrieve table rows. The
 standalone `detect` action performs detection only.
 
+For isolated lab detection, `--action detect --technique BEU` limits SQLMap to
+boolean, error and UNION techniques, excluding time-based tests. This is a
+reduced coverage mode and does not change the default scan behavior.
+From the `code` directory, `python3 skills_controller/tools/sqli_map/run_lab_checks.py`
+runs 20 rounds of the weak-page SQLI_LOGIN/SQLI_SEARCH matrix (160 detection
+scans total), saves reports and logs, and stops if the lab health endpoint is
+unavailable. The matrix overrides only those two flags; UNION_SQLI_DUMP is left
+unchanged. Use `--runs 1` for a quick pass or `--runs N` to choose another count.
+It requires the `local-sqli-map:latest` image, the `sec-net` Docker network,
+and weak-page running.
+
 Extraction reports keep table names, observed columns, row counts, and truncation
 status, with up to three recovered rows as evidence. Repeated extraction for a
 target reuses this limited preview from `.dump_state.json` and skips another

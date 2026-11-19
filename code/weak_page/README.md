@@ -19,6 +19,38 @@ lectura del registro marcado y su limpieza, únicamente fuera de
 
 
 
+### Repetir la matriz de XSS en navegador
+
+Con `weak-page` y Docker Compose activos, desde el directorio `code` ejecuta:
+
+```bash
+python3 skills_controller/tools/browser_xss_validator/run_lab_checks.py
+```
+
+El runner ejecuta 20 rondas para cada combinación de I4 (reflejado) e I5
+(almacenado), es decir, 160 validaciones. Se espera que ambas vulnerabilidades
+se confirmen cuando ambas están activas; en cada combinación mixta solo debe
+confirmarse la activa, y con ambas mitigadas no debe confirmarse ninguna.
+`INCONCLUSO`, errores de limpieza o resultados distintos de lo esperado cuentan
+como fallo. Los JSON y logs quedan en un directorio `browser-xss-tests-*`;
+`--runs 1` sirve para una pasada rápida y `--runs N` cambia las rondas.
+
+### Repetir la matriz de SQLi
+
+Desde `code`, ejecuta:
+
+```bash
+python3 skills_controller/tools/sqli_map/run_lab_checks.py
+```
+
+El runner compara las cuatro combinaciones de `SQLI_LOGIN` e `SQLI_SEARCH`
+durante 20 rondas, comprobando ambos endpoints en cada ronda. No cambia
+`UNION_SQLI_DUMP`. Usa `--runs 1` para una pasada rápida. En cada combinación,
+la detección debe coincidir con los flags activos; `INCONCLUSA` se informa y
+las pruebas continúan, mientras que errores o timeouts detienen la ejecución.
+Los JSON y logs quedan en `sqli-map-tests-*`.
+
+
 🔐 CRYPTOGRAPHIC FAILURES (5)
 #	Reto	Endpoint	Versión vulnerable	Versión segura	Cadena
 C1	Contraseñas en claro	POST /auth/register	INSERT ... password='${pw}'	bcrypt.hash(pw, 12)	Se ve con I3

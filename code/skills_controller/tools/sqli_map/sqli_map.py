@@ -103,12 +103,14 @@ def find_sqlmap() -> str:
 
 def run_detection_scan(sqlmap_bin: str, url: Optional[str], param: Optional[str] = None,
                         request_file: Optional[str] = None,
-                        cookie: str = "", tamper: str = "") -> dict:
+                        cookie: str = "", tamper: str = "", technique: str = "") -> dict:
     """Run sqlmap detection scan and parse results."""
     cmd = _base_command(sqlmap_bin, url, param, request_file, cookie)
     cmd.extend(SQLMAP_TEST_OPTIONS)
     if tamper:
         cmd.extend(["--tamper", tamper])
+    if technique:
+        cmd.extend(["--technique", technique])
 
     logger.info("Running: %s", " ".join(cmd))
     try:
@@ -629,6 +631,11 @@ def main():
     parser.add_argument("--cookie", default="", help="Cookie header value")
     parser.add_argument("--tamper", default="", help="Tamper scripts (comma-separated)")
     parser.add_argument(
+        "--technique",
+        default="",
+        help="SQLMap techniques for detect only (e.g. BEU to exclude time-based tests)",
+    )
+    parser.add_argument(
         "--action",
         choices=["detect", "validate", "extract", "dbs", "tables", "dump", "privs"],
         default="detect",
@@ -641,6 +648,12 @@ def main():
     )
     parser.add_argument("--output", default="sqlmap_report.json")
     args = parser.parse_args()
+    if args.technique:
+        args.technique = args.technique.upper()
+        if args.action != "detect":
+            parser.error("--technique is supported only with --action detect")
+        if not re.fullmatch(r"[BEUSTQ]+", args.technique):
+            parser.error("--technique must contain only SQLMap technique letters BEUSTQ")
 
     report = {
         "action": args.action,
@@ -660,6 +673,7 @@ def main():
             report["result"] = run_detection_scan(
                 sqlmap_bin, args.url, args.param,
                 request_file=args.request_file, cookie=args.cookie, tamper=args.tamper,
+                technique=args.technique,
             )
         elif args.action == "validate":
             report.update(run_validation_scan(

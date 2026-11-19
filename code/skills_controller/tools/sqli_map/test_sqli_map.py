@@ -64,6 +64,19 @@ class SqlmapReportParsingTests(unittest.TestCase):
         self.assertEqual(result["database"], "SQLite")
         self.assertEqual(result["techniques"], ["boolean-based"])
 
+    @patch("sqli_map.subprocess.run")
+    def test_detection_forwards_selected_techniques_without_changing_defaults(self, run):
+        run.return_value = SimpleNamespace(stdout="", stderr="", returncode=0)
+
+        run_detection_scan("sqlmap", "http://example.test/?q=x", param="q")
+        self.assertNotIn("--technique", run.call_args.args[0])
+
+        run_detection_scan(
+            "sqlmap", "http://example.test/?q=x", param="q", technique="BEU"
+        )
+        command = run.call_args.args[0]
+        self.assertEqual(command[command.index("--technique") + 1], "BEU")
+
     @patch("sqli_map.subprocess.run", side_effect=subprocess.TimeoutExpired("sqlmap", 300))
     def test_detection_timeout_is_reported_without_claiming_a_negative_result(self, run):
         result = run_detection_scan(
