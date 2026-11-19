@@ -278,6 +278,23 @@ class SqliAgentFindingTests(unittest.TestCase):
 
 
 class SqliMapFindingTests(unittest.TestCase):
+    def test_preserves_five_extracted_rows(self):
+        rows = [{"id": str(i)} for i in range(1, 6)]
+        executions = [{
+            "tool": "sqli_map",
+            "endpoint": "http://example.test/users",
+            "parameter": "id",
+            "output": json.dumps({
+                "result": {"injectable": True, "database": "SQLite"},
+                "dumps": [{"table": "users", "row_count": 5, "rows": rows}],
+            }),
+        }]
+
+        finding = extract_sqli_map_findings(executions)[0]
+        self.assertEqual(
+            finding["table_evidence"][0]["preview"], [[str(i)] for i in range(1, 6)]
+        )
+
     def test_extracts_real_table_evidence_for_validated_finding(self):
         private_email = "customer@example.test"
         private_password = "plaintext-secret"

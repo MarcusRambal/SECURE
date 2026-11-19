@@ -5,6 +5,7 @@ import csv
 from pathlib import Path
 import argparse
 import hashlib  
+from itertools import islice
 import json
 import logging
 import re
@@ -25,6 +26,16 @@ MAX_DUMP_CELL_LEN = 250          # recorte por celda
 SQLMAP_TEST_OPTIONS = ("--level=3", "--risk=2")
 SQLMAP_COMMAND_TIMEOUT_SECONDS = 300
 SQLMAP_OUTPUT_DIR = "/tmp/sqlmap_out"
+ROCKYOU_PATH = "/app/rockyou.txt"
+MAX_BCRYPT_COST_TO_CRACK = 4
+MAX_BCRYPT_ATTEMPTS = 1000
+
+# Bcrypt: $2a$NN$...  (NN = coste, 60 chars totales)
+BCRYPT_RE = re.compile(r"^\$2[aby]?\$(\d{2})\$[A-Za-z0-9./]{53}$")
+
+PASSWORD_FIELD_HINTS = (
+    "password", "passwd", "pwd", "clave", "contrasena", "contraseña", "secret",
+)
 
 
 COMMON_PASSWORDS = [
@@ -44,6 +55,71 @@ COMMON_PASSWORDS = [
 class SqlmapCommandTimeout(RuntimeError):
     pass
 
+
+def _get_dictionary():
+    if Path(ROCKYOU_PATH).exists():
+        with open(ROCKYOU_PATH, "r", encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                yield line.strip()
+    else:
+        logger.warning("No se encontró %s; se usará el diccionario interno", ROCKYOU_PATH)
+        for word in COMMON_PASSWORDS:
+            yield word    
+
+def _looks_like_password_field(key: str) -> bool:
+    key_lower = key.casefold()
+    return any(hint in key_lower for hint in PASSWORD_FIELD_HINTS)
+
+
+def _try_bcrypt_checkpw():
+    """Devuelve fn(password_bytes, hash_bytes) -> bool, o None si no hay backend."""
+    try:
+        import bcrypt as _bcrypt
+
+        def check(pw: bytes, h: bytes) -> bool:
+            try:
+                return _bcrypt.checkpw(pw, h)
+            except Exception:
+                return False
+
+        logger.info("bcrypt cracking backend: python 'bcrypt' package")
+        return check
+    except ImportError:
+        pass
+
+    try:
+        import crypt as _crypt
+
+        def check(pw: bytes, h: bytes) -> bool:
+            try:
+                return _crypt.crypt(pw.decode("utf-8"), h.decode("utf-8")) == h.decode("utf-8")
+            except Exception:
+                return False
+
+        logger.info("bcrypt cracking backend: stdlib 'crypt' (glibc)")
+        return check
+    except ImportError:
+        pass
+
+    logger.warning(
+        "No hay backend bcrypt disponible ('bcrypt' ni 'crypt'). "
+        "Solo se detectará el hash y su coste, sin crackear."
+    )
+    return None
+
+
+def _crack_bcrypt(check_fn, hash_str: str, cost: int) -> Optional[str]:
+    """Prueba el diccionario contra un hash bcrypt. Solo si cost <= umbral."""
+    if cost > MAX_BCRYPT_COST_TO_CRACK:
+        return None
+    hash_bytes = hash_str.encode("utf-8")
+    for word in islice(_get_dictionary(), MAX_BCRYPT_ATTEMPTS):
+        try:
+            if check_fn(word.encode("utf-8"), hash_bytes):
+                return word
+        except Exception:
+            continue
+    return None
 
 def _run_sqlmap_command(cmd: list, action: str) -> subprocess.CompletedProcess:
     try:
@@ -392,23 +468,57 @@ def dump_table(sqlmap_bin: str, url: Optional[str], database: Optional[str],
     return response
 
 def _crack_hashes(dumps: list) -> None:
-    """Intenta crackear hashes MD5 usando un diccionario interno."""
-    # Precalculamos los hashes del diccionario para búsquedas en O(1)
-    md5_cache = {}
-    for word in COMMON_PASSWORDS:
-        md5_cache[hashlib.md5(word.encode()).hexdigest()] = word
-        
+    md5_targets = {}
+    bcrypt_targets = []
     for dump in dumps:
-        rows = dump.get("rows", [])
-        for row in rows:
+        for row in dump.get("rows", []):
             for key, value in list(row.items()):
-                # Si el valor parece un hash MD5 (32 caracteres hexadecimales)
-                if isinstance(value, str) and len(value) == 32:
-                    if re.fullmatch(r"[a-fA-F0-9]{32}", value):
-                        cracked = md5_cache.get(value.lower())
-                        if cracked:
-                            # Añadimos un campo extra con la contraseña descifrada
-                            row[f"{key}_cracked"] = cracked
+                if not isinstance(value, str) or not value:
+                    continue
+                match = BCRYPT_RE.fullmatch(value)
+                if match:
+                    cost = int(match.group(1))
+                    row[f"{key}_hash_type"] = "bcrypt"
+                    row[f"{key}_bcrypt_cost"] = cost
+                    row[f"{key}_bcrypt_weak"] = cost <= MAX_BCRYPT_COST_TO_CRACK
+                    if cost > MAX_BCRYPT_COST_TO_CRACK:
+                        row[f"{key}_crack_note"] = (
+                            f"cost {cost} too slow, skipped "
+                            f"(threshold: {MAX_BCRYPT_COST_TO_CRACK})"
+                        )
+                    else:
+                        bcrypt_targets.append((row, key, value, cost))
+                elif re.fullmatch(r"[a-fA-F0-9]{32}", value):
+                    row[f"{key}_hash_type"] = "md5"
+                    md5_targets.setdefault(value.lower(), []).append((row, key))
+                elif _looks_like_password_field(key) and 4 <= len(value) <= 64:
+                    row[f"{key}_hash_type"] = "plaintext"
+                    row[f"{key}_plaintext_exposed"] = True
+
+    if md5_targets:
+        for word in _get_dictionary():
+            matches = md5_targets.pop(hashlib.md5(word.encode()).hexdigest(), [])
+            for row, key in matches:
+                row[f"{key}_cracked"] = word
+            if not md5_targets:
+                break
+        for matches in md5_targets.values():
+            for row, key in matches:
+                row[f"{key}_crack_note"] = "not_in_wordlist"
+
+    if bcrypt_targets:
+        check_fn = _try_bcrypt_checkpw()
+        for row, key, value, cost in bcrypt_targets:
+            if check_fn is None:
+                row[f"{key}_crack_note"] = "no bcrypt backend available"
+                continue
+            cracked = _crack_bcrypt(check_fn, value, cost)
+            if cracked is not None:
+                row[f"{key}_cracked"] = cracked
+            else:
+                row[f"{key}_crack_note"] = (
+                    f"not found within first {MAX_BCRYPT_ATTEMPTS} dictionary entries"
+                )
 
 def run_extraction_scan(sqlmap_bin: str, url: Optional[str],
                         param: Optional[str] = None,

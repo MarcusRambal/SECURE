@@ -8,6 +8,15 @@
 
 ### `sqli_map` validation behavior
 
+The `local-sqli-map` image includes `sqlmap` and Python `bcrypt`. If the optional,
+Git-ignored `tools/sqli_map/rockyou.txt` exists when building, it is included
+at `/app/rockyou.txt`; otherwise the internal password list is used. Rebuild after changes with
+`docker compose build build-sqli-map` from the `code` directory. For direct local
+execution, install `sqlmap==1.10.10` and `bcrypt==4.3.0` in a Python virtual
+environment. Bcrypt hashes with cost above 4 are identified but not tested
+against the dictionary; cost 4 or lower is tested against at most its first
+1,000 entries.
+
 The `validate` action tests only the selected, observed parameter. When SQLMap
 confirms injection, it lists database and table names to provide schema context.
 It does not enumerate columns, check privileges, or retrieve table rows. The
@@ -25,11 +34,10 @@ It requires the `local-sqli-map:latest` image, the `sec-net` Docker network,
 and weak-page running.
 
 Extraction reports keep table names, observed columns, row counts, and truncation
-status, with up to three recovered rows as evidence. Repeated extraction for a
-target reuses this limited preview from `.dump_state.json` and skips another
-table dump. Existing state that contains only masked previews is refreshed once
-without requiring the state file to be deleted; the previous list-based state
-format also remains readable.
+status, with up to five recovered rows as evidence. Each extraction queries the
+target again unless `skip_dump` is explicitly requested; any old
+`.dump_state.json` is ignored. This can take longer and increase the load on the
+target. Saved JSON reports remain historical snapshots.
 
 ### Step 1: Identify Potential Injection Points
 

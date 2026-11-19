@@ -1,5 +1,3 @@
-import asyncio
-import hashlib
 import json
 import logging
 import re
@@ -17,160 +15,17 @@ IMAGE = "local-sqli-map:latest"
 REQUEST_FILE = "/tmp/sqli-map-request.txt"
 REPORT_MARKER = "SQLI_MAP_REPORT="
 OUTPUT_DIR = Path(__file__).resolve().parents[1] / "tools" / "sqli_map" / "outputs"
-# Host-side dedup state: hashes of targets for which extract already dumped.
-DUMP_STATE_FILE = OUTPUT_DIR / ".dump_state.json"
 SQLMAP_CONTAINER_TIMEOUT_SECONDS = 1800
 SQLMAP_EXTRACT_TIMEOUT_SECONDS = 3600
+MAX_EVIDENCE_ROWS = 5
 
 logger = logging.getLogger(__name__)
-# One lock per target so concurrent extract calls never double-dump.
-_extract_locks: dict[str, asyncio.Lock] = {}
-
-
-def _target_key(target_url, request) -> Optional[str]:
-    """Stable hash of scheme://host/path (query stripped, since it's the injection point)."""
-    raw = target_url if isinstance(target_url, str) and target_url else None
-    if not raw and isinstance(request, dict):
-        candidate = request.get("url")
-        if isinstance(candidate, str) and candidate:
-            raw = candidate
-    if not raw:
-        return None
-    try:
-        parts = urlsplit(raw)
-        if not parts.scheme or not parts.netloc:
-            return None
-        base = urlunsplit(
-            (parts.scheme.lower(), parts.netloc.lower(), parts.path, "", "")
-        )
-        return hashlib.sha256(base.encode("utf-8")).hexdigest()
-    except ValueError:
-        return None
-
-
-def _load_dump_state() -> dict[str, dict]:
-    try:
-        state_text = DUMP_STATE_FILE.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        return {}
-    except OSError as error:
-        logger.exception("Could not read sqli_map dump state")
-        raise RuntimeError("Could not read sqli_map dump state") from error
-
-    try:
-        data = json.loads(state_text)
-    except json.JSONDecodeError as error:
-        logger.error("The sqli_map dump state is not valid JSON")
-        raise RuntimeError("The sqli_map dump state is invalid") from error
-
-    if isinstance(data, list):
-        return {
-            key: {"tables": [], "needs_refresh": True}
-            for key in data
-            if isinstance(key, str)
-        }
-    if (
-        isinstance(data, dict)
-        and data.get("version") == 1
-        and isinstance(data.get("targets"), dict)
-    ):
-        return {
-            key: entry
-            for key, entry in data["targets"].items()
-            if isinstance(key, str) and isinstance(entry, dict)
-        }
-
-    logger.error("The sqli_map dump state has an unsupported format")
-    raise RuntimeError("The sqli_map dump state has an unsupported format")
-
-
-def _save_dump_state(state: dict[str, dict]) -> None:
-    try:
-        DUMP_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-        tmp = DUMP_STATE_FILE.with_suffix(".tmp")
-        payload = {"version": 1, "targets": state}
-        tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-        tmp.replace(DUMP_STATE_FILE)
-    except OSError as error:
-        logger.exception("Could not persist sqli_map dump state")
-        raise RuntimeError("Could not persist sqli_map dump state") from error
-
-
-def _sanitize_table_evidence(tables: object) -> list[dict]:
-    if not isinstance(tables, list):
-        return []
-
-    sanitized = []
-    for table in tables:
-        if not isinstance(table, dict) or not isinstance(table.get("table"), str):
-            continue
-        columns = table.get("columns")
-        columns = sorted({
-            column for column in columns
-            if isinstance(column, str)
-        }) if isinstance(columns, list) else []
-        preview = table.get("preview")
-        sanitized_preview = []
-        if isinstance(preview, list):
-            for row in preview[:3]:
-                if not isinstance(row, list):
-                    continue
-                sanitized_preview.append([
-                    _stringify_dump_value(value) for value in row[:100]
-                ])
-        row_count = table.get("row_count")
-        sanitized.append({
-            "database": table.get("database") if isinstance(table.get("database"), str) else None,
-            "table": table["table"],
-            "row_count": row_count if isinstance(row_count, int) and not isinstance(row_count, bool) and row_count >= 0 else 0,
-            "truncated": table.get("truncated") is True,
-            "columns": columns,
-            "preview": sanitized_preview,
-            "status": table.get("status") if table.get("status") in {"error", "retrieved", "empty"} else "retrieved",
-            "values_redacted": table.get("values_redacted") is True,
-        })
-    return sanitized
-
-
 def _stringify_dump_value(value: object) -> str:
     if value is None:
         return ""
     if isinstance(value, (dict, list)):
         return json.dumps(value, ensure_ascii=False, separators=(",", ":"))[:250]
     return str(value)[:250]
-
-
-def _dump_state_entry(key: Optional[str]) -> Optional[dict]:
-    entry = _load_dump_state().get(key) if key else None
-    if entry is None:
-        return None
-    if entry.get("needs_refresh") is True:
-        return None
-    tables = _sanitize_table_evidence(entry.get("tables"))
-    if not tables:
-        return None
-    if any(
-        table.get("row_count", 0) > 0 and table.get("values_redacted") is True
-        for table in tables
-    ):
-        return None
-    return {"tables": tables}
-
-
-def _mark_dumped(key: Optional[str], tables: list[dict]) -> None:
-    if not key:
-        return
-    state = _load_dump_state()
-    state[key] = {"tables": _sanitize_table_evidence(tables)}
-    _save_dump_state(state)
-
-
-def _extract_lock_for(key: str) -> asyncio.Lock:
-    lock = _extract_locks.get(key)
-    if lock is None:
-        lock = asyncio.Lock()
-        _extract_locks[key] = lock
-    return lock
 
 
 def _extract_report(result: dict) -> Optional[dict]:
@@ -218,7 +73,7 @@ def _table_evidence(report: dict) -> list[dict]:
             "columns": columns,
             "preview": [
                 [_stringify_dump_value(row.get(column)) for column in columns]
-                for row in rows[:3]
+                for row in rows[:MAX_EVIDENCE_ROWS]
                 if isinstance(row, dict)
             ],
             "status": "error" if dump.get("error") else ("retrieved" if row_count else "empty"),
@@ -226,17 +81,6 @@ def _table_evidence(report: dict) -> list[dict]:
         }
         evidence.append(item)
     return evidence
-
-
-def _completed_dump(report: Optional[dict]) -> bool:
-    if not isinstance(report, dict) or report.get("status") not in {"completed", "empty_dumps"}:
-        return False
-    dumps = report.get("dumps")
-    return (
-        isinstance(dumps, list)
-        and bool(dumps)
-        and all(isinstance(dump, dict) and not dump.get("error") for dump in dumps)
-    )
 
 
 def _set_dump_evidence(report: dict, tables: list[dict], source: str) -> None:
@@ -345,58 +189,20 @@ async def execute_sqli_map(arguments: dict) -> str:
     else:
         raise ValueError("A captured request or target_url is required")
 
-    # ---- Dedup logic -------------------------------------------------------
-    dedup_key = _target_key(target_url, request if isinstance(request, dict) else None)
-    force_dump = bool(arguments.get("force_dump", False))
-    skip_dump = bool(arguments.get("skip_dump", False))
-    cached_evidence = []
-    cached_dump = False
     timeout = (
         SQLMAP_EXTRACT_TIMEOUT_SECONDS if action == "extract"
         else SQLMAP_CONTAINER_TIMEOUT_SECONDS
     )
 
-    if action == "extract" and not force_dump and not skip_dump:
-        state_entry = _dump_state_entry(dedup_key)
-        if state_entry is not None:
-            logger.info("sqli_map extract: skipping dump (already dumped for target)")
-            skip_dump = True
-            cached_dump = True
-            cached_evidence = state_entry.get("tables", [])
-
-    if action == "extract" and skip_dump:
+    if action == "extract" and arguments.get("skip_dump", False):
         command_args.append("--skip-dump")
 
-    if action == "extract" and not force_dump and dedup_key and not skip_dump:
-        # Serialize concurrent extract calls for the same target. Inside the
-        # lock we re-check the state so a coroutine that finished dumping
-        # while we waited forces us into detection-only mode.
-        async with _extract_lock_for(dedup_key):
-            state_entry = _dump_state_entry(dedup_key)
-            if state_entry is not None:
-                logger.info("sqli_map extract: skipping dump (concurrent mark)")
-                skip_dump = True
-                cached_dump = True
-                cached_evidence = state_entry.get("tables", [])
-                command_args.append("--skip-dump")
-            result = await docker_runner.execute_tool(
-                image=IMAGE,
-                command=shlex.join(command_args),
-                timeout=timeout,
-                input_files=input_files,
-            )
-            if not skip_dump and result.get("status") == "SUCCESS":
-                parsed = _extract_report(result)
-                if _completed_dump(parsed):
-                    _mark_dumped(dedup_key, _table_evidence(parsed))
-    else:
-        result = await docker_runner.execute_tool(
-            image=IMAGE,
-            command=shlex.join(command_args),
-            timeout=timeout,
-            input_files=input_files,
-        )
-    # -----------------------------------------------------------------------
+    result = await docker_runner.execute_tool(
+        image=IMAGE,
+        command=shlex.join(command_args),
+        timeout=timeout,
+        input_files=input_files,
+    )
 
     if result.get("status") != "SUCCESS":
         runner_output = result.get("output")
@@ -420,12 +226,7 @@ async def execute_sqli_map(arguments: dict) -> str:
         )
 
     if action == "extract":
-        tables = cached_evidence if cached_dump else _table_evidence(parsed_report)
-        _set_dump_evidence(
-            parsed_report,
-            tables,
-            "cached" if cached_dump else "current",
-        )
+        _set_dump_evidence(parsed_report, _table_evidence(parsed_report), "current")
 
     _strip_urls(parsed_report)
     return _persist_report(parsed_report, arguments)

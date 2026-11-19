@@ -119,6 +119,22 @@ test("renders SQLi table evidence with extracted preview values", () => {
   assert.match(html, /Muestra de 1 fila recuperada por SQLMap/);
 });
 
+test("renders all five SQLi evidence rows", () => {
+  const html = renderPanel([{
+    title: "SQL Injection",
+    severity: "HIGH",
+    tableEvidence: [{
+      table: "users",
+      rowCount: 5,
+      columns: ["email"],
+      preview: Array.from({ length: 5 }, (_, i) => [`user${i + 1}@example.test`]),
+    }],
+  }]);
+
+  assert.match(html, /user5@example\.test/);
+  assert.match(html, /Muestra de 5 filas recuperadas por SQLMap/);
+});
+
 test("renders report paragraphs, warnings and tables as separate blocks", () => {
   const report = [
     "# Informe",

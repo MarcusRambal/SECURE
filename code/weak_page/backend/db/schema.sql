@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS users (
   name         TEXT NOT NULL,
   email        TEXT UNIQUE NOT NULL,
   password     TEXT NOT NULL,           -- C1/C2: texto plano o MD5 en modo vulnerable
+  login_delay_ms INTEGER NOT NULL DEFAULT 0,
   role         TEXT NOT NULL DEFAULT 'customer',
   reset_token  TEXT,
   reset_expires TEXT,

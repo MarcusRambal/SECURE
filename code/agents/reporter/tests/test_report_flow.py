@@ -107,6 +107,29 @@ class ReportFlowTests(unittest.IsolatedAsyncioTestCase):
             report,
         )
 
+    def test_sqli_report_contains_five_evidence_rows(self):
+        data = payload()
+        finding = data["validation_data"]["vulnerabilities"][0]
+        finding["type"] = "SQL Injection"
+        finding["table_evidence"] = [{
+            "table": "users",
+            "row_count": 5,
+            "columns": ["email"],
+            "preview": [[f"user{i}@example.test"] for i in range(1, 6)],
+        }]
+        reporter_input = ReporterInput.model_validate(data)
+        context = json.loads(build_reporter_context(reporter_input))
+        tables = next(
+            item["table_evidence"]
+            for item in context["validation_summary"]["findings"]
+            if item["type"] == "SQL Injection"
+        )
+        report = finalize_report_markdown("## Resumen", reporter_input)
+
+        self.assertEqual(len(tables[0]["preview"]), 5)
+        self.assertIn("| user5@example.test |", report)
+        self.assertIn("hasta cinco filas", report)
+
     async def test_reporter_receives_deduplicated_findings_and_builds_clear_fallback(self):
         data = payload()
         llm = AsyncMock()

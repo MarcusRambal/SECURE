@@ -66,7 +66,7 @@ def _sanitize_table_evidence(table: object) -> dict | None:
     preview = table.get("preview")
     sanitized_preview = [
         [str(value)[:250] for value in row[:100]]
-        for row in preview[:3]
+        for row in preview[:5]
         if isinstance(row, list)
     ] if isinstance(preview, list) else []
     row_count = table.get("row_count")
@@ -172,7 +172,7 @@ def _merge_findings(primary: dict, duplicate: dict) -> dict:
                     or table.get("truncated", False)
                 ),
                 "columns": columns,
-                "preview": unique_preview[:3],
+                "preview": unique_preview[:5],
                 "values_redacted": (
                     existing_table.get("values_redacted") is True
                     or table.get("values_redacted") is True

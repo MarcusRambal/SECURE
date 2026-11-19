@@ -141,8 +141,8 @@ Thumbs.db
 ollama_data/
 *.gguf
 *.bin
+/skills_controller/tools/sqli_map/rockyou.txt
 
-<<<<<<< HEAD
 # ==========================================
 # Archivos ffuf
 # ==========================================
@@ -156,7 +156,6 @@ ffuf-results/
 /skills_controller/tools/crawler/
 /skills_controller/tools/deep_crawler/
 /frontend/tsconfig.tsbuildinfo
-=======
 attacks.txt
 salidasdlafox.txt
->>>>>>> origin/main
+rockyou.txt

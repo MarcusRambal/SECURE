@@ -21,11 +21,16 @@ export function detectFormat(stored) {
 /**
  * Verifica una contraseña respetando C1 (plaintext) y C2 (MD5 legacy).
  */
-export async function verifyPassword(plain, stored, req) {
+export async function verifyPassword(plain, user, req) {
+  const { password: stored } = user;
   const format = detectFormat(stored);
 
   if (format === "bcrypt") {
-    return bcrypt.compare(plain, stored);
+    const matches = await bcrypt.compare(plain, stored);
+    if (user.login_delay_ms > 0) {
+      await new Promise(resolve => setTimeout(resolve, user.login_delay_ms));
+    }
+    return matches;
   }
   if (format === "md5") {
     // C2 desactivado → rechaza MD5 (el usuario debe resetear contraseña)
@@ -50,7 +55,7 @@ export async function preparePassword(plain, req) {
  */
 export function safeUser(user) {
   if (!user) return null;
-  const { password, reset_token, reset_expires, ...rest } = user;
+  const { password, login_delay_ms, reset_token, reset_expires, ...rest } = user;
   return rest;
 }
 

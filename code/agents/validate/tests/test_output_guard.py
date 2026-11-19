@@ -4,6 +4,27 @@ from output_guard import guard_validate_output
 
 
 class ValidateOutputGuardTests(unittest.TestCase):
+    def test_merge_preserves_five_unique_evidence_rows(self):
+        findings = [{
+            "type": "SQL Injection",
+            "severity": "HIGH",
+            "endpoint": "https://example.test/search",
+            "parameter": "q",
+            "table_evidence": [{
+                "table": "users",
+                "row_count": 5,
+                "columns": ["id"],
+                "preview": [[str(i)] for i in values],
+            }],
+        } for values in (range(1, 5), range(2, 6))]
+
+        guarded, _ = guard_validate_output({"vulnerabilities": findings})
+
+        self.assertEqual(
+            guarded["vulnerabilities"][0]["table_evidence"][0]["preview"],
+            [[str(i)] for i in range(1, 6)],
+        )
+
     def test_merges_table_evidence_for_duplicate_sqli_findings(self):
         output = {
             "vulnerabilities": [

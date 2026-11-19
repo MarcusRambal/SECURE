@@ -307,7 +307,7 @@ const SQLiTableEvidence = ({
       <h4 className={styles.tableEvidenceTitle}>Evidencia de tablas</h4>
       {tables.map((table, tableIndex) => {
         const columns = Array.isArray(table.columns) ? table.columns : [];
-        const preview = Array.isArray(table.preview) ? table.preview.slice(0, 3) : [];
+        const preview = Array.isArray(table.preview) ? table.preview.slice(0, 5) : [];
         const rowCount = Number.isFinite(table.rowCount) ? table.rowCount : 0;
         const tableName = table.database
           ? `${table.database}.${table.table}`

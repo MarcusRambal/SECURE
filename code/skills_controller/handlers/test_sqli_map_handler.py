@@ -1,13 +1,10 @@
 import json
-from pathlib import Path
-from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import AsyncMock, patch
 
 from handlers.sqli_map_handler import (
     REPORT_MARKER,
     SQLMAP_CONTAINER_TIMEOUT_SECONDS,
-    _dump_state_entry,
     execute_sqli_map,
 )
 
@@ -101,10 +98,13 @@ class SqliMapHandlerTests(unittest.IsolatedAsyncioTestCase):
         "handlers.sqli_map_handler.docker_runner.execute_tool",
         new_callable=AsyncMock,
     )
-    async def test_repeat_extract_reuses_real_table_evidence(
+    async def test_repeat_extract_returns_fresh_table_evidence(
         self, execute_tool, save_report
     ):
-        raw_value = "alice@example.test"
+        rows = [
+            {"email": f"user{i}@example.test", "password": f"secret{i}", "id": str(i)}
+            for i in range(1, 6)
+        ]
         execute_tool.side_effect = [
             {
                 "status": "SUCCESS",
@@ -116,13 +116,9 @@ class SqliMapHandlerTests(unittest.IsolatedAsyncioTestCase):
                     "dumps": [{
                         "database": "SQLite",
                         "table": "users",
-                        "row_count": 1,
+                        "row_count": 5,
                         "truncated": False,
-                        "rows": [{
-                            "email": raw_value,
-                            "password": "plaintext-secret",
-                            "id": "7",
-                        }],
+                        "rows": rows,
                     }],
                 }),
             },
@@ -130,86 +126,48 @@ class SqliMapHandlerTests(unittest.IsolatedAsyncioTestCase):
                 "status": "SUCCESS",
                 "output": REPORT_MARKER + json.dumps({
                     "action": "extract",
-                    "status": "detection_only",
-                    "result": {"injectable": True, "database": "SQLite"},
-                    "profile": {"status": "skipped"},
-                    "dumps": [],
+                    "status": "completed",
+                    "dumps": [{
+                        "database": "SQLite",
+                        "table": "users",
+                        "row_count": 1,
+                        "rows": [{"email": "new@example.test"}],
+                    }],
                 }),
             },
         ]
         save_report.return_value = "report.json"
 
-        with TemporaryDirectory() as temp_dir:
-            state_file = Path(temp_dir) / ".dump_state.json"
-            with patch("handlers.sqli_map_handler.DUMP_STATE_FILE", state_file):
-                first = json.loads(await execute_sqli_map({
-                    "action": "extract",
-                    "target_url": "http://juice-shop:3000/api/users?id=7",
-                    "param": "id",
-                }))
-                second = json.loads(await execute_sqli_map({
-                    "action": "extract",
-                    "target_url": "http://juice-shop:3000/api/users?id=7",
-                    "param": "id",
-                }))
-                saved_state = state_file.read_text(encoding="utf-8")
+        first = json.loads(await execute_sqli_map({
+            "action": "extract",
+            "target_url": "http://juice-shop:3000/api/users?id=7",
+            "param": "id",
+        }))
+        second = json.loads(await execute_sqli_map({
+            "action": "extract",
+            "target_url": "http://juice-shop:3000/api/users?id=7",
+            "param": "id",
+        }))
 
-        self.assertIn(raw_value, json.dumps(first))
-        self.assertIn("plaintext-secret", json.dumps(first))
-        self.assertIn(raw_value, saved_state)
+        self.assertIn("user5@example.test", json.dumps(first))
         self.assertEqual(first["evidence"]["source"], "current")
         self.assertEqual(first["evidence"]["tables"][0]["table"], "users")
-        self.assertEqual(first["evidence"]["tables"][0]["row_count"], 1)
+        self.assertEqual(first["evidence"]["tables"][0]["row_count"], 5)
         self.assertEqual(
             first["evidence"]["tables"][0]["columns"],
             ["email", "id", "password"],
         )
         self.assertEqual(
             first["evidence"]["tables"][0]["preview"],
-            [[raw_value, "7", "plaintext-secret"]],
+            [[row["email"], row["id"], row["password"]] for row in rows],
         )
         self.assertFalse(first["evidence"]["tables"][0]["values_redacted"])
         self.assertNotIn("rows", first["dumps"][0])
 
-        self.assertIn("--skip-dump", execute_tool.call_args_list[1].kwargs["command"])
-        self.assertEqual(second["evidence"]["source"], "cached")
-        self.assertEqual(second["evidence"]["tables"], first["evidence"]["tables"])
-
-    def test_legacy_dump_state_is_refreshed_without_rewriting_it_on_read(self):
-        with TemporaryDirectory() as temp_dir:
-            state_file = Path(temp_dir) / ".dump_state.json"
-            legacy_state = json.dumps(["known-target-hash"])
-            state_file.write_text(legacy_state, encoding="utf-8")
-
-            with patch("handlers.sqli_map_handler.DUMP_STATE_FILE", state_file):
-                self.assertIsNone(_dump_state_entry("known-target-hash"))
-
-            self.assertEqual(state_file.read_text(encoding="utf-8"), legacy_state)
-
-    def test_masked_versioned_dump_state_is_refreshed_without_rewriting(self):
-        with TemporaryDirectory() as temp_dir:
-            state_file = Path(temp_dir) / ".dump_state.json"
-            state = {
-                "version": 1,
-                "targets": {
-                    "known-target-hash": {
-                        "tables": [{
-                            "table": "users",
-                            "row_count": 1,
-                            "columns": ["email"],
-                            "preview": [["[REDACTED]"]],
-                            "values_redacted": True,
-                        }],
-                    },
-                },
-            }
-            original_state = json.dumps(state)
-            state_file.write_text(original_state, encoding="utf-8")
-
-            with patch("handlers.sqli_map_handler.DUMP_STATE_FILE", state_file):
-                self.assertIsNone(_dump_state_entry("known-target-hash"))
-
-            self.assertEqual(state_file.read_text(encoding="utf-8"), original_state)
+        self.assertEqual(execute_tool.call_count, 2)
+        self.assertNotIn("--skip-dump", execute_tool.call_args_list[1].kwargs["command"])
+        self.assertEqual(second["evidence"]["source"], "current")
+        self.assertEqual(second["evidence"]["tables"][0]["preview"], [["new@example.test"]])
 
 
 if __name__ == "__main__":

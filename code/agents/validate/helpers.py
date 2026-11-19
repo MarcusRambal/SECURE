@@ -491,11 +491,11 @@ def _sqli_map_table_evidence(report: dict) -> list[dict]:
         raw_preview = item.get("preview")
         preview = []
         if isinstance(raw_preview, list):
-            for row in raw_preview[:3]:
+            for row in raw_preview[:5]:
                 if isinstance(row, list):
                     preview.append([str(value)[:250] for value in row[:100]])
         elif rows:
-            for row in rows[:3]:
+            for row in rows[:5]:
                 if isinstance(row, dict):
                     preview.append([str(row.get(column, ""))[:250] for column in columns])
         status = item.get("status")

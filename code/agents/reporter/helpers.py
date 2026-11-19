@@ -396,7 +396,7 @@ def _table_evidence_for_report(vulnerability) -> list[dict]:
         columns = getattr(table, "columns", []) or []
         columns = [column for column in columns if isinstance(column, str)]
         raw_preview = getattr(table, "preview", []) or []
-        preview_count = min(len(raw_preview), 3) if isinstance(raw_preview, list) else 0
+        preview_count = min(len(raw_preview), 5) if isinstance(raw_preview, list) else 0
         row_count = getattr(table, "row_count", 0)
         sanitized.append({
             "database": database if isinstance(database, str) else None,
@@ -434,7 +434,7 @@ def _append_table_evidence_markdown(markdown_text: str, findings: list) -> str:
         "",
         "## Evidencia tabular SQLMap",
         "",
-        "Se muestran hasta tres filas recuperadas por SQLMap como evidencia.",
+        "Se muestran hasta cinco filas recuperadas por SQLMap como evidencia.",
         "",
     ]
     for finding, tables in evidence_groups:
