@@ -562,7 +562,7 @@ class SqliValidationStrategy(ValidationStrategy):
                         "target_url": job["endpoint"],
                         "request": job["request"],
                         "param": job["parameter"],
-                        "action": "validate",
+                        "action": "extract",
                     },
                     tool_timings,
                 )
@@ -783,10 +783,6 @@ class XssValidationStrategy(ValidationStrategy):
                         "output": json.dumps(normalized, ensure_ascii=False),
                     }
                 )
-                if status == "VERIFIED":
-                    # Un parámetro confirmado basta para este objetivo; no se
-                    # prueban los planes restantes.
-                    break
             if browser_plans:
                 # Una vez que el validador de navegador ha recibido un plan
                 # específico para este origen, no debe reintentar Dalfox por

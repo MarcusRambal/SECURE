@@ -368,7 +368,6 @@ def merge_sqlmap_findings(model_output: dict, executions: list[dict]) -> dict:
 
 
 def extract_sqli_map_findings(executions: list[dict]) -> list[dict]:
-    """Extract positive detection-only reports from the SQLMap skill."""
     findings = []
     for execution in executions:
         report = _positive_sqli_map_report(execution)
@@ -395,6 +394,7 @@ def extract_sqli_map_findings(executions: list[dict]) -> list[dict]:
         database = result.get("database")
         if isinstance(database, str) and database and database.casefold() != "unknown":
             evidence += f" (database: {database})"
+
         profile = report.get("profile")
         if isinstance(profile, dict):
             databases = profile.get("databases")
@@ -405,11 +405,28 @@ def extract_sqli_map_findings(executions: list[dict]) -> list[dict]:
                 ][:3]
                 if names:
                     evidence += f"; databases listed: {', '.join(names)}"
+
         table_listing = _format_sqli_map_tables(
             _sqli_map_schema_for_report(execution, report)
         )
         if table_listing:
             evidence += f"; {table_listing}"
+
+        table_evidence = _sqli_map_table_evidence(report)
+        if table_evidence:
+            summaries = []
+            for table in table_evidence:
+                database = table.get("database") or "database"
+                columns = ", ".join(table["columns"]) or "columns unavailable"
+                summaries.append(
+                    f"{database}.{table['table']} ({table['row_count']} rows; "
+                    f"columns: {columns})"
+                )
+            evidence += (
+                "\n\n[EXTRACTED TABLE EVIDENCE; SAMPLE VALUES INCLUDED]: "
+                + "; ".join(summaries)
+            )
+
         evidence = evidence[:MAX_SQLI_MAP_EVIDENCE_LENGTH]
 
         findings.append(
@@ -421,12 +438,85 @@ def extract_sqli_map_findings(executions: list[dict]) -> list[dict]:
                 "evidence": evidence,
                 "confidence": "HIGH",
                 "tools_used": ["sqli_map"],
+                "table_evidence": table_evidence,
                 "target_id": execution.get("target_id"),
                 "request_id": execution.get("request_id"),
                 "reproducible_command": execution.get("command"),
             }
         )
     return findings
+
+
+def _sqli_map_table_evidence(report: dict) -> list[dict]:
+    report_evidence = report.get("evidence")
+    tables = (
+        report_evidence.get("tables")
+        if isinstance(report_evidence, dict)
+        else None
+    )
+    if not isinstance(tables, list):
+        tables = report.get("dumps")
+    if not isinstance(tables, list):
+        return []
+
+    sanitized = []
+    for item in tables:
+        if not isinstance(item, dict) or not isinstance(item.get("table"), str):
+            continue
+        rows = item.get("rows")
+        rows = rows if isinstance(rows, list) else []
+        raw_columns = item.get("columns")
+        columns_are_reported = isinstance(raw_columns, list)
+        if not columns_are_reported:
+            raw_columns = sorted({
+                column
+                for row in rows
+                if isinstance(row, dict)
+                for column in row
+            })
+        columns = list(dict.fromkeys(
+            column[:128]
+            for column in raw_columns
+            if isinstance(column, str) and column
+        ))[:100]
+
+        reported_count = item.get("row_count")
+        row_count = (
+            reported_count
+            if isinstance(reported_count, int)
+            and not isinstance(reported_count, bool)
+            and reported_count >= 0
+            else len(rows)
+        )
+        raw_preview = item.get("preview")
+        preview = []
+        if isinstance(raw_preview, list):
+            for row in raw_preview[:5]:
+                if isinstance(row, list):
+                    preview.append([str(value)[:250] for value in row[:100]])
+        elif rows:
+            for row in rows[:5]:
+                if isinstance(row, dict):
+                    preview.append([str(row.get(column, ""))[:250] for column in columns])
+        status = item.get("status")
+        if status not in {"error", "retrieved", "empty"}:
+            status = "error" if item.get("error") else ("retrieved" if row_count else "empty")
+
+        sanitized.append({
+            "database": (
+                item.get("database")[:128]
+                if isinstance(item.get("database"), str)
+                else None
+            ),
+            "table": item["table"][:128],
+            "row_count": row_count,
+            "truncated": item.get("truncated") is True,
+            "columns": columns,
+            "preview": preview,
+            "status": status,
+            "values_redacted": item.get("values_redacted") is True,
+        })
+    return sanitized
 
 
 def _positive_sqli_map_report(execution: dict) -> dict | None:
@@ -500,6 +590,7 @@ def merge_sqli_map_findings(model_output: dict, executions: list[dict]) -> dict:
     known_findings = {}
     for finding in vulnerabilities:
         if isinstance(finding, dict):
+            finding.pop("table_evidence", None)
             key = (
                 str(finding.get("type", "")).casefold(),
                 str(finding.get("endpoint", "")).casefold(),
@@ -533,6 +624,18 @@ def merge_sqli_map_findings(model_output: dict, executions: list[dict]) -> dict:
                 existing["evidence"] = (
                     f"{evidence}; {addition}".strip("; ")
                 )[:MAX_SQLI_MAP_EVIDENCE_LENGTH]
+
+        existing_evidence = existing.setdefault("table_evidence", [])
+        known_tables = {
+                (item.get("database"), item.get("table"))
+                for item in existing_evidence
+                if isinstance(item, dict)
+        }
+        for item in finding.get("table_evidence", []):
+                key = (item.get("database"), item.get("table"))
+                if key not in known_tables:
+                    existing_evidence.append(item)
+                    known_tables.add(key)
 
     return {**model_output, "vulnerabilities": vulnerabilities}
 
@@ -752,6 +855,7 @@ def build_validate_output_from_dict(args: dict,target_url: str,started_at: str,e
                     attack_demonstrated=v.get("attack_demonstrated") or None,
                     attack_result=v.get("attack_result") or None,
                     attack_chain=[str(step) for step in attack_chain if step],
+                    table_evidence=v.get("table_evidence") or [],
                     context_role=context_role or None,
                 )
             )

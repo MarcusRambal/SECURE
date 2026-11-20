@@ -55,6 +55,33 @@ def _parameter_identity(finding: dict) -> str | None:
     return next(iter(parameters)) if len(parameters) == 1 else None
 
 
+def _sanitize_table_evidence(table: object) -> dict | None:
+    if not isinstance(table, dict) or not isinstance(table.get("table"), str):
+        return None
+    columns = table.get("columns")
+    columns = list(dict.fromkeys(
+        column[:128] for column in columns
+        if isinstance(column, str) and column
+    ))[:100] if isinstance(columns, list) else []
+    preview = table.get("preview")
+    sanitized_preview = [
+        [str(value)[:250] for value in row[:100]]
+        for row in preview[:5]
+        if isinstance(row, list)
+    ] if isinstance(preview, list) else []
+    row_count = table.get("row_count")
+    return {
+        "database": table.get("database")[:128] if isinstance(table.get("database"), str) else None,
+        "table": table["table"][:128],
+        "row_count": row_count if isinstance(row_count, int) and not isinstance(row_count, bool) and row_count >= 0 else 0,
+        "truncated": table.get("truncated") is True,
+        "columns": columns,
+        "preview": sanitized_preview,
+        "status": table.get("status") if table.get("status") in {"error", "retrieved", "empty"} else "retrieved",
+        "values_redacted": table.get("values_redacted") is True,
+    }
+
+
 def _merge_findings(primary: dict, duplicate: dict) -> dict:
     merged = dict(primary)
 
@@ -106,6 +133,54 @@ def _merge_findings(primary: dict, duplicate: dict) -> dict:
             evidence.append(text.strip())
     merged["evidence"] = "; ".join(evidence)[:3000]
 
+    table_evidence_by_name = {}
+    for finding in (primary, duplicate):
+        for table in finding.get("table_evidence", []) or []:
+            table = _sanitize_table_evidence(table)
+            if table is None:
+                continue
+            database = table.get("database")
+            key = (
+                str(database or "").casefold(),
+                table["table"].casefold(),
+            )
+            existing_table = table_evidence_by_name.get(key)
+            if existing_table is None:
+                table_evidence_by_name[key] = dict(table)
+                continue
+
+            columns = list(dict.fromkeys(
+                existing_table.get("columns", []) + table.get("columns", [])
+            ))
+            preview = []
+            for source in (existing_table, table):
+                source_columns = source.get("columns", [])
+                for row in source.get("preview", []):
+                    values = dict(zip(source_columns, row))
+                    preview.append([values.get(column, "") for column in columns])
+            unique_preview = []
+            for row in preview:
+                if row not in unique_preview:
+                    unique_preview.append(row)
+            existing_table.update({
+                "row_count": max(
+                    existing_table.get("row_count", 0),
+                    table.get("row_count", 0),
+                ),
+                "truncated": (
+                    existing_table.get("truncated", False)
+                    or table.get("truncated", False)
+                ),
+                "columns": columns,
+                "preview": unique_preview[:5],
+                "values_redacted": (
+                    existing_table.get("values_redacted") is True
+                    or table.get("values_redacted") is True
+                ),
+            })
+    if table_evidence_by_name:
+        merged["table_evidence"] = list(table_evidence_by_name.values())
+
     command = duplicate.get("reproducible_command")
     current_command = str(merged.get("reproducible_command") or "")
     if (
@@ -144,7 +219,22 @@ def guard_validate_output(output: dict) -> tuple[dict, int]:
             _canonical_type(finding.get("type")),
             _endpoint_identity(endpoint),
         )
-        grouped.setdefault(key, []).append((index, dict(finding)))
+        safe_finding = dict(finding)
+        if "table_evidence" in safe_finding:
+            evidence = safe_finding.get("table_evidence")
+            sanitized = [
+                item
+                for item in (
+                    _sanitize_table_evidence(table)
+                    for table in evidence
+                )
+                if item is not None
+            ] if isinstance(evidence, list) else []
+            if sanitized:
+                safe_finding["table_evidence"] = sanitized
+            else:
+                safe_finding.pop("table_evidence", None)
+        grouped.setdefault(key, []).append((index, safe_finding))
 
     consolidated: list[tuple[int, dict]] = []
     removed = 0

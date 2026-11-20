@@ -295,6 +295,82 @@ const ResultList = ({
   );
 };
 
+const SQLiTableEvidence = ({
+  tables,
+}: {
+  tables: NonNullable<AgentWebSocketEvent["payload"]["vulnerability"]>["tableEvidence"];
+}) => {
+  if (!tables?.length) return null;
+
+  return (
+    <section className={styles.tableEvidence} aria-label="Evidencia de tablas SQL">
+      <h4 className={styles.tableEvidenceTitle}>Evidencia de tablas</h4>
+      {tables.map((table, tableIndex) => {
+        const columns = Array.isArray(table.columns) ? table.columns : [];
+        const preview = Array.isArray(table.preview) ? table.preview.slice(0, 5) : [];
+        const rowCount = Number.isFinite(table.rowCount) ? table.rowCount : 0;
+        const tableName = table.database
+          ? `${table.database}.${table.table}`
+          : table.table;
+
+        return (
+          <div
+            className={styles.tableEvidenceItem}
+            key={`${tableName}-${tableIndex}`}
+          >
+            <div className={styles.tableEvidenceHeader}>
+              <strong>{tableName}</strong>
+              <span>
+                {rowCount} filas{table.truncated ? " o más" : ""}
+              </span>
+            </div>
+            {columns.length > 0 ? (
+              <div className={styles.tableEvidenceScroller}>
+                <table className={styles.tableEvidenceTable}>
+                  <thead>
+                    <tr>
+                      {columns.map((column, columnIndex) => (
+                        <th scope="col" key={`${column}-${columnIndex}`}>{column}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {preview.length > 0 ? (
+                      preview.map((row, rowIndex) => (
+                        <tr key={rowIndex}>
+                          {columns.map((_, columnIndex) => (
+                            <td key={columnIndex}>{String(row?.[columnIndex] ?? "")}</td>
+                          ))}
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={columns.length}>
+                          {rowCount > 0
+                            ? "No hay filas de muestra disponibles."
+                            : "La tabla no devolvió filas."}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className={styles.evidence}>No se recibieron nombres de columnas.</p>
+            )}
+            {preview.length > 0 && (
+              <p className={styles.tableEvidenceNotice}>
+                Muestra de {preview.length} fila{preview.length === 1 ? "" : "s"} recuperada
+                {preview.length === 1 ? "" : "s"} por SQLMap.
+              </p>
+            )}
+          </div>
+        );
+      })}
+    </section>
+  );
+};
+
 export const PanelView = ({
   taskId,
   events,
@@ -547,6 +623,7 @@ export const PanelView = ({
                   {vulnerability.evidence && (
                     <p className={styles.evidence}>{vulnerability.evidence}</p>
                   )}
+                  <SQLiTableEvidence tables={vulnerability.tableEvidence} />
                   <div className={styles.vulnerabilityFooter}>
                     {vulnerability.toolsUsed && vulnerability.toolsUsed.length > 0 && (
                       <span>Herramientas: {vulnerability.toolsUsed.join(", ")}</span>

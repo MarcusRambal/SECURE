@@ -5,9 +5,11 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-RUN pip install --no-cache-dir sqlmap==1.10.10
+RUN pip install --no-cache-dir sqlmap==1.10.10 bcrypt==4.3.0
 
 COPY tools/sqli_map/sqli_map.py /app/sqli_map.py
 COPY tools/sqli_map/SKILL.md /app/SKILL.md
+RUN --mount=type=bind,source=tools/sqli_map,target=/wordlists \
+    if [ -f /wordlists/rockyou.txt ]; then cp /wordlists/rockyou.txt /app/rockyou.txt; fi
 
 ENTRYPOINT ["python", "/app/sqli_map.py"]

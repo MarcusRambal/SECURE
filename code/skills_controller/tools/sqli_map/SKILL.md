@@ -8,10 +8,36 @@
 
 ### `sqli_map` validation behavior
 
+The `local-sqli-map` image includes `sqlmap` and Python `bcrypt`. If the optional,
+Git-ignored `tools/sqli_map/rockyou.txt` exists when building, it is included
+at `/app/rockyou.txt`; otherwise the internal password list is used. Rebuild after changes with
+`docker compose build build-sqli-map` from the `code` directory. For direct local
+execution, install `sqlmap==1.10.10` and `bcrypt==4.3.0` in a Python virtual
+environment. Bcrypt hashes with cost above 4 are identified but not tested
+against the dictionary; cost 4 or lower is tested against at most its first
+1,000 entries.
+
 The `validate` action tests only the selected, observed parameter. When SQLMap
 confirms injection, it lists database and table names to provide schema context.
 It does not enumerate columns, check privileges, or retrieve table rows. The
 standalone `detect` action performs detection only.
+
+For isolated lab detection, `--action detect --technique BEU` limits SQLMap to
+boolean, error and UNION techniques, excluding time-based tests. This is a
+reduced coverage mode and does not change the default scan behavior.
+From the `code` directory, `python3 skills_controller/tools/sqli_map/run_lab_checks.py`
+runs 20 rounds of the weak-page SQLI_LOGIN/SQLI_SEARCH matrix (160 detection
+scans total), saves reports and logs, and stops if the lab health endpoint is
+unavailable. The matrix overrides only those two flags; UNION_SQLI_DUMP is left
+unchanged. Use `--runs 1` for a quick pass or `--runs N` to choose another count.
+It requires the `local-sqli-map:latest` image, the `sec-net` Docker network,
+and weak-page running.
+
+Extraction reports keep table names, observed columns, row counts, and truncation
+status, with up to five recovered rows as evidence. Each extraction queries the
+target again unless `skip_dump` is explicitly requested; any old
+`.dump_state.json` is ignored. This can take longer and increase the load on the
+target. Saved JSON reports remain historical snapshots.
 
 ### Step 1: Identify Potential Injection Points
 

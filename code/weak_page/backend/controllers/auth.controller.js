@@ -3,7 +3,7 @@ import jwt from "jsonwebtoken";
 import { db } from "../utils/sql.js";
 import { isVulnerable } from "../config/securityMode.js";
 import {
-  verifyPassword, preparePassword, safeUser,
+  detectFormat, verifyPassword, preparePassword, safeUser,
   findUserByEmail, findUserById
 } from "../services/user.service.js";
 
@@ -49,11 +49,18 @@ export async function login(req, res, next) {
         err.sql = sql;
         return next(err); // errorHandler devuelve stack + SQL en modo vulnerable
       }
+      if (!user) {
+        const candidate = findUserByEmail(email);
+        if (candidate && detectFormat(candidate.password) === "bcrypt" &&
+            await verifyPassword(password, candidate, req)) {
+          user = candidate;
+        }
+      }
     } else {
       // ✅ Login seguro
       user = findUserByEmail(email);
       if (user) {
-        const ok = await verifyPassword(password, user.password, req);
+        const ok = await verifyPassword(password, user, req);
         if (!ok) user = null;
       }
     }

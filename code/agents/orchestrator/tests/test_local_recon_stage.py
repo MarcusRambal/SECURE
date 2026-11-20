@@ -228,6 +228,16 @@ class OrchestratorFailureFlowTests(unittest.IsolatedAsyncioTestCase):
                 "severity": "CRITICAL",
                 "endpoint": "https://example.test/search",
                 "evidence": "evidence",
+                "table_evidence": [{
+                    "database": "SQLite",
+                    "table": "users",
+                    "row_count": 1,
+                    "truncated": False,
+                    "columns": ["email"],
+                    "preview": [["customer@example.test"]],
+                    "status": "retrieved",
+                    "values_redacted": False,
+                }],
             }],
         }
         with (
@@ -254,6 +264,14 @@ class OrchestratorFailureFlowTests(unittest.IsolatedAsyncioTestCase):
         ]
         self.assertEqual(len(finding_events), 1)
         self.assertEqual(finding_events[0].kwargs["vulnerability"]["severity"], "CRITICAL")
+        self.assertEqual(
+            finding_events[0].kwargs["vulnerability"]["tableEvidence"][0]["table"],
+            "users",
+        )
+        self.assertEqual(
+            finding_events[0].kwargs["vulnerability"]["tableEvidence"][0]["preview"],
+            [["customer@example.test"]],
+        )
 
 
 if __name__ == "__main__":

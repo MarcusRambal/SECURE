@@ -5,6 +5,7 @@ import "dotenv/config";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
+import bcrypt from "bcrypt";
 import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 
@@ -14,17 +15,31 @@ const DB_PATH = path.join(ROOT, "db", "dulceNube.sqlite");
 const PUBLIC = path.join(ROOT, "public");
 
 const md5 = (s) => crypto.createHash("md5").update(s).digest("hex");
+const BCRYPT_WEAK_ROUNDS = 4;
+const BCRYPT_ROUNDS = 12;
+const EXTRA_LOGIN_DELAY_MS = 1000;
 
 // ─────────────────────────────────────────────────────────────
-// Usuarios seed — contraseñas débiles, almacenadas con MD5 (reto C2)
+// Usuarios seed — perfiles de almacenamiento para el laboratorio local
 // ─────────────────────────────────────────────────────────────
 const USERS = [
-  { name: "Admin Dulce Nube", email: "admin@dulcenube.com", password: "admin123", role: "admin"    },
-  { name: "María López",      email: "maria@example.com",   password: "maria123", role: "customer" },
-  { name: "Pedro Ruiz",       email: "pedro@example.com",   password: "123456",   role: "customer" },
-  { name: "Lucía Fernández",  email: "lucia@example.com",   password: "password", role: "customer" },
-  { name: "Carlos Gómez",     email: "carlos@example.com",  password: "qwerty",   role: "customer" }
+  { name: "Admin Dulce Nube", email: "admin@dulcenube.com", password: "admin123", role: "admin",    scheme: "plain",     delay: 0 },
+  { name: "María López",      email: "maria@example.com",   password: "maria123", role: "customer", scheme: "md5",       delay: 0 },
+  { name: "Pedro Ruiz",       email: "pedro@example.com",   password: "123456",   role: "customer", scheme: "bcrypt-4",  delay: 0 },
+  { name: "Lucía Fernández",  email: "lucia@example.com",   password: "password", role: "customer", scheme: "bcrypt-12", delay: 0 },
+  { name: "Carlos Gómez",     email: "carlos@example.com",  password: "qwerty",   role: "customer", scheme: "bcrypt-12", delay: EXTRA_LOGIN_DELAY_MS }
 ];
+
+const ENCODE_PASSWORD = {
+  plain: (password) => password,
+  md5,
+  "bcrypt-4": (password) => bcrypt.hash(password, BCRYPT_WEAK_ROUNDS),
+  "bcrypt-12": (password) => bcrypt.hash(password, BCRYPT_ROUNDS)
+};
+const SEEDED_USERS = await Promise.all(USERS.map(async (user) => ({
+  ...user,
+  storedPassword: await ENCODE_PASSWORD[user.scheme](user.password)
+})));
 
 // ─────────────────────────────────────────────────────────────
 // Productos
@@ -69,12 +84,12 @@ db.pragma("journal_mode = WAL");
 console.log("[seed] Aplicando schema.sql");
 db.exec(fs.readFileSync(path.join(__dirname, "schema.sql"), "utf8"));
 
-console.log(`[seed] Insertando ${USERS.length} usuarios (MD5 para reto C2)`);
+console.log("[seed] Insertando usuarios: texto plano, MD5, bcrypt-4, bcrypt-12 y bcrypt-12 + 1000ms");
 const insertUser = db.prepare(
-  "INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)"
+  "INSERT INTO users (name, email, password, login_delay_ms, role) VALUES (?, ?, ?, ?, ?)"
 );
-for (const u of USERS) {
-  insertUser.run(u.name, u.email, md5(u.password), u.role);
+for (const u of SEEDED_USERS) {
+  insertUser.run(u.name, u.email, u.storedPassword, u.delay, u.role);
 }
 
 console.log(`[seed] Insertando ${PRODUCTS.length} productos`);
@@ -120,7 +135,7 @@ console.log("[seed] Preparando archivos del reto B3 en public/");
 fs.mkdirSync(path.join(PUBLIC, "logs"),   { recursive: true });
 fs.mkdirSync(path.join(PUBLIC, "admin"),  { recursive: true });
 
-// Copia de la BD (con hash MD5 de admin dentro)
+// Copia de la BD con los cinco perfiles de almacenamiento
 fs.copyFileSync(DB_PATH, path.join(PUBLIC, "database.sqlite"));
 
 // .env falso — coherente con el modo vulnerable (JWT_WEAK_SECRET usa "secret")
@@ -147,10 +162,10 @@ fs.writeFileSync(
     "-- Dump de dulceNube.sqlite",
     "-- Generado automáticamente, no compartir",
     "",
-    "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, email TEXT, password TEXT, role TEXT);",
+    "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, email TEXT, password TEXT, login_delay_ms INTEGER, role TEXT);",
     "INSERT INTO users VALUES",
-    USERS.map((u, i) =>
-      `  (${i + 1}, '${u.name}', '${u.email}', '${md5(u.password)}', '${u.role}')`
+    SEEDED_USERS.map((u, i) =>
+      `  (${i + 1}, '${u.name}', '${u.email}', '${u.storedPassword}', ${u.delay}, '${u.role}')`
     ).join(",\n") + ";",
     "",
     "CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT, category TEXT, price REAL);",

@@ -93,6 +93,82 @@ class SqliMapHandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(report["profile"]["databases"], ["main"])
         self.assertEqual(report["profile"]["tables"][0]["tables"], ["users"])
 
+    @patch("handlers.sqli_map_handler.save_skill_report")
+    @patch(
+        "handlers.sqli_map_handler.docker_runner.execute_tool",
+        new_callable=AsyncMock,
+    )
+    async def test_repeat_extract_returns_fresh_table_evidence(
+        self, execute_tool, save_report
+    ):
+        rows = [
+            {"email": f"user{i}@example.test", "password": f"secret{i}", "id": str(i)}
+            for i in range(1, 6)
+        ]
+        execute_tool.side_effect = [
+            {
+                "status": "SUCCESS",
+                "output": REPORT_MARKER + json.dumps({
+                    "action": "extract",
+                    "status": "completed",
+                    "result": {"injectable": True, "database": "SQLite"},
+                    "profile": {"status": "completed"},
+                    "dumps": [{
+                        "database": "SQLite",
+                        "table": "users",
+                        "row_count": 5,
+                        "truncated": False,
+                        "rows": rows,
+                    }],
+                }),
+            },
+            {
+                "status": "SUCCESS",
+                "output": REPORT_MARKER + json.dumps({
+                    "action": "extract",
+                    "status": "completed",
+                    "dumps": [{
+                        "database": "SQLite",
+                        "table": "users",
+                        "row_count": 1,
+                        "rows": [{"email": "new@example.test"}],
+                    }],
+                }),
+            },
+        ]
+        save_report.return_value = "report.json"
+
+        first = json.loads(await execute_sqli_map({
+            "action": "extract",
+            "target_url": "http://juice-shop:3000/api/users?id=7",
+            "param": "id",
+        }))
+        second = json.loads(await execute_sqli_map({
+            "action": "extract",
+            "target_url": "http://juice-shop:3000/api/users?id=7",
+            "param": "id",
+        }))
+
+        self.assertIn("user5@example.test", json.dumps(first))
+        self.assertEqual(first["evidence"]["source"], "current")
+        self.assertEqual(first["evidence"]["tables"][0]["table"], "users")
+        self.assertEqual(first["evidence"]["tables"][0]["row_count"], 5)
+        self.assertEqual(
+            first["evidence"]["tables"][0]["columns"],
+            ["email", "id", "password"],
+        )
+        self.assertEqual(
+            first["evidence"]["tables"][0]["preview"],
+            [[row["email"], row["id"], row["password"]] for row in rows],
+        )
+        self.assertFalse(first["evidence"]["tables"][0]["values_redacted"])
+        self.assertNotIn("rows", first["dumps"][0])
+
+        self.assertEqual(execute_tool.call_count, 2)
+        self.assertNotIn("--skip-dump", execute_tool.call_args_list[1].kwargs["command"])
+        self.assertEqual(second["evidence"]["source"], "current")
+        self.assertEqual(second["evidence"]["tables"][0]["preview"], [["new@example.test"]])
+
 
 if __name__ == "__main__":
     unittest.main()

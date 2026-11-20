@@ -481,6 +481,20 @@ def create_orchestrator_tools(channel: aio_pika.Channel) -> list[StructuredTool]
                     "parameter": finding.get("parameter"),
                     "method": finding.get("method"),
                     "evidence": finding.get("evidence"),
+                    "tableEvidence": [
+                        {
+                            "database": table.get("database"),
+                            "table": table.get("table"),
+                            "rowCount": table.get("row_count", 0),
+                            "truncated": table.get("truncated", False),
+                            "columns": table.get("columns", []),
+                            "preview": table.get("preview", []),
+                            "status": table.get("status", "retrieved"),
+                            "valuesRedacted": table.get("values_redacted", False),
+                        }
+                        for table in finding.get("table_evidence", [])
+                        if isinstance(table, dict)
+                    ] if isinstance(finding.get("table_evidence"), list) else [],
                     "confidence": finding.get("confidence"),
                     "toolsUsed": finding.get("tools_used", []),
                     "verificationSteps": finding.get("verification_steps"),

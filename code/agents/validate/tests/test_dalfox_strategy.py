@@ -441,17 +441,23 @@ class DalfoxStrategyTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(plan["cleanup"]["path_template"], "/api/comments/{id}")
 
-    async def test_generic_plans_try_each_parameter_until_verified(self):
+    async def test_generic_plans_continue_after_inconclusive_and_find_two(self):
         strategy = get_validation_strategy("xss")
         target = {
             "target_id": "search",
             "request_id": "req-search",
-            "url": "https://example.test/api/products?category=tartas&q=probe",
+            "url": (
+                "https://example.test/api/products?"
+                "category=tartas&q=probe&sort=recent"
+            ),
             "method": "GET",
             "recommended_tool": "browserXssValidator",
             "request": {
                 "method": "GET",
-                "url": "https://example.test/api/products?category=tartas&q=probe",
+                "url": (
+                    "https://example.test/api/products?"
+                    "category=tartas&q=probe&sort=recent"
+                ),
                 "observed_on": ["https://example.test/#/catalog"],
                 "reflected_parameters": ["q"],
             },
@@ -462,8 +468,8 @@ class DalfoxStrategyTests(unittest.IsolatedAsyncioTestCase):
                     "tool": "browserXssValidator",
                     "target": "https://example.test",
                     "mode": "reflected_dom",
-                    "outcome": "NO_XSS",
-                    "evidence": "The synthetic marker was absent.",
+                    "outcome": "INCONCLUSIVE",
+                    "evidence": "The browser validation was inconclusive.",
                 }
             ),
             json.dumps(
@@ -472,7 +478,16 @@ class DalfoxStrategyTests(unittest.IsolatedAsyncioTestCase):
                     "target": "https://example.test",
                     "mode": "reflected_dom",
                     "outcome": "VULNERABLE",
-                    "evidence": "Chromium observed execution.",
+                    "evidence": "Chromium observed execution for category.",
+                }
+            ),
+            json.dumps(
+                {
+                    "tool": "browserXssValidator",
+                    "target": "https://example.test",
+                    "mode": "reflected_dom",
+                    "outcome": "VULNERABLE",
+                    "evidence": "Chromium observed execution for sort.",
                 }
             ),
         ]
@@ -485,15 +500,22 @@ class DalfoxStrategyTests(unittest.IsolatedAsyncioTestCase):
                 None, "https://example.test", [target], "task-params", []
             )
 
-        self.assertEqual(call_skill.await_count, 2)
+        self.assertEqual(call_skill.await_count, 3)
         self.assertEqual(
             [call.args[2]["plan"]["parameter"] for call in call_skill.await_args_list],
-            ["q", "category"],
+            ["q", "category", "sort"],
         )
         self.assertEqual(
             [item["status"] for item in evidence.pre_executed_context],
-            ["NO_FINDINGS", "VERIFIED"],
+            ["INCONCLUSIVE", "VERIFIED", "VERIFIED"],
         )
+        output = strategy.build_deterministic_output(
+            evidence,
+            "https://example.test",
+            "2026-01-01T00:00:00+00:00",
+        )
+        self.assertEqual(len(output.vulnerabilities), 2)
+        self.assertEqual(len(output.unconfirmed_findings), 1)
 
     def test_browser_confirmation_survives_mixed_tool_results_without_llm_finding(self):
         strategy = get_validation_strategy("xss")

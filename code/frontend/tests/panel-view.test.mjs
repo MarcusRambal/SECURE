@@ -92,6 +92,49 @@ test("shows XSS evidence without a redundant verification section", () => {
   assert.match(html, /Pasos SQL/);
 });
 
+test("renders SQLi table evidence with extracted preview values", () => {
+  const html = renderPanel([
+    {
+      title: "SQL Injection",
+      severity: "HIGH",
+      tableEvidence: [{
+        database: "SQLite",
+        table: "users",
+        rowCount: 1,
+        truncated: false,
+        columns: ["email", "password"],
+        preview: [["alice@example.test", "plaintext-secret"]],
+        status: "retrieved",
+        valuesRedacted: false,
+      }],
+    },
+  ]);
+  assert.match(html, /Evidencia de tablas/);
+  assert.match(html, /SQLite\.users/);
+  assert.match(html, /1 filas/);
+  assert.match(html, /<th[^>]*>email<\/th>/);
+  assert.match(html, /<th[^>]*>password<\/th>/);
+  assert.match(html, /alice@example\.test/);
+  assert.match(html, /plaintext-secret/);
+  assert.match(html, /Muestra de 1 fila recuperada por SQLMap/);
+});
+
+test("renders all five SQLi evidence rows", () => {
+  const html = renderPanel([{
+    title: "SQL Injection",
+    severity: "HIGH",
+    tableEvidence: [{
+      table: "users",
+      rowCount: 5,
+      columns: ["email"],
+      preview: Array.from({ length: 5 }, (_, i) => [`user${i + 1}@example.test`]),
+    }],
+  }]);
+
+  assert.match(html, /user5@example\.test/);
+  assert.match(html, /Muestra de 5 filas recuperadas por SQLMap/);
+});
+
 test("renders report paragraphs, warnings and tables as separate blocks", () => {
   const report = [
     "# Informe",

@@ -76,3 +76,45 @@ test("A4 OFF stays generic with SQLI_LOGIN ON for another invalid password", asy
 
   assert.equal(messages.known, messages.unknown);
 });
+
+test("SQLI_LOGIN ON still authenticates seeded bcrypt profiles", async () => {
+  const credentials = [
+    ["pedro@example.com", "123456"],
+    ["lucia@example.com", "password"],
+    ["carlos@example.com", "qwerty"]
+  ];
+
+  for (const [email, password] of credentials) {
+    const result = { status: null, body: null, error: null };
+    const res = {
+      status(code) {
+        result.status = code;
+        return this;
+      },
+      json(body) {
+        result.body = body;
+        return this;
+      }
+    };
+
+    await login(
+      {
+        body: { email, password },
+        vulnerabilityOverrides: {
+          SQLI_LOGIN: true,
+          JWT_WEAK_SECRET: true,
+          JWT_NO_EXPIRY: true
+        }
+      },
+      res,
+      error => {
+        result.error = error;
+      }
+    );
+
+    assert.equal(result.error, null);
+    assert.equal(result.status, null);
+    assert.ok(result.body.token);
+    assert.equal(result.body.user.login_delay_ms, undefined);
+  }
+});

@@ -6,7 +6,12 @@ import { isVulnerable } from "../config/securityMode.js";
  * - A1 JWT_ALG_NONE:    acepta tokens sin firma (alg:none).
  * - A2 JWT_WEAK_SECRET: verifica con "secret" en vez de process.env.JWT_SECRET.
  * - HS256 se declara explícitamente en `verify` para no depender de defaults.
- */
+ */ 
+
+
+/* El estándar JWT permite un algoritmo llamado none (usado para tokens sin firma). Si el servidor acepta este algoritmo, un atacante puede interceptar un token válido,
+ decodificarlo, cambiar el payload (ej. cambiar "role": "customer" por "role": "admin") 
+ y volver a firmarlo con "alg": "none". */
 function _verifyToken(req, token) {
   if (isVulnerable("JWT_ALG_NONE", req)) {
     const decoded = jwt.decode(token, { complete: true });

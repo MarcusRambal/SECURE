@@ -87,6 +87,17 @@ export interface ScanEndpoint {
     recommendedTool?: string;
 }
 
+export interface TableEvidence {
+    database: string | null;
+    table: string;
+    rowCount: number;
+    truncated: boolean;
+    columns: string[];
+    preview: string[][];
+    status: 'error' | 'retrieved' | 'empty';
+    valuesRedacted: boolean;
+}
+
 export interface AgentWebSocketEvent {
     taskId: string;
     timestamp: string;
@@ -108,6 +119,7 @@ export interface AgentWebSocketEvent {
             parameter?: string;
             method?: string;
             evidence?: string;
+            tableEvidence?: TableEvidence[];
             confidence?: 'HIGH' | 'MEDIUM' | 'LOW';
             toolsUsed?: string[];
             verificationSteps?: string;

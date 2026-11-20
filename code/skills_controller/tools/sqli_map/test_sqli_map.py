@@ -1,4 +1,5 @@
 import subprocess
+import hashlib
 import unittest
 from unittest.mock import patch
 from types import SimpleNamespace
@@ -6,11 +7,60 @@ from types import SimpleNamespace
 from sqli_map import (
     SQLMAP_COMMAND_TIMEOUT_SECONDS,
     SqlmapCommandTimeout,
+    _crack_hashes,
     _extract_db_type,
     _extract_techniques,
     run_detection_scan,
 )
 from sqli_map import enumerate_databases, enumerate_tables, run_validation_scan
+
+
+class HashAnalysisTests(unittest.TestCase):
+    @patch("sqli_map._get_dictionary", side_effect=lambda: iter(["outside-internal-list", "other"]))
+    def test_hash_analysis_uses_dictionary_and_skips_expensive_bcrypt(self, _dictionary):
+        import bcrypt
+
+        weak = bcrypt.hashpw(b"outside-internal-list", bcrypt.gensalt(rounds=4)).decode()
+        strong = bcrypt.hashpw(b"outside-internal-list", bcrypt.gensalt(rounds=4)).decode()
+        strong = strong.replace("$04$", "$12$", 1)
+        rows = [
+            {"password": hashlib.md5(b"outside-internal-list").hexdigest()},
+            {"password": weak},
+            {"password": strong},
+            {"password": "plain-secret"},
+            {"password": hashlib.md5(b"missing").hexdigest()},
+        ]
+
+        _crack_hashes([{"rows": rows}])
+
+        self.assertEqual(rows[0]["password_cracked"], "outside-internal-list")
+        self.assertEqual(rows[1]["password_cracked"], "outside-internal-list")
+        self.assertEqual(rows[2]["password_bcrypt_cost"], 12)
+        self.assertIn("skipped", rows[2]["password_crack_note"])
+        self.assertNotIn("password_cracked", rows[2])
+        self.assertTrue(rows[3]["password_plaintext_exposed"])
+        self.assertEqual(rows[4]["password_crack_note"], "not_in_wordlist")
+
+    @patch("sqli_map._get_dictionary", side_effect=lambda: iter(["example"]))
+    def test_extract_processes_dump_without_cached_state(self, _dictionary):
+        from sqli_map import run_extraction_scan
+
+        with (
+            patch("sqli_map.run_detection_scan", return_value={
+                "exit_code": 0, "injectable": True, "database": "SQLite",
+            }),
+            patch("sqli_map.run_schema_scan", return_value={
+                "tables": [{"database": "SQLite", "tables": ["users"]}],
+            }),
+            patch("sqli_map.dump_table", return_value={
+                "table": "users", "row_count": 1,
+                "rows": [{"password": hashlib.md5(b"example").hexdigest()}],
+            }),
+        ):
+            report = run_extraction_scan("sqlmap", "http://example.test", "id")
+
+        self.assertEqual(report["status"], "completed")
+        self.assertEqual(report["dumps"][0]["rows"][0]["password_cracked"], "example")
 
 
 class SqlmapReportParsingTests(unittest.TestCase):
@@ -63,6 +113,19 @@ class SqlmapReportParsingTests(unittest.TestCase):
         self.assertTrue(result["injectable"])
         self.assertEqual(result["database"], "SQLite")
         self.assertEqual(result["techniques"], ["boolean-based"])
+
+    @patch("sqli_map.subprocess.run")
+    def test_detection_forwards_selected_techniques_without_changing_defaults(self, run):
+        run.return_value = SimpleNamespace(stdout="", stderr="", returncode=0)
+
+        run_detection_scan("sqlmap", "http://example.test/?q=x", param="q")
+        self.assertNotIn("--technique", run.call_args.args[0])
+
+        run_detection_scan(
+            "sqlmap", "http://example.test/?q=x", param="q", technique="BEU"
+        )
+        command = run.call_args.args[0]
+        self.assertEqual(command[command.index("--technique") + 1], "BEU")
 
     @patch("sqli_map.subprocess.run", side_effect=subprocess.TimeoutExpired("sqlmap", 300))
     def test_detection_timeout_is_reported_without_claiming_a_negative_result(self, run):

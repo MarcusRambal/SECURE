@@ -380,6 +380,71 @@
   overflow-wrap: anywhere;
 }
 
+.tableEvidence {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  margin-top: 0.9rem;
+}
+
+.tableEvidenceTitle {
+  margin: 0;
+  color: var(--color-purple-100);
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+
+.tableEvidenceItem {
+  min-width: 0;
+  padding: 0.75rem;
+  border: 1px solid rgba(136, 0, 163, 0.3);
+  border-radius: 10px;
+  background: rgba(10, 0, 13, 0.38);
+}
+
+.tableEvidenceHeader {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.4rem 0.8rem;
+  margin-bottom: 0.65rem;
+  color: var(--color-purple-100);
+  font-size: 0.76rem;
+}
+
+.tableEvidenceScroller {
+  overflow-x: auto;
+  scrollbar-color: var(--color-purple-300) var(--color-purple-950);
+}
+
+.tableEvidenceTable {
+  width: 100%;
+  border-collapse: collapse;
+  color: var(--color-purple-200);
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.68rem;
+}
+
+.tableEvidenceTable th,
+.tableEvidenceTable td {
+  min-width: 5.5rem;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid rgba(228, 92, 255, 0.2);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.tableEvidenceTable th {
+  color: var(--color-purple-100);
+  font-weight: 650;
+}
+
+.tableEvidenceNotice {
+  margin-top: 0.55rem;
+  color: var(--color-purple-300);
+  font-size: 0.68rem;
+}
+
 .vulnerabilityFooter {
   justify-content: flex-start;
   margin-top: 0.75rem;
