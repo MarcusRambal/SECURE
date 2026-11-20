@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { createApp } from "./app.js";
+import { isVulnerable } from "../config/securityMode.js";
 import { VULNERABILITIES } from "../config/vulnerabilities.js";
 import { DB_FILE_PATH } from "../utils/sql.js";
 import fs from "node:fs";
@@ -25,7 +26,7 @@ app.listen(PORT, () => {
   console.log("  ────────────────────────────────────────");
 
   if (MODE !== "secure") {
-    const activas = Object.entries(VULNERABILITIES).filter(([, v]) => v).length;
+    const activas = Object.keys(VULNERABILITIES).filter((flag) => isVulnerable(flag)).length;
     console.log(`  Flags vulnerables activos: ${activas}/${Object.keys(VULNERABILITIES).length}`);
     console.log("  Solo uso local. NO desplegar en producción.");
   }

