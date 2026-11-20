@@ -48,6 +48,34 @@ const JWT_TOKEN_REFRESH_FLAGS = new Set([
 // Flags JWT ya modificados en esta sesión (para el banner persistente).
 const jwtFlagsChanged = new Set();
 
+const LEVEL_OPTIONS = {
+  IDOR_ORDERS: [
+    "Secuencial predecible",
+    "Base64URL ofuscado",
+    "Propiedad validada"
+  ],
+  JWT_NO_EXPIRY: [
+    "Sin exp",
+    "Exp emitido, ignorado",
+    "Exp validado · 15 min",
+    "Exp validado · 5 min"
+  ]
+};
+
+function isFlagVulnerable(flag, value) {
+  if (flag === "IDOR_ORDERS") return value < 3;
+  if (flag === "JWT_NO_EXPIRY") return value <= 2;
+  return value === true;
+}
+
+function flagStatus(flag, value) {
+  if (LEVEL_OPTIONS[flag]) {
+    const levelName = LEVEL_OPTIONS[flag][value - 1] || "Nivel inválido";
+    return `NIVEL ${value} · ${levelName}`;
+  }
+  return value ? "VULNERABLE" : "SEGURO";
+}
+
 // ── Flash messages (self-contained, sin dependencias) ──────
 function flash(msg, type = "info") {
   const el = document.createElement("div");
@@ -62,12 +90,33 @@ function flash(msg, type = "info") {
 }
 
 // ── Render helpers ─────────────────────────────────────────
-function vulnCard(flag, meta, isActive) {
+function vulnCard(flag, meta, value) {
+  const isActive = isFlagVulnerable(flag, value);
+  if (LEVEL_OPTIONS[flag]) {
+    return `
+      <div class="vuln-card ${isActive ? "on" : "off"}" data-flag="${flag}" data-level-card="true">
+        <div class="vuln-head">
+          <span class="vuln-icon">${meta.icon}</span>
+          <span class="vuln-status">${flagStatus(flag, value)}</span>
+        </div>
+        <div class="vuln-name">${meta.name}</div>
+        <div class="vuln-desc">${meta.desc}</div>
+        <code class="vuln-flag">${flag}</code>
+        <label class="vuln-level-label" for="level-${flag}">Nivel de exposición</label>
+        <select id="level-${flag}" data-level="${flag}">
+          ${LEVEL_OPTIONS[flag].map((name, index) => `
+            <option value="${index + 1}" ${value === index + 1 ? "selected" : ""}>
+              ${index + 1} — ${name}
+            </option>`).join("")}
+        </select>
+      </div>
+    `;
+  }
   return `
     <button class="vuln-card ${isActive ? "on" : "off"}" data-flag="${flag}" type="button">
       <div class="vuln-head">
         <span class="vuln-icon">${meta.icon}</span>
-        <span class="vuln-status">${isActive ? "VULNERABLE" : "SEGURO"}</span>
+        <span class="vuln-status">${flagStatus(flag, value)}</span>
       </div>
       <div class="vuln-name">${meta.name}</div>
       <div class="vuln-desc">${meta.desc}</div>
@@ -79,7 +128,7 @@ function vulnCard(flag, meta, isActive) {
 function renderGrid(flags) {
   return CATEGORIES.map((cat) => {
     const items = Object.keys(META).filter((k) => META[k].cat === cat.id);
-    const active = items.filter((f) => flags[f]).length;
+    const active = items.filter((f) => isFlagVulnerable(f, flags[f])).length;
     return `
       <section class="vuln-category" style="--cat-color:${cat.color}">
         <h3>${cat.label} <small>(${active}/${items.length} activas)</small></h3>
@@ -166,7 +215,8 @@ export async function bindScoreboard() {
   const paintAll = (data) => {
     currentFlags = data.flags;
     currentSecurityMode = data.securityMode || "vulnerable";
-    const allVulnerable = Object.values(currentFlags).every((v) => v === true);
+    const allVulnerable = Object.entries(currentFlags)
+      .every(([flag, value]) => isFlagVulnerable(flag, value));
     content.innerHTML = `
       ${renderBanner(currentSecurityMode)}
       ${renderMaster(allVulnerable)}
@@ -178,19 +228,24 @@ export async function bindScoreboard() {
   };
 
   const paintCard = (btn, flag, isActive) => {
-    btn.classList.toggle("on", isActive);
-    btn.classList.toggle("off", !isActive);
-    btn.querySelector(".vuln-status").textContent = isActive ? "VULNERABLE" : "SEGURO";
+    const value = isActive;
+    const vulnerable = isFlagVulnerable(flag, value);
+    btn.classList.toggle("on", vulnerable);
+    btn.classList.toggle("off", !vulnerable);
+    btn.querySelector(".vuln-status").textContent = flagStatus(flag, value);
 
     const cat = META[flag].cat;
     const catItems = Object.keys(META).filter((k) => META[k].cat === cat);
     const small = btn.closest(".vuln-category").querySelector("h3 small");
     if (small) {
-      const activeCount = catItems.filter((f) => currentFlags[f]).length;
+      const activeCount = catItems.filter((f) =>
+        isFlagVulnerable(f, currentFlags[f])
+      ).length;
       small.textContent = `(${activeCount}/${catItems.length} activas)`;
     }
 
-    const allVulnerable = Object.values(currentFlags).every((v) => v === true);
+    const allVulnerable = Object.entries(currentFlags)
+      .every(([name, value]) => isFlagVulnerable(name, value));
     const master = document.querySelector("#master-toggle");
     if (master) {
       master.textContent = allVulnerable
@@ -240,7 +295,7 @@ export async function bindScoreboard() {
   };
 
   const attachCards = () => {
-    content.querySelectorAll(".vuln-card").forEach((card) => {
+    content.querySelectorAll(".vuln-card:not([data-level-card])").forEach((card) => {
       card.addEventListener("click", async (e) => {
         const btn = e.currentTarget;
         const flag = btn.dataset.flag;
@@ -259,6 +314,25 @@ export async function bindScoreboard() {
           flash(`Error: ${err.message}`, "error");
         } finally {
           btn.disabled = false;
+        }
+      });
+    });
+
+    content.querySelectorAll("select[data-level]").forEach((select) => {
+      select.addEventListener("change", async (e) => {
+        const input = e.currentTarget;
+        const flag = input.dataset.level;
+        input.disabled = true;
+        try {
+          const data = await toggleVulnerability(flag, Number(input.value));
+          if (JWT_TOKEN_REFRESH_FLAGS.has(flag)) jwtFlagsChanged.add(flag);
+          paintAll(data);
+          flash(`${flag}: nivel ${data.flags[flag]}`, "info");
+        } catch (err) {
+          input.value = String(currentFlags[flag]);
+          flash(`Error: ${err.message}`, "error");
+        } finally {
+          input.disabled = false;
         }
       });
     });

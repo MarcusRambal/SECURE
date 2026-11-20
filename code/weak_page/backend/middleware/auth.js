@@ -1,5 +1,5 @@
 import jwt from "jsonwebtoken";
-import { isVulnerable } from "../config/securityMode.js";
+import { getVulnerabilityLevel, isVulnerable } from "../config/securityMode.js";
 
 /**
  * Verificación compartida por requireAuth y requireStrictAuth.
@@ -13,9 +13,14 @@ import { isVulnerable } from "../config/securityMode.js";
  decodificarlo, cambiar el payload (ej. cambiar "role": "customer" por "role": "admin") 
  y volver a firmarlo con "alg": "none". */
 function _verifyToken(req, token) {
+  const expiryLevel = getVulnerabilityLevel("JWT_NO_EXPIRY", req);
   if (isVulnerable("JWT_ALG_NONE", req)) {
     const decoded = jwt.decode(token, { complete: true });
     if (decoded?.header?.alg?.toLowerCase() === "none") {
+      if (expiryLevel >= 3 &&
+          (!Number.isFinite(decoded.payload?.exp) || decoded.payload.exp <= Date.now() / 1000)) {
+        return { ok: false, error: "jwt expired" };
+      }
       return { ok: true, user: decoded.payload };
     }
   }
@@ -23,7 +28,10 @@ function _verifyToken(req, token) {
     const secret = isVulnerable("JWT_WEAK_SECRET", req)
       ? "secret"
       : process.env.JWT_SECRET;
-    const user = jwt.verify(token, secret, { algorithms: ["HS256"] });
+    const user = jwt.verify(token, secret, {
+      algorithms: ["HS256"],
+      ignoreExpiration: expiryLevel <= 2
+    });
     return { ok: true, user };
   } catch (err) {
     return { ok: false, error: err.message };

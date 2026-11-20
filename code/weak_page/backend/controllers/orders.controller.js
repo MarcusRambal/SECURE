@@ -1,4 +1,4 @@
-import { isVulnerable } from "../config/securityMode.js";
+import { getVulnerabilityLevel, isVulnerable } from "../config/securityMode.js";
 import * as orderService from "../services/order.service.js";
 import { findById as findProductById } from "../services/product.service.js";
 
@@ -29,21 +29,20 @@ export function createOrder(req, res, next) {
 
 /**
  * GET /api/orders/:id
- * Acepta id numérico o code (DN-XXXX) para facilitar el frontend.
- * B1 IDOR: no comprueba dueño.
+ * En nivel 2 acepta el identificador público Base64URL, estable y derivado del id.
  */
 export function getOrder(req, res, next) {
   try {
     const param = req.params.id;
-    const lookup = Number.isNaN(Number(param))
-      ? (r) => orderService.findByCode(r, req)
-      : (r) => orderService.findById(Number(r), req);
-
-    const order = lookup(param);
+    const level = getVulnerabilityLevel("IDOR_ORDERS", req);
+    const order = level === 2
+      ? orderService.findByObfuscatedId(param, req)
+      : (Number.isNaN(Number(param))
+        ? orderService.findByCode(param, req)
+        : orderService.findById(Number(param), req));
     if (!order) return res.status(404).json({ message: "Pedido no encontrado" });
 
-    // B1: sin comprobación de dueño
-    if (isVulnerable("IDOR_ORDERS", req)) return res.json(order);
+    if (level < 3) return res.json(order);
 
     // ✅ Seguro: comprobar dueño o admin
     if (!req.user) return res.status(401).json({ message: "No autenticado" });

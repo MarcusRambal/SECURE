@@ -18,6 +18,17 @@ make_weak_jwt() {
   s=$(printf '%s' "$h.$p" | openssl dgst -sha256 -hmac "secret" -binary | base64 -w0 | tr '+/' '-_' | tr -d '=')
   printf '%s.%s.%s' "$h" "$p" "$s"
 }
+make_expired_jwt() {
+  python3 -c 'import base64,hashlib,hmac,json,time
+enc=lambda b: base64.urlsafe_b64encode(b).rstrip(b"=").decode()
+h=enc(json.dumps({"alg":"HS256","typ":"JWT"},separators=(",",":")).encode())
+p=enc(json.dumps({"id":2,"role":"customer","exp":int(time.time())-60},separators=(",",":")).encode())
+s=enc(hmac.new(b"secret",(h+"."+p).encode(),hashlib.sha256).digest())
+print(h+"."+p+"."+s)'
+}
+ttl_of() {
+  echo "$1" | cut -d. -f2 | tr '_-' '/+' | base64 -d 2>/dev/null | jq -r '.exp - .iat'
+}
 assert() {
   local desc="$1" expected="$2" actual="$3"
   if [ "$expected" = "$actual" ]; then
@@ -98,8 +109,8 @@ body -X POST $BASE/api/auth/register -H "Content-Type: application/json" -H "$OV
 assert "C1 mitigado: bcrypt" "true" \
   "$(body $BASE/api/admin/users | jq -r '.items[] | select(.email=="t2@test.lab") | .password | startswith("$2")')"
 
-assert "C2: admin es MD5" "true" \
-  "$(body $BASE/api/admin/users | jq -r '.items[] | select(.email=="admin@dulcenube.com") | .password | test("^[a-f0-9]{32}$")')"
+assert "C2: Maria es MD5" "true" \
+  "$(body $BASE/api/admin/users | jq -r '.items[] | select(.email=="maria@example.com") | .password | test("^[a-f0-9]{32}$")')"
 
 body -X POST $BASE/api/auth/register -H "Content-Type: application/json" \
   -d '{"name":"C3","email":"c3-target@test.lab","password":"Original123"}' > /dev/null
@@ -141,6 +152,12 @@ echo "▶ 🚪 BROKEN ACCESS CONTROL"
 
 assert "B1 vulnerable: maria ve pedro" "Pedro Ruiz" \
   "$(body $BASE/api/orders/2 -H "Authorization: Bearer $T_MARIA" | jq -r '.customer.name')"
+assert "B1 nivel 2: ID Base64URL permite ver pedido ajeno" "Pedro Ruiz" \
+  "$(body $BASE/api/orders/Mg -H "Authorization: Bearer $T_MARIA" -H "$OV: IDOR_ORDERS=2" | jq -r '.customer.name')"
+assert "B1 nivel 2: ID secuencial ya no es locator" "404" \
+  "$(code $BASE/api/orders/2 -H "Authorization: Bearer $T_MARIA" -H "$OV: IDOR_ORDERS=2")"
+assert "B1 nivel 3: propiedad validada" "403" \
+  "$(code $BASE/api/orders/2 -H "Authorization: Bearer $T_MARIA" -H "$OV: IDOR_ORDERS=3")"
 assert "B1 mitigado: 403" "403" \
   "$(code $BASE/api/orders/2 -H "Authorization: Bearer $T_MARIA" -H "$OV: IDOR_ORDERS=false")"
 
@@ -182,6 +199,24 @@ assert "A2 mitigado: 401" "401" \
 T_V=$(token_of "maria@example.com" "maria123")
 assert "A3 vulnerable: sin exp" "false" \
   "$(echo $T_V | cut -d. -f2 | base64 -d 2>/dev/null | jq 'has("exp")')"
+T_L2=$(body -X POST $BASE/api/auth/login -H "Content-Type: application/json" -H "$OV: JWT_NO_EXPIRY=2" \
+  -d '{"email":"maria@example.com","password":"maria123"}' | jq -r '.token')
+assert "A3 nivel 2: exp presente con TTL legado de 1h" "3600" "$(ttl_of "$T_L2")"
+T_L3=$(body -X POST $BASE/api/auth/login -H "Content-Type: application/json" -H "$OV: JWT_NO_EXPIRY=3" \
+  -d '{"email":"maria@example.com","password":"maria123"}' | jq -r '.token')
+assert "A3 nivel 3: TTL 15 minutos" "900" "$(ttl_of "$T_L3")"
+T_L4=$(body -X POST $BASE/api/auth/login -H "Content-Type: application/json" -H "$OV: JWT_NO_EXPIRY=4" \
+  -d '{"email":"maria@example.com","password":"maria123"}' | jq -r '.token')
+assert "A3 nivel 4: TTL 5 minutos" "300" "$(ttl_of "$T_L4")"
+EXPIRED=$(make_expired_jwt)
+assert "A3 nivel 1: expiración ignorada" "200" \
+  "$(code $BASE/api/auth/whoami -H "Authorization: Bearer $EXPIRED" -H "$OV: JWT_NO_EXPIRY=1,JWT_WEAK_SECRET=true")"
+assert "A3 nivel 2: expirada aún aceptada" "200" \
+  "$(code $BASE/api/auth/whoami -H "Authorization: Bearer $EXPIRED" -H "$OV: JWT_NO_EXPIRY=2,JWT_WEAK_SECRET=true")"
+assert "A3 nivel 3: expirada rechazada" "401" \
+  "$(code $BASE/api/auth/whoami -H "Authorization: Bearer $EXPIRED" -H "$OV: JWT_NO_EXPIRY=3,JWT_WEAK_SECRET=true")"
+assert "A3 nivel 4: expirada rechazada" "401" \
+  "$(code $BASE/api/auth/whoami -H "Authorization: Bearer $EXPIRED" -H "$OV: JWT_NO_EXPIRY=4,JWT_WEAK_SECRET=true")"
 T_S=$(body -X POST $BASE/api/auth/login -H "Content-Type: application/json" -H "$OV: JWT_NO_EXPIRY=false" \
   -d '{"email":"maria@example.com","password":"maria123"}' | jq -r '.token')
 assert "A3 mitigado: con exp" "true" \

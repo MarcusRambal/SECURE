@@ -1,7 +1,9 @@
 // backend/src/controllers/admin.controller.js
 import { db } from "../utils/sql.js";
-import { isVulnerable, resolvedFlags, currentGlobalMode } from "../config/securityMode.js";
-import { VULNERABILITIES } from "../config/vulnerabilities.js";
+import {
+  isVulnerable, resolvedFlags, currentGlobalMode, normalizeVulnerabilityValue
+} from "../config/securityMode.js";
+import { VULNERABILITIES, VULNERABILITY_LEVELS } from "../config/vulnerabilities.js";
 import { getCryptoDebugInfo } from "../utils/crypto.js";
 
 export function listAllUsers(req, res) {
@@ -30,7 +32,9 @@ export function toggleVulnerabilities(req, res) {
   if (all === true) {
     const target = Boolean(value);
     for (const k of Object.keys(VULNERABILITIES)) {
-      VULNERABILITIES[k] = target;
+      VULNERABILITIES[k] = VULNERABILITY_LEVELS[k]
+        ? (target ? VULNERABILITY_LEVELS[k].min : VULNERABILITY_LEVELS[k].secure)
+        : target;
     }
     return res.json({
       ok: true,
@@ -44,7 +48,11 @@ export function toggleVulnerabilities(req, res) {
   if (!Object.prototype.hasOwnProperty.call(VULNERABILITIES, flag)) {
     return res.status(400).json({ message: "Flag desconocido", flag });
   }
-  VULNERABILITIES[flag] = Boolean(value);
+  const normalizedValue = normalizeVulnerabilityValue(flag, value);
+  if (normalizedValue === null) {
+    return res.status(400).json({ message: "Nivel inválido", flag, value });
+  }
+  VULNERABILITIES[flag] = normalizedValue;
   return res.json({
     ok: true,
     flag,

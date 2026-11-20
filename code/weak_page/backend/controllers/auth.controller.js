@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import jwt from "jsonwebtoken";
 import { db } from "../utils/sql.js";
-import { isVulnerable } from "../config/securityMode.js";
+import { getVulnerabilityLevel, isVulnerable } from "../config/securityMode.js";
 import {
   detectFormat, verifyPassword, preparePassword, safeUser,
   findUserByEmail, findUserById
@@ -18,10 +18,9 @@ function issueToken(user, req) {
   const secret = isVulnerable("JWT_WEAK_SECRET", req)
     ? "secret"
     : process.env.JWT_SECRET;
-  const options = {
-    algorithm: "HS256",
-    ...(isVulnerable("JWT_NO_EXPIRY", req) ? {} : { expiresIn: "1h" }),
-  };
+  const expiryLevel = getVulnerabilityLevel("JWT_NO_EXPIRY", req);
+  const expiresIn = { 2: "1h", 3: "15m", 4: "5m" }[expiryLevel];
+  const options = { algorithm: "HS256", ...(expiresIn ? { expiresIn } : {}) };
   return jwt.sign({ id: user.id, role: user.role }, secret, options);
 }
 
