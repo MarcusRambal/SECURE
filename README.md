@@ -23,11 +23,11 @@ documentados junto con sus contratos, estados y pruebas.
 
 #### Informe final:
 
-| Documento                                                                                                              | Descripción                                   |
-| ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
-| [InformeFinal.md](https://github.com/MarcusRambal/SECURE/blob/edba964952aec156be0b631ddeee0cd0a155a01d/InformeFinal.md) | Documento principal del proyecto               |
-| [Instalación.md](https://github.com/MarcusRambal/SECURE/blob/edba964952aec156be0b631ddeee0cd0a155a01d/Instalacion.md)  | Guía de instalación, desarrollo y despliegue |
-| [Desarrollo.md](https://github.com/MarcusRambal/SECURE/blob/edba964952aec156be0b631ddeee0cd0a155a01d/Desarollo.md)      | Detalles técnicos del desarrollo              |
+| Documento | Descripción |
+| --- | --- |
+| [InformeFinal.md](./InformeFinal.md) | Documento principal del proyecto |
+| [Instalación.md](./Instalacion.md) | Guía de instalación, desarrollo y despliegue |
+| [Desarrollo.md](./Desarrollo.md) | Detalles técnicos del desarrollo |
 
 ## Estudiantes
 
