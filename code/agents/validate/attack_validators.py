@@ -1462,18 +1462,24 @@ class JwtValidationStrategy(ValidationStrategy):
         try:
             report = json.loads(raw_output)
         except json.JSONDecodeError as exc:
-            logger.error("[VALIDATE] jwt_tool devolvió salida no-JSON: %s", exc)
-            evidence.execution_error = (
-                f"jwt_tool devolvió salida no-JSON: {str(exc)[:200]}"
+            report = extract_first_json(raw_output)
+            if not isinstance(report, dict) or not report:
+                logger.error("[VALIDATE] jwt_tool devolvió salida no-JSON: %s", exc)
+                evidence.execution_error = (
+                    f"jwt_tool devolvió salida no-JSON: {str(exc)[:200]}"
+                )
+                evidence.pre_executed_context.append(
+                    {
+                        "raw_preview": (
+                            raw_output[:500] if isinstance(raw_output, str) else ""
+                        )
+                    }
+                )
+                return evidence
+            logger.warning(
+                "[VALIDATE] jwt_tool mezcló salida de diagnóstico con JSON; "
+                "se recuperó el reporte estructurado."
             )
-            evidence.pre_executed_context.append(
-                {
-                    "raw_preview": (
-                        raw_output[:500] if isinstance(raw_output, str) else ""
-                    )
-                }
-            )
-            return evidence
 
         if not isinstance(report, dict):
             evidence.execution_error = "jwt_tool no devolvió un objeto JSON"

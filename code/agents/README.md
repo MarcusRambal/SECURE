@@ -41,11 +41,19 @@ presentación y los conteos, el informe y el panel agrupan `CRITICAL` en `HIGH`.
 El informe conserva los hallazgos `INFO` en una sección informativa separada,
 sin contarlos como vulnerabilidades; el panel no los muestra en ese listado.
 
+El reportador recibe un JSON normalizado con hallazgos, evidencia y datos de
+pruebas inconclusas, incluidas sus estructuras específicas de cada herramienta.
+Solicita análisis de impacto condicionado, mitigaciones priorizadas y límites
+de cobertura, diferenciando observaciones de hipótesis. El contexto señala
+cuándo se limita la cantidad de objetivos o pruebas inconclusas y cuándo se
+trunca la evidencia. La evidencia tabular se agrega de forma determinista.
+
 El reportador solicita una narración clara y concisa en español y comprueba
-localmente si contiene prosa claramente en inglés. En ese caso solicita una
-corrección una vez; si vuelve a detectar inglés o el modelo falla, genera un
-informe de respaldo y marca el resultado como parcial. La detección automática
-es heurística y no garantiza identificar todos los fragmentos. Los nombres,
+localmente si contiene caracteres chinos o prosa claramente en inglés fuera de
+los datos originales. En ese caso solicita una corrección una vez; si vuelve a
+detectarlos o el modelo falla, genera un informe de respaldo y marca el resultado
+como parcial. La detección automática es heurística y no garantiza identificar
+todos los idiomas ni todos los fragmentos. Los nombres,
 identificadores, comandos, cadenas de ataque y pruebas originales se conservan,
 incluso cuando contienen texto en otro idioma. En el respaldo, las descripciones
 idénticas de pruebas repetidas se agrupan sin eliminar sus valores de prueba.

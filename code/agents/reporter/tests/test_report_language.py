@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 from langchain_core.messages import AIMessage
 
 from contract_schemas import ReporterInput
-from helpers import build_reporter_context, report_has_english_narrative
+from helpers import build_reporter_context, report_has_non_spanish_narrative
 from main import process_report_task
 
 
@@ -52,23 +52,23 @@ class ReportLanguageTests(unittest.TestCase):
         text = SPANISH_REPORT + (
             "\n\nThe application exposes sensitive information and the team should fix the issue."
         )
-        self.assertTrue(report_has_english_narrative(text, reporter_input))
+        self.assertTrue(report_has_non_spanish_narrative(text, reporter_input))
 
     def test_detects_short_english_sentence_and_heading(self):
         reporter_input = ReporterInput.model_validate(make_payload())
-        self.assertTrue(report_has_english_narrative(
+        self.assertTrue(report_has_non_spanish_narrative(
             "## Resumen Ejecutivo\n\nThe vulnerability allows unauthorized access.",
             reporter_input,
         ))
-        self.assertTrue(report_has_english_narrative(
+        self.assertTrue(report_has_non_spanish_narrative(
             "## Overview\n\nNo se confirmaron vulnerabilidades.",
             reporter_input,
         ))
-        self.assertTrue(report_has_english_narrative(
+        self.assertTrue(report_has_non_spanish_narrative(
             "## 1. Executive Summary\n\nNo se confirmaron vulnerabilidades.",
             reporter_input,
         ))
-        self.assertTrue(report_has_english_narrative(
+        self.assertTrue(report_has_non_spanish_narrative(
             "## Resumen Ejecutivo\n\nThe application was vulnerable.",
             reporter_input,
         ))
@@ -93,7 +93,27 @@ class ReportLanguageTests(unittest.TestCase):
             "The attacker sends a request to the endpoint.\n\n"
             "```bash\necho 'the application is vulnerable to this attack'\n```"
         )
-        self.assertFalse(report_has_english_narrative(text, reporter_input))
+        self.assertFalse(report_has_non_spanish_narrative(text, reporter_input))
+
+    def test_detects_chinese_headings_and_prose_but_preserves_original_data(self):
+        data = make_payload([{
+            "type": "XSS", "severity": "HIGH",
+            "endpoint": "https://example.test/search",
+            "evidence": "原始证据", "reproducible_command": "echo 原始证据",
+            "confidence": "HIGH", "attack_chain": ["原始攻击步骤"],
+        }])
+        data["validation_data"]["unconfirmed_findings"] = [
+            {"details": {"reason": "原始工具结果"}}
+        ]
+        reporter_input = ReporterInput.model_validate(data)
+        self.assertTrue(report_has_non_spanish_narrative("## 审计报告\n\n发现安全漏洞。", reporter_input))
+        self.assertTrue(report_has_non_spanish_narrative("```markdown\n## 审计报告\n```", reporter_input))
+        self.assertTrue(report_has_non_spanish_narrative(SPANISH_REPORT + "\n\n建议立即修复。", reporter_input))
+        self.assertFalse(report_has_non_spanish_narrative(
+            SPANISH_REPORT + "\n\nEvidencia original: 原始证据\n\n"
+            "原始攻击步骤\n\n原始工具结果\n\n```bash\necho 中文\n```",
+            reporter_input,
+        ))
 
     def test_context_includes_observed_method_and_verification_steps(self):
         finding = {
@@ -115,6 +135,36 @@ class ReportLanguageTests(unittest.TestCase):
 
 
 class ReporterLanguageFlowTests(unittest.IsolatedAsyncioTestCase):
+    async def test_chinese_report_is_retried_and_falls_back_if_still_chinese(self):
+        llm = AsyncMock()
+        llm.ainvoke.return_value = AIMessage(content="## 审计报告\n\n建议立即修复。")
+        with patch("main.get_llm", return_value=llm):
+            report, fallback = await process_report_task(make_payload())
+        self.assertTrue(fallback)
+        self.assertEqual(llm.ainvoke.await_count, 2)
+        self.assertIn("Informe de respaldo", report)
+        self.assertNotIn("审计报告", report)
+
+    async def test_chinese_report_can_be_corrected(self):
+        llm = AsyncMock()
+        llm.ainvoke.side_effect = [
+            AIMessage(content="## 审计报告\n\n建议立即修复。"),
+            AIMessage(content=SPANISH_REPORT),
+        ]
+        with patch("main.get_llm", return_value=llm):
+            report, fallback = await process_report_task(make_payload())
+        self.assertFalse(fallback)
+        self.assertEqual(report, SPANISH_REPORT)
+        self.assertEqual(llm.ainvoke.await_count, 2)
+
+    async def test_invalid_contract_does_not_claim_there_were_no_findings(self):
+        data = make_payload()
+        data["validation_data"]["vulnerabilities"] = [{"type": "incomplete"}]
+        report, fallback = await process_report_task(data)
+        self.assertTrue(fallback)
+        self.assertIn("No es posible determinar los hallazgos", report)
+        self.assertNotIn("No se confirmaron vulnerabilidades", report)
+
     async def test_spanish_report_succeeds_without_retry(self):
         llm = AsyncMock()
         llm.ainvoke.return_value = AIMessage(content=SPANISH_REPORT)

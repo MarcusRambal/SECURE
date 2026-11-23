@@ -71,6 +71,47 @@ class JwtValidationStrategyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.vulnerabilities[0].tools_used, ["jwt_tool"])
         self.assertEqual(result.unconfirmed_findings[0]["attacks_summary"], report["summary"])
 
+    async def test_jwt_tool_recovers_json_after_stderr_diagnostic(self):
+        report = {
+            "findings": [
+                {
+                    "title": "Weak JWT secret",
+                    "severity": "HIGH",
+                    "description": "The signing secret is weak.",
+                }
+            ]
+        }
+        strategy = get_validation_strategy("jwt")
+
+        with patch(
+            "attack_validators.call_mcp_skill",
+            new=AsyncMock(
+                return_value=(
+                    "[jwt_tool_handler] Wordlist externo no encontrado; "
+                    "usando DEFAULT_WORDLIST (12 entradas)\n"
+                    + json.dumps(report)
+                )
+            ),
+        ):
+            evidence = await strategy.execute(
+                None,
+                "https://example.test",
+                [],
+                "task-1",
+                [],
+                token="jwt-token",
+            )
+
+        result = strategy.build_deterministic_output(
+            evidence,
+            "https://example.test",
+            "2026-01-01T00:00:00+00:00",
+        )
+
+        self.assertEqual(len(result.vulnerabilities), 1)
+        self.assertEqual(result.vulnerabilities[0].type, "Weak JWT secret")
+        self.assertIsNone(evidence.execution_error)
+
     async def test_jwt_tool_error_with_findings_is_marked_unconfirmed(self):
         report = {
             "error": "no_test_endpoint_found",

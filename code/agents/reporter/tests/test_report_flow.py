@@ -153,6 +153,19 @@ class ReportFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(report.count("El validador introdujo una prueba sintética"), 1)
         self.assertIn("no es un comando reproducible", report.casefold())
 
+    async def test_prompt_requests_evidence_based_analysis_and_partial_coverage(self):
+        llm = AsyncMock()
+        llm.ainvoke.return_value = AIMessage(content="## Resumen Ejecutivo\n\nResumen de la auditoría.")
+        with patch("main.get_llm", return_value=llm):
+            await process_report_task(payload())
+        messages = llm.ainvoke.await_args.args[0]
+        prompt = messages[0].content
+        self.assertIn("Distingue observaciones de hipótesis", prompt)
+        self.assertIn("mitigación técnica concreta", prompt)
+        self.assertIn("contexto es parcial", prompt)
+        context = json.loads(messages[1].content.split("```json\n", 1)[1].rsplit("\n```", 1)[0])
+        self.assertEqual(context["validation_summary"]["unconfirmed_count"], 4)
+
     def test_classification_is_derived_and_does_not_replace_original(self):
         data = payload()
         data["validation_data"]["vulnerabilities"][0]["cwe"] = "CWE-123"
@@ -184,6 +197,50 @@ class ReportFlowTests(unittest.IsolatedAsyncioTestCase):
         validation = context["validation_summary"]
         self.assertEqual(validation["source_tools"], ["browserxssvalidator"])
         self.assertEqual(validation["unconfirmed_findings"][0]["tool"], "browserXssValidator")
+
+    def test_context_keeps_varied_unconfirmed_data_and_marks_limits(self):
+        data = payload()
+        data["validation_data"]["unconfirmed_findings"] = [
+            {"jwt_analysis": {"algorithm": "HS256"}, "attacks_summary": {"failed": 2}},
+            {"status": "INCONCLUSIVE", "method": "POST", "reason": "Sin respuesta"},
+        ]
+        with patch("helpers.REPORTER_MAX_ENDPOINTS", 1):
+            context = json.loads(build_reporter_context(ReporterInput.model_validate(data)))
+        validation = context["validation_summary"]
+        self.assertEqual(validation["unconfirmed_count"], 2)
+        self.assertEqual(validation["unconfirmed_included"], 1)
+        self.assertEqual(validation["unconfirmed_findings"][0]["jwt_analysis"], {"algorithm": "HS256"})
+        self.assertEqual(validation["unconfirmed_findings"][0]["attacks_summary"], {"failed": 2})
+        with patch("helpers.REPORTER_MAX_ENDPOINTS", 0):
+            context = json.loads(build_reporter_context(ReporterInput.model_validate(data)))
+        self.assertEqual(context["validation_summary"]["unconfirmed_included"], 2)
+
+    def test_final_report_completes_missing_evidence_and_command(self):
+        data = payload()
+        data["validation_data"]["vulnerabilities"] = [data["validation_data"]["vulnerabilities"][0]]
+        reporter_input = ReporterInput.model_validate(data)
+        item = reporter_input.validation_data.vulnerabilities[0]
+        report = finalize_report_markdown(
+            f"## Resumen Ejecutivo\n\n{item.type} en {item.endpoint}, parámetro {item.parameter}.",
+            reporter_input,
+        )
+        self.assertIn("marker-1", report)
+        self.assertIn(item.reproducible_command, report)
+        self.assertIn("no es un comando reproducible", report)
+
+    def test_context_marks_truncated_evidence(self):
+        data = payload()
+        data["validation_data"]["vulnerabilities"][0]["evidence"] = "A" * 1300
+        with patch("helpers.REPORTER_MAX_EVIDENCE_CHARS", 20):
+            reporter_input = ReporterInput.model_validate(data)
+            context = json.loads(build_reporter_context(reporter_input))
+            finding_context = next(
+                item for item in context["validation_summary"]["findings"]
+                if item["endpoint"] == data["validation_data"]["vulnerabilities"][0]["endpoint"]
+            )
+            report = build_fallback_markdown_report(reporter_input, "Error")
+        self.assertTrue(finding_context["evidence_truncated"])
+        self.assertIn("evidencia se muestra truncada", report)
 
     def test_generated_report_gets_reference_if_model_omits_it(self):
         reporter_input = ReporterInput.model_validate(payload())

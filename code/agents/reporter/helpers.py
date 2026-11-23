@@ -37,30 +37,39 @@ _ENGLISH_REPORT_LABEL = re.compile(
 )
 
 
-def report_has_english_narrative(markdown_text: str, reporter_input: ReporterInput) -> bool:
-    """Detecta prosa inglesa evidente sin analizar datos técnicos originales."""
-    text = re.sub(r"```[^\n]*\n[\s\S]*?(?:```|$)", " ", markdown_text)
-    original_values = []
-    for finding in reporter_input.validation_data.vulnerabilities:
-        original_values.extend(
-            [
-                finding.type,
-                finding.evidence,
-                _evidence_for_report(finding),
-                finding.reproducible_command,
-                finding.verification_steps,
-                finding.attack_result,
-                *finding.attack_chain,
-            ]
-        )
-    for finding in reporter_input.validation_data.unconfirmed_findings:
-        if isinstance(finding, dict):
-            original_values.extend(finding.values())
-    for value in original_values:
-        if isinstance(value, str) and len(value.strip()) >= 8:
+def report_has_non_spanish_narrative(markdown_text: str, reporter_input: ReporterInput) -> bool:
+    """Detecta chino y prosa inglesa evidente fuera de los datos originales."""
+    text = re.sub(
+        r"(?is)```(?:markdown|md)\s*\n(.*?)```",
+        lambda match: match.group(1),
+        markdown_text,
+    )
+    text = re.sub(r"```[^\n]*\n[\s\S]*?(?:```|$)", " ", text)
+
+    def strings(value):
+        if isinstance(value, str):
+            yield value
+        elif isinstance(value, dict):
+            for item in value.values():
+                yield from strings(item)
+        elif isinstance(value, list):
+            for item in value:
+                yield from strings(item)
+
+    original_values = list(strings(reporter_input.model_dump()))
+    original_values.extend(
+        _evidence_for_report(finding)
+        for finding in reporter_input.validation_data.vulnerabilities
+    )
+    for value in sorted(original_values, key=len, reverse=True):
+        if len(value.strip()) >= 8 or (
+            len(value.strip()) >= 2 and re.search(r"[\u3400-\u9fff]", value)
+        ):
             text = text.replace(value, " ")
     text = re.sub(r"`[^`]*`", " ", text)
     text = re.sub(r"https?://\S+", " ", text)
+    if re.search(r"[\u3400-\u9fff\uf900-\ufaff\U00020000-\U0003134f]", text):
+        return True
     if _ENGLISH_REPORT_LABEL.search(text):
         return True
 
@@ -290,7 +299,7 @@ def _executive_summary(findings: list, informational_count: int) -> dict:
         if _severity_of(vulnerability) == "HIGH"
     )
     return {
-        "scope": "Hallazgos combinados de crypto_inspector y access_control_prober",
+        "scope": "Hallazgos de todas las herramientas de validación",
         "total_findings": len(findings),
         "high_total": counts["HIGH"],
         "informational_count": informational_count,
@@ -379,6 +388,7 @@ def _finding_context_payload(vulnerability) -> dict:
         ),
         "broken_hash": _is_broken_hash(vulnerability),
         "evidence": _evidence_for_report(vulnerability),
+        "evidence_truncated": _evidence_for_report(vulnerability) != vulnerability.evidence,
         "table_evidence": _table_evidence_for_report(vulnerability),
         "verification_steps": getattr(vulnerability, "verification_steps", None),
         "reproducible_command": getattr(vulnerability, "reproducible_command", ""),
@@ -539,6 +549,8 @@ def _render_finding_markdown(vulnerability, index: int) -> list[str]:
         parts.append(f"- **Hash Roto/Obsoleto:** `{_hash_value(vulnerability)}`")
 
     parts.extend(_evidence_lines(vulnerability))
+    if _evidence_for_report(vulnerability) != vulnerability.evidence:
+        parts.append("- **Nota:** La evidencia se muestra truncada por el límite del informe.")
 
     if attack_chain:
         parts.append("- **Cadena de ataque original:**")
@@ -663,12 +675,15 @@ def build_reporter_context(reporter_input: ReporterInput) -> str:
         "recon_summary": {
             "total_targets_identified": recon_summary.total_targets_identified,
             "total_requests_captured": recon_summary.total_requests_captured,
+            "targets_included": len(_limit_items(targets, REPORTER_MAX_ENDPOINTS)),
             "high_priority_targets": [
                 {
                     "target_id": target.target_id,
                     "vulnerability_target": target.vulnerability_target,
                     "endpoint": target.endpoint,
                     "method": target.method,
+                    "priority": target.priority,
+                    "validation_plan": target.validation_plan,
                     "recommended_tool": target.recommended_tool,
                 }
                 for target in _limit_items(targets, REPORTER_MAX_ENDPOINTS)
@@ -688,17 +703,13 @@ def build_reporter_context(reporter_input: ReporterInput) -> str:
                 _finding_context_payload(finding) for finding in informational
             ],
             "unconfirmed_count": len(unconfirmed),
+            "unconfirmed_included": len(_limit_items(unconfirmed, REPORTER_MAX_ENDPOINTS)),
             "unconfirmed_findings": [
                 {
+                    **finding,
                     "tool": unconfirmed_tool(finding),
-                    "type": finding.get("type"),
-                    "endpoint": finding.get("endpoint"),
-                    "reason": finding.get("reason")
-                    or finding.get("command_note")
-                    or finding.get("evidence"),
                 }
-                for finding in unconfirmed[:REPORTER_MAX_ENDPOINTS]
-                if isinstance(finding, dict)
+                for finding in _limit_items(unconfirmed, REPORTER_MAX_ENDPOINTS)
             ],
             "scan_started_at": reporter_input.validation_data.scan_started_at,
             "scan_finished_at": reporter_input.validation_data.scan_finished_at,
@@ -713,11 +724,13 @@ def _finding_is_mentioned(text_folded: str, vulnerability) -> bool:
         return True
     finding_type = _fold_text(getattr(vulnerability, "type", ""))
     endpoint = _fold_text(getattr(vulnerability, "endpoint", ""))
+    parameter = _fold_text(getattr(vulnerability, "parameter", ""))
     return bool(
         finding_type
         and endpoint
         and finding_type in text_folded
         and endpoint in text_folded
+        and (not parameter or parameter in text_folded)
     )
 
 
@@ -895,8 +908,16 @@ def finalize_report_markdown(
             chain_missing = bool(chain) and not all(
                 _fold_text(step) in text_folded for step in chain
             )
-            if highlight_lines or chain_missing:
-                incomplete.append((vulnerability, highlight_lines, chain_missing))
+            evidence = _evidence_for_report(vulnerability)
+            command = vulnerability.reproducible_command
+            evidence_missing = bool(evidence) and evidence not in markdown_text and not all(
+                line in markdown_text for line in _evidence_lines(vulnerability)
+            )
+            command_missing = bool(command) and command not in markdown_text
+            if highlight_lines or chain_missing or evidence_missing or command_missing:
+                incomplete.append(
+                    (vulnerability, highlight_lines, chain_missing, evidence_missing, command_missing)
+                )
         return missing, incomplete
 
     text_folded = _fold_text(markdown_text)
@@ -943,7 +964,7 @@ def finalize_report_markdown(
 
     if incomplete:
         parts.append("### Hallazgos con contenido incompleto\n")
-        for vulnerability, highlight_lines, chain_missing in incomplete:
+        for vulnerability, highlight_lines, chain_missing, evidence_missing, command_missing in incomplete:
             parts.append(
                 f"#### {getattr(vulnerability, 'type', 'Hallazgo')} — "
                 f"`{getattr(vulnerability, 'finding_id', None) or 'N/A'}`"
@@ -951,6 +972,17 @@ def finalize_report_markdown(
             parts.append(f"- **Endpoint:** `{getattr(vulnerability, 'endpoint', '')}`")
             parts.append(f"- **Herramienta:** `{_primary_tool(vulnerability)}`")
             parts.extend(highlight_lines)
+            if evidence_missing:
+                parts.extend(_evidence_lines(vulnerability))
+                if _evidence_for_report(vulnerability) != vulnerability.evidence:
+                    parts.append("- **Nota:** La evidencia se muestra truncada por el límite del informe.")
+            if command_missing:
+                command = vulnerability.reproducible_command
+                if command.startswith("browserXssValidator ") and command.rstrip().endswith(" --plan"):
+                    parts.append("- **Referencia de ejecución:** no es un comando reproducible; falta el plan.")
+                else:
+                    parts.append("- **Comando reproducible:**")
+                parts.extend(["```bash", command, "```"])
             if chain_missing:
                 parts.append("- **Cadena de Ataque:**")
                 for step in _attack_chain(vulnerability):
