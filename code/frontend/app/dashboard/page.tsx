@@ -10,7 +10,8 @@ import styles from "./page.module.css";
 
 export default function Dashboard() {
     const [view, setView] = useState<DashboardView>("config");
-    const [taskId, setTaskId] = useState<string | null>(null);
+    const [scan, setScan] = useState<{ taskId: string; targetUrl: string; attackType: string } | null>(null);
+    const taskId = scan?.taskId ?? null;
     const { events, isConnected, isFinished, isFailed, finalReport } = useAgentSocket(taskId);
 
     const vulnerabilities = events
@@ -18,8 +19,8 @@ export default function Dashboard() {
         .map((event) => event.payload.vulnerability)
         .filter((vulnerability): vulnerability is NonNullable<AgentWebSocketEvent["payload"]["vulnerability"]> => Boolean(vulnerability));
 
-    const handleTaskCreated = (id: string) => {
-        setTaskId(id);
+    const handleTaskCreated = (id: string, targetUrl: string, attackType: string) => {
+        setScan({ taskId: id, targetUrl, attackType });
         setView("panel");
     };
 
@@ -40,6 +41,8 @@ export default function Dashboard() {
                 <section className={styles.panelSection}>
                     <PanelView
                         taskId={taskId}
+                        targetUrl={scan?.targetUrl}
+                        attackType={scan?.attackType}
                         events={events}
                         vulnerabilities={vulnerabilities}
                         finalReport={finalReport}

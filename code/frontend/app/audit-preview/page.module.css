@@ -1,0 +1,8 @@
+.notice {
+  padding: 0.8rem 1rem;
+  background: #ede9fe;
+  color: #4c1d95;
+  font-family: var(--font-geist-sans), Arial, sans-serif;
+  font-size: 0.875rem;
+  text-align: center;
+}

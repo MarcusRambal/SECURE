@@ -14,6 +14,17 @@ require.extensions[".css"] = (module) => {
     get: (_, property) => property === "__esModule" ? false : property,
   });
 };
+for (const extension of [".ts", ".tsx"]) {
+  require.extensions[extension] = (module, filename) => {
+    module._compile(ts.transpileModule(readFileSync(filename, "utf8"), {
+      compilerOptions: {
+        module: ts.ModuleKind.CommonJS,
+        jsx: ts.JsxEmit.ReactJSX,
+        esModuleInterop: true,
+      },
+    }).outputText, filename);
+  };
+}
 
 const componentPath = resolve(dirname(fileURLToPath(import.meta.url)), "../components/dashboard/PanelView.tsx");
 const componentModule = new Module(componentPath);
@@ -171,4 +182,59 @@ test("keeps literal pipes and the content after a table", () => {
   assert.match(html, /<td><code>browser\|validator<\/code><\/td>/);
   assert.match(html, /<td>valor\|observado<\/td>/);
   assert.match(html, /<p>Conclusión independiente\.<\/p>/);
+});
+
+test("renders the real completed scan in the audit report without mock data", () => {
+  const taskId = "real-task";
+  const finding = {
+    title: "Control de acceso",
+    severity: "CRITICAL",
+    findingId: "REAL-001",
+    cwe: "CWE-285",
+    endpoint: "https://example.test/admin",
+    evidence: "Evidencia real",
+    toolsUsed: ["access_control_prober"],
+    pocScript: "curl https://example.test/admin",
+    attackDemonstrated: "active_access_control_exploitation",
+  };
+  const events = [
+    { eventType: "TOOL_EXECUTION", agentName: "recon", payload: { message: "Recon", details: { status: "SUCCESS", endpointsCount: 2 } } },
+    { eventType: "VULN_DETECTED", agentName: "validate", payload: { message: "Vulnerabilidad", vulnerability: finding } },
+    { eventType: "TOOL_EXECUTION", agentName: "validate", payload: { message: "Validación", details: { status: "SUCCESS", vulnerabilitiesCount: 1 } } },
+    { eventType: "SCAN_COMPLETE", agentName: "orquestador", timestamp: "2026-11-25T18:00:00Z", payload: { message: "Completado", details: { status: "COMPLETED" } } },
+  ];
+  const html = renderToStaticMarkup(React.createElement(PanelView, {
+    taskId, targetUrl: "https://example.test", attackType: "bac_default", events,
+    vulnerabilities: [finding], finalReport: "Informe original", isConnected: false, isFinished: true, isFailed: false,
+  }));
+  assert.match(html, /Reporte de Auditoría de Seguridad Web/);
+  assert.match(html, /Objetivos priorizados<\/p><strong>2<\/strong>/);
+  assert.match(html, /Confirmados Activos<\/p><strong>1<\/strong>/);
+  assert.match(html, /REAL-001/);
+  assert.match(html, /CWE-285/);
+  assert.match(html, /curl https:\/\/example.test\/admin/);
+  assert.match(html, /2026-11-25T18:00:00Z/);
+  assert.match(html, /Informe original/);
+  assert.doesNotMatch(html, /BAC-ROLE-ADMIN-001/);
+});
+
+test("does not display the report during a scan or invent unavailable fields", () => {
+  const finding = { title: "Hallazgo", severity: "INFO", endpoint: "https://example.test/a" };
+  const events = [
+    { eventType: "VULN_DETECTED", agentName: "validate", payload: { message: "Vulnerabilidad", vulnerability: finding } },
+    { eventType: "TOOL_EXECUTION", agentName: "validate", payload: { message: "Validación", details: { status: "PARTIAL", vulnerabilitiesCount: 2 } } },
+  ];
+  const props = {
+    taskId: "real-task", targetUrl: "https://example.test", attackType: "xss", events,
+    vulnerabilities: [finding], isConnected: true, isFinished: false, isFailed: false,
+  };
+  assert.doesNotMatch(renderToStaticMarkup(React.createElement(PanelView, props)), /Reporte de Auditoría de Seguridad Web/);
+  const completedEvents = [...events, { eventType: "SCAN_COMPLETE", agentName: "orquestador", timestamp: "2026-11-25", payload: { message: "Terminado", details: { status: "PARTIAL" } } }];
+  const html = renderToStaticMarkup(React.createElement(PanelView, { ...props, events: completedEvents, isFinished: true }));
+  assert.match(html, /resultados parciales/);
+  assert.match(html, /El resumen indica 2 hallazgos; la lista recibida contiene 1/);
+  assert.match(html, /Confirmados Activos<\/p><strong>No disponible<\/strong>/);
+  assert.match(html, /Objetivos priorizados<\/p><strong>No disponible<\/strong>/);
+  assert.match(html, /class="badge INFO">INFO/);
+  assert.doesNotMatch(html, /Copiar comando de Hallazgo/);
 });

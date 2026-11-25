@@ -1,6 +1,6 @@
 .dashboardContainer {
   min-height: 100vh;
-  background: radial-gradient(ellipse at 50% 0%, #3c0047 0%, var(--color-purple-950) 55%);
+  background: #f8fafc;
   color: var(--color-purple-50);
   font-family: var(--font-geist-sans), Arial, sans-serif;
   padding-bottom: 3rem;
@@ -10,10 +10,10 @@
   width: min(100% - 3rem, 760px);
   margin: clamp(2rem, 5vw, 4rem) auto 0;
   padding: clamp(1.5rem, 4vw, 3rem);
-  border: 1px solid rgba(243, 184, 255, 0.25);
+  border: 1px solid #e5e7eb;
   border-radius: 20px;
-  background: rgba(27, 0, 32, 0.96);
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.18);
+  background: #ffffff;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
 }
 
 .configHeader {
@@ -22,7 +22,7 @@
 
 .eyebrow {
   margin-bottom: 0.7rem;
-  color: #f3b8ff;
+  color: #6d28d9;
   font-size: 0.8rem;
   font-weight: 700;
   letter-spacing: 0.12em;
@@ -31,12 +31,12 @@
 
 .configHeader h1 {
   margin-bottom: 0.75rem;
-  color: #fff;
+  color: #030812;
   font-size: clamp(1.6rem, 3vw, 2.2rem);
 }
 
 .configHeader > p:last-child {
-  color: #f3e5f6;
+  color: #4b5563;
   line-height: 1.7;
 }
 

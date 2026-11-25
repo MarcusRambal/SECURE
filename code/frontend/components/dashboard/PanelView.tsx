@@ -2,10 +2,14 @@
 
 import { Fragment, useLayoutEffect, useRef, type ReactNode } from "react";
 import type { AgentWebSocketEvent, ScanEndpoint } from "@/types/scan";
+import { buildAuditReport } from "./auditReportData";
+import AuditReport from "./AuditReport";
 import styles from "./PanelView.module.css";
 
 interface PanelViewProps {
   taskId: string | null;
+  targetUrl?: string;
+  attackType?: string;
   events: AgentWebSocketEvent[];
   vulnerabilities: NonNullable<AgentWebSocketEvent["payload"]["vulnerability"]>[];
   finalReport?: string;
@@ -373,6 +377,8 @@ const SQLiTableEvidence = ({
 
 export const PanelView = ({
   taskId,
+  targetUrl,
+  attackType,
   events,
   vulnerabilities,
   finalReport,
@@ -420,6 +426,10 @@ export const PanelView = ({
       severity: vulnerability.severity === "CRITICAL" ? "HIGH" : vulnerability.severity,
     }));
   const informationalCount = vulnerabilities.length - visibleVulnerabilities.length;
+  const auditReport = taskId && targetUrl && attackType && isFinished && !isFailed &&
+    events.some((event) => event.eventType === "SCAN_COMPLETE")
+    ? buildAuditReport(taskId, targetUrl, attackType, events)
+    : null;
   const severityCounts = visibleVulnerabilities.reduce<Record<string, number>>(
     (counts, vulnerability) => {
       counts[vulnerability.severity] = (counts[vulnerability.severity] ?? 0) + 1;
@@ -656,6 +666,8 @@ export const PanelView = ({
           )}
         </section>
       </div>
+
+      {auditReport && <AuditReport report={auditReport} />}
 
       <section className={`${styles.panelCard} ${styles.reportCard}`}>
         <div className={styles.reportHeader}>

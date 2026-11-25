@@ -107,22 +107,22 @@ async def execute_orchestration_flow(payload: dict, channel: aio_pika.Channel):
     try:
         llm = get_llm("orchestrator")
 
-        tools = create_orchestrator_tools(channel)
+        tools = create_orchestrator_tools(channel, task_id)
         logger.info(f"Herramientas cargadas en LangChain: {[t.name for t in tools]}")
 
         system_prompt = SystemMessage(
             content=(
                 "Eres el Agente Orquestador Principal de Ciberseguridad.\n"
-                "Coordina la ejecución en secuencia estricta de las etapas del pipeline invocando sus herramientas y pasando únicamente el 'task_id':\n\n"
+                "Coordina la ejecución en secuencia estricta de las etapas del pipeline invocando sus herramientas sin argumentos:\n\n"
                 "SECUENCIA OBLIGATORIA DE HERRAMIENTAS:\n"
-                "1. Llama a 'prepare_targets' con 'task_id' para preparar localmente los objetivos desde el reporte de scraping.\n"
-                "2. Llama a 'validate_agent' con 'task_id'.\n"
-                "3. Llama a 'reporter_agent' con 'task_id'.\n"
+                "1. Llama a 'prepare_targets' para preparar localmente los objetivos desde el reporte de scraping.\n"
+                "2. Llama a 'validate_agent'.\n"
+                "3. Llama a 'reporter_agent'.\n"
                 "4. Una vez que 'reporter_agent' confirme la generación del informe, emite como tu MENSAJE FINAL ÚNICAMENTE la frase: 'Pipeline completado'.\n\n"
                 "REGLAS STRICTAS:\n"
                 "- NO intentes copiar ni reproducir el texto Markdown del reporte en tu mensaje final.\n"
                 "- NO redactes conclusiones ni resúmenes.\n"
-                "- Pasa ÚNICAMENTE 'task_id' en cada llamada a herramienta."
+                "- Las herramientas ya están asociadas a la tarea actual; no pases argumentos."
             )
         )
 
@@ -131,7 +131,7 @@ async def execute_orchestration_flow(payload: dict, channel: aio_pika.Channel):
         initial_input = {
             "messages": [
                 HumanMessage(
-                    content=f"Inicia el pipeline de auditoría pasando task_id='{task_id}'."
+                    content="Inicia el pipeline de auditoría."
                 )
             ]
         }
@@ -147,7 +147,18 @@ async def execute_orchestration_flow(payload: dict, channel: aio_pika.Channel):
                     logger.info(f"[AI FINAL]: {str(last_msg.content)[:180]}")
 
         completed_state = TASK_STATE.get(task_id, {})
-        final_status = completed_state.get("status", "COMPLETED")
+        final_status = completed_state.get("status", "PROCESSING")
+        completed_stages = completed_state.get("timings", {}).get("stages", {})
+        if final_status != "FAILED" and (
+            final_status not in ("COMPLETED", "PARTIAL")
+            or not all(stage in completed_stages for stage in ("recon", "validate", "reporter"))
+        ):
+            final_status = "FAILED"
+            completed_state["status"] = final_status
+            completed_state["error_message"] = (
+                "El orquestador terminó sin completar todas las etapas de la auditoría."
+            )
+            logger.error("Pipeline incompleto para task_id=%s.", task_id)
 
         TASKS_RESULTS_DB[task_id] = {
             "task_id": task_id,
@@ -164,7 +175,7 @@ async def execute_orchestration_flow(payload: dict, channel: aio_pika.Channel):
         }
 
         logger.info(
-            f"✅ Auditoría {task_id} finalizada ({final_status}) y persistida en TASKS_RESULTS_DB."
+            f"Auditoría {task_id} finalizada ({final_status}) y registrada en TASKS_RESULTS_DB."
         )
         terminal_event = "SCAN_ERROR" if final_status == "FAILED" else "SCAN_COMPLETE"
         terminal_payload = {

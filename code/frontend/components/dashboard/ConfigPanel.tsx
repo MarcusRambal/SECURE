@@ -14,7 +14,7 @@ import { ATTACK_CATEGORIES } from "../configVariables/variables";
 import type { ScrapingReport } from "@/types/scan";
 
 interface ConfigPanelProps {
-  onTaskCreated: (taskId: string) => void;
+  onTaskCreated: (taskId: string, targetUrl: string, attackType: string) => void;
 }
 
 export const ConfigPanel = ({ onTaskCreated }: ConfigPanelProps) => {
@@ -161,7 +161,7 @@ export const ConfigPanel = ({ onTaskCreated }: ConfigPanelProps) => {
         return;
       }
 
-      onTaskCreated(response.data.taskId);
+      onTaskCreated(response.data.taskId, payload.targetUrl, payload.attackType);
     });
   };
 
