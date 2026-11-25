@@ -1,7 +1,9 @@
 import asyncio
 import unittest
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+from main import TASKS_RESULTS_DB, execute_orchestration_flow
 from tools import TASK_STATE, create_orchestrator_tools
 
 
@@ -38,7 +40,7 @@ class LocalReconStageTests(unittest.TestCase):
         }
 
         async def run_stage():
-            return await prepare_targets.coroutine(task_id)
+            return await prepare_targets.ainvoke({"task_id": "id-incorrecto"})
 
         try:
             with (
@@ -49,7 +51,7 @@ class LocalReconStageTests(unittest.TestCase):
                 local_recon.return_value = recon_output
                 prepare_targets = next(
                     tool
-                    for tool in create_orchestrator_tools(channel)
+                    for tool in create_orchestrator_tools(channel, task_id)
                     if tool.name == "prepare_targets"
                 )
                 result = asyncio.run(run_stage())
@@ -106,10 +108,10 @@ class LocalReconStageTests(unittest.TestCase):
                     }
                     validate_tool = next(
                         tool
-                        for tool in create_orchestrator_tools(object())
+                        for tool in create_orchestrator_tools(object(), task_id)
                         if tool.name == "validate_agent"
                     )
-                    await validate_tool.coroutine(task_id)
+                    await validate_tool.ainvoke({})
                     return rpc.await_args.args[1], rpc.await_args.args[2]
             finally:
                 TASK_STATE.pop(task_id, None)
@@ -131,7 +133,7 @@ class OrchestratorFailureFlowTests(unittest.IsolatedAsyncioTestCase):
             "status": "PROCESSING",
             "timings": {"stages": {}},
         }
-        self.tools = {tool.name: tool for tool in create_orchestrator_tools(object())}
+        self.tools = {tool.name: tool for tool in create_orchestrator_tools(object(), self.task_id)}
 
     def tearDown(self):
         TASK_STATE.pop(self.task_id, None)
@@ -161,10 +163,10 @@ class OrchestratorFailureFlowTests(unittest.IsolatedAsyncioTestCase):
             patch("tools._send_rpc_request", new_callable=AsyncMock) as rpc,
         ):
             rpc.return_value = {"status": "SUCCESS", "report_markdown": "report"}
-            await self.tools["prepare_targets"].coroutine(self.task_id)
-            await self.tools["validate_agent"].coroutine(self.task_id)
+            await self.tools["prepare_targets"].ainvoke({})
+            await self.tools["validate_agent"].ainvoke({})
             rpc.assert_not_awaited()
-            await self.tools["reporter_agent"].coroutine(self.task_id)
+            await self.tools["reporter_agent"].ainvoke({})
 
         state = TASK_STATE[self.task_id]
         self.assertEqual(state["status"], "FAILED")
@@ -186,9 +188,9 @@ class OrchestratorFailureFlowTests(unittest.IsolatedAsyncioTestCase):
             patch("tools._send_rpc_request", new_callable=AsyncMock) as rpc,
         ):
             rpc.return_value = {"status": "SUCCESS", "report_markdown": "report"}
-            await self.tools["validate_agent"].coroutine(self.task_id)
+            await self.tools["validate_agent"].ainvoke({})
             rpc.assert_not_awaited()
-            await self.tools["reporter_agent"].coroutine(self.task_id)
+            await self.tools["reporter_agent"].ainvoke({})
 
         state = TASK_STATE[self.task_id]
         self.assertEqual(state["status"], "COMPLETED")
@@ -209,7 +211,7 @@ class OrchestratorFailureFlowTests(unittest.IsolatedAsyncioTestCase):
             patch("tools._send_rpc_request", new_callable=AsyncMock) as rpc,
         ):
             rpc.return_value = {"status": "ERROR", "error": "validation error"}
-            await self.tools["validate_agent"].coroutine(self.task_id)
+            await self.tools["validate_agent"].ainvoke({})
 
         self.assertEqual(state["status"], "FAILED")
         self.assertEqual(state["validate_recovery_mode"], "error")
@@ -228,6 +230,10 @@ class OrchestratorFailureFlowTests(unittest.IsolatedAsyncioTestCase):
                 "severity": "CRITICAL",
                 "endpoint": "https://example.test/search",
                 "evidence": "evidence",
+                "finding_id": "BAC-001",
+                "cwe": "CWE-285",
+                "reproducible_command": "curl https://example.test/search",
+                "attack_demonstrated": "active_access_control_exploitation",
                 "table_evidence": [{
                     "database": "SQLite",
                     "table": "users",
@@ -253,8 +259,8 @@ class OrchestratorFailureFlowTests(unittest.IsolatedAsyncioTestCase):
                 },
                 {"status": "SUCCESS", "report_markdown": "report"},
             ]
-            await self.tools["validate_agent"].coroutine(self.task_id)
-            await self.tools["reporter_agent"].coroutine(self.task_id)
+            await self.tools["validate_agent"].ainvoke({})
+            await self.tools["reporter_agent"].ainvoke({})
 
         self.assertEqual(state["status"], "PARTIAL")
         self.assertEqual(state["validation_data"], validation)
@@ -264,6 +270,16 @@ class OrchestratorFailureFlowTests(unittest.IsolatedAsyncioTestCase):
         ]
         self.assertEqual(len(finding_events), 1)
         self.assertEqual(finding_events[0].kwargs["vulnerability"]["severity"], "CRITICAL")
+        self.assertEqual(finding_events[0].kwargs["vulnerability"]["findingId"], "BAC-001")
+        self.assertEqual(finding_events[0].kwargs["vulnerability"]["cwe"], "CWE-285")
+        self.assertEqual(
+            finding_events[0].kwargs["vulnerability"]["pocScript"],
+            "curl https://example.test/search",
+        )
+        self.assertEqual(
+            finding_events[0].kwargs["vulnerability"]["attackDemonstrated"],
+            "active_access_control_exploitation",
+        )
         self.assertEqual(
             finding_events[0].kwargs["vulnerability"]["tableEvidence"][0]["table"],
             "users",
@@ -272,6 +288,65 @@ class OrchestratorFailureFlowTests(unittest.IsolatedAsyncioTestCase):
             finding_events[0].kwargs["vulnerability"]["tableEvidence"][0]["preview"],
             [["customer@example.test"]],
         )
+
+
+class OrchestrationCompletionTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncTearDown(self):
+        TASKS_RESULTS_DB.pop("flow-test", None)
+        TASK_STATE.pop("flow-test", None)
+
+    async def test_bound_tools_use_original_id_even_when_model_supplies_another(self):
+        class FakeAgent:
+            def __init__(self, tools):
+                self.tools = tools
+
+            async def astream(self, _input, config):
+                for tool in self.tools:
+                    await tool.ainvoke({"task_id": "wrong-id"})
+                yield {"agent": {"messages": [SimpleNamespace(type="ai", content="done")]}}
+
+        payload = {
+            "task_id": "flow-test",
+            "target_url": "https://example.test",
+            "attack_type": "sqli",
+        }
+        recon_output = SimpleNamespace(model_dump=lambda: {"high_priority_targets": []})
+        with (
+            patch("main.get_llm", return_value=object()),
+            patch("main.create_agent", side_effect=lambda model, tools, system_prompt: FakeAgent(tools)),
+            patch("main.publish_scan_event", new_callable=AsyncMock) as terminal_events,
+            patch("tools.publish_scan_event", new_callable=AsyncMock),
+            patch("tools.build_recon_output", return_value=recon_output),
+            patch("tools._send_rpc_request", new_callable=AsyncMock) as rpc,
+        ):
+            rpc.return_value = {"status": "SUCCESS", "report_markdown": "report"}
+            await execute_orchestration_flow(payload, object())
+
+        self.assertEqual(rpc.await_args.args[2]["task_id"], "flow-test")
+        self.assertEqual(TASKS_RESULTS_DB["flow-test"]["status"], "COMPLETED")
+        self.assertEqual(terminal_events.await_args_list[-1].args[2], "SCAN_COMPLETE")
+
+    async def test_incomplete_pipeline_emits_error_even_when_partial(self):
+        class FakeAgent:
+            async def astream(self, _input, config):
+                TASK_STATE["flow-test"]["status"] = "PARTIAL"
+                yield {"agent": {"messages": [SimpleNamespace(type="ai", content="done")]}}
+
+        payload = {
+            "task_id": "flow-test",
+            "target_url": "https://example.test",
+            "attack_type": "sqli",
+        }
+        with (
+            patch("main.get_llm", return_value=object()),
+            patch("main.create_agent", return_value=FakeAgent()),
+            patch("main.publish_scan_event", new_callable=AsyncMock) as events,
+        ):
+            await execute_orchestration_flow(payload, object())
+
+        self.assertEqual(TASKS_RESULTS_DB["flow-test"]["status"], "FAILED")
+        self.assertEqual(events.await_args_list[-1].args[2], "SCAN_ERROR")
+        self.assertIn("sin completar todas las etapas", events.await_args_list[-1].kwargs["error"])
 
 
 if __name__ == "__main__":

@@ -5,19 +5,19 @@
 }
 
 :root {
-    --color-purple-50: #FBE6FF;
-    --color-purple-100: #F3B8FF;
-    --color-purple-200: #ED91FF;
-    --color-purple-300: #E45CFF;
-    --color-purple-400: #DC2EFF;
-    --color-purple-500: #D500FF;
-    --color-purple-600: #AE00D1;
-    --color-purple-700: #8800A3;
-    --color-purple-800: #620075;
-    --color-purple-900: #3C0047;
-    --color-purple-950: #15001A;
+    --color-purple-50: #030812;
+    --color-purple-100: #4B5563;
+    --color-purple-200: #4B5563;
+    --color-purple-300: #6D28D9;
+    --color-purple-400: #0033FF;
+    --color-purple-500: #0033FF;
+    --color-purple-600: #0022CC;
+    --color-purple-700: #0033FF;
+    --color-purple-800: #D1D5DB;
+    --color-purple-900: #E5E7EB;
+    --color-purple-950: #F8FAFC;
 
-    color-scheme: dark;
+    color-scheme: light;
     font-family: Arial, sans-serif;
     color: var(--color-purple-50);
     background: var(--color-purple-950);

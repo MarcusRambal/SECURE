@@ -22,7 +22,7 @@
   justify-content: space-between;
   gap: 0.75rem;
   padding: 0.85rem 1.1rem;
-  background: var(--color-purple-900);
+  background: #f3f4f6;
   color: var(--color-purple-50);
   font-family: var(--font-geist-sans), Arial, sans-serif;
   font-size: 0.85rem;
@@ -50,7 +50,7 @@
   flex-direction: column;
   gap: 0.4rem;
   padding: 1rem 1.1rem;
-  background: rgba(60, 0, 71, 0.25);
+  background: #ffffff;
   color: var(--color-purple-200);
   font-family: var(--font-geist-sans), Arial, sans-serif;
   font-size: 0.85rem;
@@ -60,7 +60,7 @@
 .accordionBody pre {
   overflow-x: auto;
   padding: 0.6rem;
-  background: #000;
+  background: #f8fafc;
   border: 1px solid var(--color-purple-900);
   border-radius: 8px;
   color: var(--color-purple-200);

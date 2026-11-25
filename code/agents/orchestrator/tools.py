@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 import aio_pika
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from langchain_core.tools import StructuredTool
 
 from attack_types import is_crypto_attack, is_jwt_attack
@@ -59,8 +59,8 @@ def _sanitize_endpoint_for_event(endpoint: str) -> str:
     )
 
 
-class TaskReferenceInput(BaseModel):
-    task_id: str = Field(description="UUID único de la tarea de auditoría en curso.")
+class TaskToolInput(BaseModel):
+    pass
 
 
 def _empty_recon_data(target_url: str, attack_type: str) -> dict:
@@ -166,10 +166,10 @@ async def _send_rpc_request(channel: aio_pika.Channel, queue_name: str, payload:
         await reply_queue.delete(if_unused=False, if_empty=False)
 
 
-def create_orchestrator_tools(channel: aio_pika.Channel) -> list[StructuredTool]:
+def create_orchestrator_tools(channel: aio_pika.Channel, task_id: str) -> list[StructuredTool]:
     """Crea e inyecta el canal de RabbitMQ persistente en las herramientas de LangChain."""
 
-    async def prepare_recon_targets(task_id: str) -> str:
+    async def prepare_recon_targets() -> str:
         state = TASK_STATE.get(task_id)
         if not state:
             return f"Error: No existe estado activo para task_id '{task_id}'."
@@ -315,7 +315,7 @@ def create_orchestrator_tools(channel: aio_pika.Channel) -> list[StructuredTool]
             f"Estado: {status} (Recovery: {recovery_mode})."
         )
 
-    async def call_validate_agent(task_id: str) -> str:
+    async def call_validate_agent() -> str:
         state = TASK_STATE.get(task_id)
         if not state:
             return f"Error: No existe estado activo para task_id '{task_id}'."
@@ -498,6 +498,10 @@ def create_orchestrator_tools(channel: aio_pika.Channel) -> list[StructuredTool]
                     "confidence": finding.get("confidence"),
                     "toolsUsed": finding.get("tools_used", []),
                     "verificationSteps": finding.get("verification_steps"),
+                    "findingId": finding.get("finding_id"),
+                    "cwe": finding.get("cwe"),
+                    "pocScript": finding.get("reproducible_command"),
+                    "attackDemonstrated": finding.get("attack_demonstrated"),
                 },
             )
         await publish_scan_event(
@@ -519,7 +523,7 @@ def create_orchestrator_tools(channel: aio_pika.Channel) -> list[StructuredTool]
             f"Estado: {status} (Recovery: {recovery_mode})."
         )
 
-    async def call_reporter_agent(task_id: str) -> str:
+    async def call_reporter_agent() -> str:
         state = TASK_STATE.get(task_id)
         if not state:
             return f"Error: No existe estado activo para task_id '{task_id}'."
@@ -630,21 +634,21 @@ def create_orchestrator_tools(channel: aio_pika.Channel) -> list[StructuredTool]
             "Prepara localmente los objetivos de validación desde el reporte de "
             "scraping de la tarea. No invoca un agente remoto."
         ),
-        args_schema=TaskReferenceInput,
+        args_schema=TaskToolInput,
     )
 
     validate_tool = StructuredTool.from_function(
         coroutine=call_validate_agent,
         name="validate_agent",
-        description="Invoca al Agente de Validación pasando el task_id.",
-        args_schema=TaskReferenceInput,
+        description="Invoca al Agente de Validación para la tarea actual.",
+        args_schema=TaskToolInput,
     )
 
     reporter_tool = StructuredTool.from_function(
         coroutine=call_reporter_agent,
         name="reporter_agent",
-        description="Invoca al Agente Reportador para generar el informe Markdown pasando el task_id.",
-        args_schema=TaskReferenceInput,
+        description="Invoca al Agente Reportador para generar el informe Markdown de la tarea actual.",
+        args_schema=TaskToolInput,
     )
 
     return [recon_tool, validate_tool, reporter_tool]

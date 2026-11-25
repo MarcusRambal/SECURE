@@ -3,14 +3,15 @@
   isolation: isolate;
   min-height: 100vh;
   font-family: var(--font-geist-sans), Arial, sans-serif;
+  background: #f8fafc;
 }
 
 .siteHeader {
   position: sticky;
   top: 0;
   z-index: 10;
-  background: rgba(21, 0, 26, 0.96);
-  border-bottom: 1px solid rgba(243, 184, 255, 0.2);
+  background: rgba(255, 255, 255, 0.96);
+  border-bottom: 1px solid #e5e7eb;
 }
 
 .navigation {
@@ -37,15 +38,14 @@
 
 .logoImage,
 .heroLogo {
-  filter: invert(1) drop-shadow(0 0 5px rgba(243, 184, 255, 0.6));
+  filter: none;
 }
 
 .logoTitle {
-  color: #ffd2f4;
+  color: #030812;
   font-size: 1.1rem;
   font-weight: 700;
   letter-spacing: 0.08em;
-  text-shadow: 0 0 10px rgba(255, 122, 220, 0.65);
 }
 
 .navigationLinks {
@@ -56,18 +56,23 @@
 
 .navigation a,
 .heroActions a {
-  color: #fff;
+  color: #030812;
   font-weight: 600;
   text-decoration: none;
 }
 
+.heroActions .primaryButton,
+.heroActions .secondaryButton {
+  color: #ffffff;
+}
+
 .navigation a:hover {
-  color: var(--color-purple-100);
+  color: #6d28d9;
 }
 
 .navigation a:focus-visible,
 .heroActions a:focus-visible {
-  outline: 2px solid #fff;
+  outline: 2px solid #0033ff;
   outline-offset: 4px;
 }
 
@@ -84,23 +89,25 @@
 
 .navigation .navButton,
 .primaryButton {
-  background: #710088;
-  border: 1px solid #e45cff;
+  background: #6d28d9;
+  border: 1px solid #6d28d9;
+  color: #ffffff;
 }
 
 .navigation .navButton:hover,
 .primaryButton:hover {
-  background: #8800a3;
+  background: #5822b0;
   color: #fff;
 }
 
 .secondaryButton {
-  background: rgba(21, 0, 26, 0.9);
-  border: 1px solid #d5a5df;
+  background: #6d28d9;
+  border: 1px solid #6d28d9;
+  color: #ffffff;
 }
 
 .secondaryButton:hover {
-  background: #3c0047;
+  background: #5822b0;
 }
 
 .mainContent {
@@ -123,9 +130,10 @@
   align-items: center;
   width: min(100%, 720px);
   padding: clamp(1.5rem, 5vw, 3rem);
-  border: 1px solid rgba(243, 184, 255, 0.25);
+  border: 1px solid #e5e7eb;
   border-radius: 24px;
-  background: rgba(21, 0, 26, 0.92);
+  background: #ffffff;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
 }
 
 .heroLogoFrame {
@@ -143,7 +151,7 @@
 
 .eyebrow {
   margin: 0 0 0.7rem;
-  color: #f3b8ff;
+  color: #6d28d9;
   font-size: 0.8rem;
   font-weight: 700;
   letter-spacing: 0.12em;
@@ -152,8 +160,7 @@
 
 .brandTitle,
 .secureWord {
-  color: #ffd2f4;
-  text-shadow: 0 0 12px rgba(255, 122, 220, 0.7), 0 0 28px rgba(220, 46, 255, 0.4);
+  color: #030812;
 }
 
 .brandTitle {
@@ -166,7 +173,7 @@
 .heroSubtitle {
   max-width: 24ch;
   margin-top: 1rem;
-  color: #fff;
+  color: #030812;
   font-size: clamp(1.5rem, 3.5vw, 2.2rem);
   font-weight: 700;
   line-height: 1.25;
@@ -177,7 +184,7 @@
 .aboutContent p:not(.eyebrow),
 .sectionDescription,
 .vulnCard p {
-  color: #f3e5f6;
+  color: #4b5563;
   font-size: 1rem;
   line-height: 1.7;
 }
@@ -209,9 +216,10 @@
 .aboutContent,
 .vulnerabilitiesPanel,
 .statsBar {
-  border: 1px solid rgba(243, 184, 255, 0.25);
+  border: 1px solid #e5e7eb;
   border-radius: 20px;
-  background: rgba(27, 0, 32, 0.96);
+  background: #ffffff;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
 }
 
 .aboutContent,
@@ -222,13 +230,13 @@
 .aboutContent h2,
 .vulnerabilitiesPanel h2 {
   margin-bottom: 1rem;
-  color: #fff;
+  color: #030812;
   font-size: clamp(1.6rem, 3vw, 2.2rem);
 }
 
 .aboutContent h3 {
   margin: 1.75rem 0 0.5rem;
-  color: #fff;
+  color: #030812;
   font-size: 1.2rem;
 }
 
@@ -252,13 +260,13 @@
 }
 
 .statNumber {
-  color: #f3b8ff;
+  color: #6d28d9;
   font-size: 1.5rem;
   font-weight: 700;
 }
 
 .statLabel {
-  color: #fff;
+  color: #030812;
   font-weight: 600;
 }
 
@@ -275,31 +283,19 @@
 
 .vulnCard {
   padding: 1.5rem;
-  border: 1px solid #ed91ff;
+  border: 1px solid #e5e7eb;
   border-radius: 12px;
-  background: #280631;
-  box-shadow: inset 0 0 18px rgba(220, 46, 255, 0.05);
-}
-
-.vulnCard:nth-child(2) {
-  border-color: #f3b8ff;
-}
-
-.vulnCard:nth-child(3) {
-  border-color: #e45cff;
-}
-
-.vulnCard:nth-child(4) {
-  border-color: #ffb5e8;
+  background: #ffffff;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
 }
 
 .vulnCard p {
-  color: #fbefff;
+  color: #4b5563;
 }
 
 .vulnCard h3 {
   margin-bottom: 0.65rem;
-  color: #fff;
+  color: #030812;
   font-size: 1.2rem;
   line-height: 1.3;
 }
@@ -312,7 +308,7 @@
   width: min(100% - 3rem, 1100px);
   margin: 0 auto;
   padding: 3rem 0 2rem;
-  color: #f3e5f6;
+  color: #eaedfb;
   font-size: 0.875rem;
 }
 
@@ -323,16 +319,16 @@
 }
 
 .footerLinks a {
-  color: #f3b8ff;
+  color: #d4caff;
   text-underline-offset: 0.2em;
 }
 
 .footerLinks a:hover {
-  color: #fff;
+  color: #ffffff;
 }
 
 .footerLinks a:focus-visible {
-  outline: 2px solid #fff;
+  outline: 2px solid #0033ff;
   outline-offset: 4px;
 }
 

@@ -17,17 +17,25 @@
 
 /* Variantes */
 .btn-primary {
-  background-color: #2563eb;
+  background-color: #6d28d9;
   color: #ffffff;
 }
 
 .btn-secondary {
-  background-color: #e2e8f0;
-  color: #0f172a;
+  background-color: #6d28d9;
+  color: #ffffff;
 }
 
 .btn-outline {
   background-color: transparent;
-  border-color: #cbd5e1;
-  color: #0f172a;
+  border-color: #6d28d9;
+  color: #6d28d9;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background-color: #5822b0;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background-color: #5822b0;
 }

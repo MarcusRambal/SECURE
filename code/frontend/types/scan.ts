@@ -123,7 +123,10 @@ export interface AgentWebSocketEvent {
             confidence?: 'HIGH' | 'MEDIUM' | 'LOW';
             toolsUsed?: string[];
             verificationSteps?: string;
-            pocScript?: string;
+            pocScript?: string | null;
+            findingId?: string | null;
+            cwe?: string | null;
+            attackDemonstrated?: string | null;
         }
     }
     durationMs?: number;
